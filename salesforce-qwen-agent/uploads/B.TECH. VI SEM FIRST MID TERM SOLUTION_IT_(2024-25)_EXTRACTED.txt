@@ -1,0 +1,3670 @@
+
+
+======================================================================
+PAGE 1
+======================================================================
+
+SKITE
+Swami Keshvanand Institute of Technology.
+Management & Gramothan, Jaipur
+(An Autonomous Institute Affiliated to Rajasthan
+Technical University, Kota)
+L-Mid.Term Examination,March-2025
+Branch:
+B, Tech-V1
+Prog-/Semester:
+IT
+Course Coder
+DIP
+Course Title:
+6IT3-01
+Maximune Marks:
+1.5 Hours
+Duration:
+20
+Session: First
+Roll No.
+Instructions if anys
+NA
+PART -A.(short answer.type questions)
+[All questions are compulsery)
+Max.
+Question
+Q. No.
+(3)
+Bloom's
+Marks
+Level
+How to digital Inage represent abo Calrwtute the
+storage required for a 1124s1024 bisary imagt.
+Explais Fourier transferm? Discuss its preperties,
+Compute the median value of marked pixels of
+imape using 3x3 mask
+32
+33
+22
+18
+24
+172
+26
+23
+24
+34
+128
+28
+32
+31
+22
+19
+26
+EART-B.[Analbtical/Pcoblem,sobing.questiens)
+(All questions are compulsory)
+Max.
+00
+Question
+Q. No.
+Bloom
+Marks
+(s)
+sLevel
+Categorize the step-by-step processieroluef in
+digital image proeessing.
+Disetss Sampling and Qeantiration is digihal
+images.
+Page 1 of 2
+
+======================================================================
+PAGE 2
+======================================================================
+
+PART- C (Descriptive/Analytical/Problem solving/Design.questions)
+(Attempt any one Question)
+Max.
+00
+Question
+Q. No.
+Marks
+(s)
+Bloom
+s Level
+Generate the hisdtogran cqualired imare fee tht
+input Image as below:
+Gray level
+Ne. of Pixels
+16
+Demonstrate the differeat types of istensity
+transform functioas esed in Digital Image
+Precessing-
+Pape 2 of 2
+
+======================================================================
+PAGE 3
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+(An Autonomous Institute Affiliated to Rajasthan Techaical University, Kota)
+Solution of Question Paper
+LMid-Term Examination, March -2025
+Prog./Sema B, Tech-VI
+Course Title: DIP
+Course Code: 61T3-01
+Duration: 1.5 hours
+Date: 12.03.2025
+Session : FIRST
+Max Marks: 20
+Submitted By: Dr, S.R, Dogiwal
+S.
+Course Outcome
+No.
+Percentage
+Identify the fundamental eiements of an Image and Describe the need of
+CO1
+Coverage
+Digital Image Processing
+50%
+Understand dfferent types of image transformation techniques and their
+50%
+properties.
+CO3
+Use various noise models and Calculate the values for restoration and
+0%
+degradation.
+CO4
+Analyze and Evaluate various image compression techniques.
+0%
+CO5
+Integrate and Demonstrate various image transformation and segmentation
+0%
+techniques.
+Bloom's Level
+Percentage Coverage
+No.
+BL1- Remember
+BL2- Understand
+%06
+BL3- Apply
+20%
+BL4- Analyze
+20%
+BL5- Evaluate
+30%
+BL6- Create
+-- Question Paper Solution --
+Page 1 of 10
+
+======================================================================
+PAGE 4
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+(An Autonomous Institute Affiliated to Rajasthan Technical University, Kota)
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term Examination,March-2025
+Preg./Sem: B, Tech-VI
+Course Title: DIP
+Duration: 1.5 hours
+Date: 12.03.2025
+Course Code: 6r3-01
+Session : FIRST
+Max Marks: 20
+Submitted By: Dr. S.R, Dogiwal
+Solution: A digital image is represerted using a grid of pixels, where each pixel coresponds to a speific
+location in the image and contains information about color and brightness. The representation of a digital
+reuoj oj pue igdap iojeo se yons suope, uo spuedap beu)
+represented using 1 bit. Therefore the total number of bits required can be calculated as:
+Total bits s widih × height × bits per pixel
+Total bits= width × height × bits per pixel
+Given that the image is 1024x1024 pixels and each pixel is represented using 1 bit, we have:
+Total bits=1024×1024×1
+Total bits=1,048,576 bits
+To convert bits to bytes, we divide by 8 (since 1 byte = 8 bts):
+Total bytes = 1,048,576 bits/8
+Total bytes =131,072 bytes
+To convert bytes to kiobytes (KB), we divide by 1024:
+Total KB=131,072/1024
+Total KB=128 KB
+Q. 2 Explain Fourier transform? Discuss its properties.
+Solution: Fourier Transform is a mathematical model which helps to transform the signals between two
+different domairs, such as transfoming signal from frequency domain to spetial domain or vice versa.
+Properties are : Separable, Symmtric, Translation, Periodicity. Rotation, Distributation, Soaling
+Q. 3 Compute the median value of marked pixels of image using 3x3 mask.
+18
+22
+33
+32
+24
+34
+128
+172
+26
+23
+22
+19
+32
+31
+82
+26
+Pape 2 of 10
+
+======================================================================
+PAGE 5
+======================================================================
+
+SKITE
+Swami Keshvanand Instituteof Technology,Management&Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+(An Autonomous Institute Affiliated to Rajasthan Technical University, Kota)
+Solution.of Question Paper
+LMid-Term Examination, March-2025
+Prog./Sem: B, Tech.-VI
+Course Title: DIP
+Course Code: 61T3-01
+Duration: 1.5 hours
+Date: 12.03.2025
+Max Marks: 20
+Subrmitted By: Dr. S.R. Dogiwal
+Session : FIRST
+Solution:
+DxelsMalues
+22
+3.3
+25
+32.24
+34
+[22
+32
+Voue
+22
+33
+32
+247
+34
+24
+26
+23
+32
+19
+28
+2-2
+26
+Oxishel
+bxe128,24,92,26aXcplaceel
+2o0ia4MeueL4,3y3126Yespecyely
+Q.4 Examine the step-by-step process involved in digital image processing
+Solution: The step-by-step process involved in digital image processing can vary depending on the specific
+A digtal image is an image composed of picture elements, also known as pixels, each with finite, discrete
+functions fed as input by its spatial coordinates denoted with x, y on the x-axis and y-axis, respectively. Step
+quantities of numeric representation for its intensity or gray level that is an output from its two-dimensional
+Step 1: Image Acquisition: The image is captured by a sensor (eg. Camera), and digitized if the cutput of the
+camera or sensor is not already in digital form, using analogue-to-digital convertor
+Step 2: Image Enhancement: The process of manipulating an image so that the result is more suitable than
+the original for specific applications. The idea behind enhancement techniques is to bring cut details that are
+Page 3 of 10
+
+======================================================================
+PAGE 6
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+(An Autonomous Institute Affiliated to Rajasthan Technical University, Kota)
+Solution.of Question Paper
+LMid-Term Examination, March -2025
+Prog./Sem.: B, Tech,-VI
+Course Title: DIP
+Course Code: 61T3-01
+Duration: 1.5 hours
+Date: 12.03.2025
+Max Marks: 20
+Submitted By: Dr. S.R, Dogiwal
+Session:FIRST
+hidden, or simple to highlight certain features of interest in an image.
+Step 3: Image Restoration: Improving the appearance of an image and Tend to be mathematical er prebabilisti:
+models. Enhancement, on the other hand, is based on human subjective preferences regarding what constitutes a
+"good’ enhancement result.
+Fundamental Steps in Digital Image Processing:
+Oufputs of these processes generally are images
+Coiourimage
+Wavelers &
+Image
+Multiresclution
+Morphoiogicai
+Prooessing
+Processing
+Compression
+processing
+Image
+Restoration
+Segmentsfion
+Image
+Knowledge Base
+Enhancement
+Representation
+& Description
+tew)
+Acquisition
+Recogntion
+ Problem Domain
+Step 4: Colour Image Processing Use the colour of the image to extract features of interest in an image
+Step 5: Wavelets: are the foundations of representing images in various degrees of resolution, It is used for image data
+compression.
+Step 6: Compressiorc Techniques for reducing the storage required to save an image or the bandwidth required to
+Step 7: Image Morphilogical Protess: Segmentation procedures partition an image into its constituent parts or
+objects. The more accurate the segmentation, the more likely recognition is to succeed.
+Step 8: Image Segmentation:
+Segmentation procedures partition an image into its constituent parts or objects.
+Important Tip: The more accurate the segmentation, the more liely recognition is to succeed.
+Page 4 of 10
+
+======================================================================
+PAGE 7
+======================================================================
+
+SKIT
+Swami Keshvanand Instituteof Technology,Management&Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+(An Autenomous Institute Affliated to Rajasthan Technical University, Kota)
+Solution of Question Paper
+LMid-Term.Examination,March -2025
+Prog-/Sem.: B. Tech.-VI
+Course Title: DIP
+Course Code: 6IT3-01
+Duration: 1.5 hours
+Date: 12.03.2025
+Max Marks: 20
+Sabmitted By: Dr, S.R, Dogiwal
+Session : FIRST
+Step 9: Representation and Description: Represertation: Mske a detision whether the data should be represented as
+a boundiry or ss a complete region, It is almest always follows the output of a segmentation stage. Boundary
+Representation: Focus on external shape characteristics, such as corners and inflections, Region Representation: Focus
+on internal properties, such as texture or skeleton shape
+Step 10: Recognition and Interpretation: Recognition: the process that assigns label to an object based on the
+information provided by its description.
+Step 11: Knowledge Base Knowledge about a problem domain is coded into an image processing system in the form of
+a knowledge database.
+Q, 5 Discuss Sampling and Quantization in digital images.
+Solution; : In order to become suitable for digital processing, an image function f(x.y) must be digitized both
+spatially and in amplitude. Typically, a frame grabber or digitizer is used to sample and quantize the analogue
+video signal. Hence in order to create an image which is digital, we need to covert continuous data into digital
+fem. There are two steps in which it is done: Sampling and Quantization
+The sampling rate determines the spatial resolution of the digitized image, while the quantization level determines the
+number of grey levels in the digitized image. A magnitude of the sampled image is expressed as a digital value in image
+processing. The transition between continuous values of the image function and its digital equivalent is called
+quantization
+LLLL
+Page 5 of 10
+
+======================================================================
+PAGE 8
+======================================================================
+
+SKITE
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria,Jagatpura, Jaipur-302017
+(An Autonomous Institute Affiliated to Rajasthan Technical University, Kota)
+SolutionofQuestionPaper
+LMid-Term Examination,March-2025
+Prog/Sem: B. Tech-VI
+dig aptl, asinog
+Course Code: 61T3-01
+Duration: 1.5 hours
+Date: 12.03.2025
+Session : FIRST
+Max Marks: 20
+Submitted By: Dr. S.R. Dogiwal
+To convert it to digital form, we have to sample the function in both coordinates and in amplitude.
+Digitizing the coordinate values is called sampling. Digitizing the amplitude values is called
+In practice, the method of sampling is determined by the sensor arrangement used to generate the
+quantization.
+When an image is generated by a single sensing element eombined with mechanical motion, sampling
+image.
+is aceomplished by selecting the number of individual mechanical increments at ahich we activate the
+Hlence highest sampling rate is achieved with single sensing element.
+sensor to collect data.
+Q. 6 Generate the histogram equalized image for the input Image as below:
+Gray level
+No. of
+10
+10
+12
+Pixels
+Solution:
+Soluy Theuakisodtosprocasyegul imes
+18
+8961tx/81
+28
+20/4x7-3.0625
+30
+30/60xa63-2812
+12
+16
+62
+62/6uxang125
+ShowSuoneldstosarsiaofgrySolepxelloheede
+pixels2gqmJoLooryeapuwhyodhLe2emapus
+Page 6 of 10
+
+======================================================================
+PAGE 9
+======================================================================
+
+SKIT
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+(An Autonomous Institute Affiliated to Rajasthan Technical University, Kota)
+Solutionof Question Paper
+LMid-Term Examination,March -2025
+Course Title: DIP
+Prog./Sem.: B. Tech-VI
+Course Code: 6fT3-01
+Date: 12.03.2025
+Duration: 1.5 hours
+Max Marks: 20
+Session : FIRST
+Submitted By: Dr. S.R. Dogiwal
+Q.7 Demonstrate the different types of intensity transform function used in Digital Image Processing
+Solutioa: Intensity transformation functions in digital image processing are used to modify the pixel intensity
+atew) su uo sjpapo pue sesodind agui uo paseq pozjo6ees 9q ues suogauny asaul obru ue jo senjex
+Here are the dierent types of intensity transform functions:
+Intensity Traasfermation When you sre working with gray-scale images, sometimes you want to modify the
+intensity valoes, For instance, you may want to reverse black and the white intensities or you may want to
+make the darks darker and the ligts lighter. An application of intensity transformations is to increase the
+contrast between certain infensity values so that you can pick out things in an imsage.
+Photographic Negative
+The Photographic Negative is probably the easiest of the intensity transformations to describe Assume that we are
+working with grayscale double arrays where black is 0 and white is 1. The idea is that 0's become 1's, 1's become 0's,
+and any gradients in between are also reversed. In intensity, this means that the true black becomes true white and
+vise versa.
+f(x.s) =f(xy)-(L-1) fixr gray scale image IL is 256 f(x.y) is transformed pixel.
+Piot ot Phetagraphic Negatine
+Log Transformations:
+5 = clog(2 r), c= const, r ≥ 0
+Maps a narrow range of low intensity values in the input into a wider range of
+Cutput levels. The opposite is true for higher values of input levels.
+Page 7 of 10
+
+======================================================================
+PAGE 10
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+(An Autonomous Institute Affiliated to Rajasthan Technical University, Kota)
+Solutionof Question Paper
+LMid-Term Examination, March -2025
+Prog./Sem: B, Tech.-VI
+Course Title: DIP
+Course Code: 6fT3-01
+Duration: 1.5 hours
+Date: 12.03.2025
+Session : FIRST
+Max Marks: 20
+Submitted By: Dr. S.R, Dogiwal
+Power=Law.(Gamma] transformation
+s = cr, C,y -positine constants
+Curve the grayscale components either to brighten the intensity (when y < 2)
+r darken the intensity (when y > ↑)
+Page 8 of 10
+
+======================================================================
+PAGE 11
+======================================================================
+
+Swansi Keshranand lastitste efTechsslog.Masagersest & Granothal,
+aipur
+LMit TernEsanination,AB,2o25
+Progenedre
+B.Twh-I
+tranch
+MadtineLeamirg
+Coarse Cade
+Ceurge Tile:
+Masimun Meks
+Drader
+GIT442
+Seosion First
+Rell Ne.
+Qucstien
+[All gestikom are cergubery)
+Mas.
+c0()
+No.
+Marks
+Hssm's
+Level
+Write one difference and one similarity 
+C01
+betus
+classificatien and regression.
+218
+How do you compute Suppert and Cosfidenev Sor
+002
+finding the isociation rules? Give (xample
+Jo d)2) gtn uds3 15.JS ul , o33x ueddes, 5 (re/2.
+001
+BL1
+aduesz jue
+eaBE-Boalutixa/hsokousbungsaestiaas
+(Allqarntiot are.cergeber),
+Q, Ne.
+00(s
+Questions
+Bice
+Marks
+Leve
+Apply the K-Nearest Neigbbeur's algorithm to any
+claxxificatien problen and cxplain how yoe would determine
+the optinal value ofi . Discuss the impact of choesing a very
+srell or vcry large value of k on the modeTs performancc.
+Thc table Isdlow shows the relatiorship betuees the nuntber
+of hours stadicd (r) and the rrarks obsainod (y) by a greup of
+Hours Stadisd
+(X)
+10
+Marks Oteained
+35
+50
+65
+75
+90
+(a)  Find the cspialion of (he regression line.
+(b) Predicr the narks obtained if'a studmt studices for 7
+houns.
+Interprei the slope of the repression line is fhe certcst of this
+pnblem.
+
+======================================================================
+PAGE 12
+======================================================================
+
+EART-.C.(Desicriptise/Analytical/brsbtem.solvin/Design.qsestians)
+(Attempt any one Question)
+Qatice
+Mar
+Th: feltowitg diaatct etutrix represens tlc pirwisz disanoas
+Lnd
+eiwem five dats points (P. 2. A, S, T)x
+10
+12
+adeyug apdmso Jirm leuaenp [F2par] (oj/aM (t)
+Shos tht sps ef mergirg dlistes and compute the didanscs at
+(b) Dnew the dendrogam fir the clusaicring resak
+each step.
+Whet are the valid associtioa rules ganznaled fnomn th fiequcet
+iterrsets using the Apriori algorithm.
+Bread
+Ketchup
+Buttee
+Butter
+Bread
+Butter
+Ketchup
+Mik
+Bread
+Butter
+Bread
+Buer
+Conkies
+Bread
+Butte
+Ceokies
+MIK
+Cookies
+Mlk
+Bread
+Butter
+Bread
+Butter
+Cookies
+10
+Mitk
+Butter
+Bread
+11
+Milk
+Bread
+Buer
+12
+MiR
+Bread
+Cookies
+Coesider the iminimim supper thireshold (33%). And
+Ketchup
+Generitle aiseciation nuks from the erequm itertsets and pnine
+basod oe the minimum confidence thesheid (t%)
+
+======================================================================
+PAGE 13
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+SKIT
+Ramnagaria, Jagatpura, Jaipur-302017
+SolutionofQuestion.Paper
+LMid-TermExamination,MARCH-2025
+Prog./Sem: BTech / VI Semester
+Course Title: Machine Learning
+Duration: 1.5 bours
+Date: 11-03-25
+Course Code: 61T4-02
+Session: First
+Max Marks: 20
+Submitted By: Praveen Kumar Yadav, Ms, Nikhar Bhatnagar
+S. No.
+Course Outcome
+Percentage
+Demenstrate a varicty of supervised machine-leaming models and show case
+Coverage
+100
+their applications.
+60%
+C02
+Illestrate various applications of unsupervised machine leaming models.
+40%
+Recegnize diverse machine-learming algorithms through statistical leaming
+C03
+techniques.
+Discuss the methodologies of semi-supervised keaming and reinforeomest
+leaming.
+C05
+Employ the concepts of Ncural Networks aithin the realm of Machine
+Learming
+S. No.
+Bloom's Level
+Percentage Coverage
+BL1- Remember
+10%
+BL2- Understand
+BL3- Apply
+20%
+BL4. Analyze
+40%
+BLS. Evabuate
+30%
+BL6- Create
+Page 1
+
+======================================================================
+PAGE 14
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+SKIT
+Ramnagaria, Jagatpura, Jaipur-302017
+Solutionof Question Paper
+LMid-TermExamination.MARCH-2025
+Prog,/Sem: BTech / VI Semester
+Course Title: Machine Learning
+Duration: 1.5 hours
+Date: 11-03-25
+Course Code: 61T4-02
+Session: First
+Max Marks: 20
+Submitted By: Praveen Kumar Yadav, Ms.Nikhar Bhatnagar
+-- Question Paper Solution --
+PART-A
+Q.1 Answer: Difference and Similariry Between Classification and Regression
+Difference:
+Classification predicts discrete labels (e.g-, spam vs. not spam), while regression predicts contimuous
+values (c.g-, house prices).
+Similarity:
+Both are supervised kaming techeiqxs that use labeled data to train models for making predictions.
+Q-2 Answer; Computing Support and Confidence for Association Rules
+Support:
+Proportion of transactions containing an itemset For example, if 5 out of 10 transactions contain (bead,
+milk), support is 50%
+Confidence:
+Measures the likelihood of an itemset given another. For example, if 4 out ef S transactioes coetaiming
+(bread) also contain (milk), confidence is 80%.
+Q.3 Answer: Support Vector in SVM
+Support Vector:
+position and orientation. For instance, in a binary classification of cats vs, dogs, support veclors are the
+Data points closest to the decision boundary (hyperplane) in SVM. They influence the boundary's
+images of cats and dogs ncarest to the separating linc.
+Page 2
+
+======================================================================
+PAGE 15
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term_Examination,MARCH-2025
+Prog-/Sem.: BTech / V1 Semester
+Course Title: Machine Learning
+Date: 11-03-25
+Course Code: 6fT4-02
+Duration: 1.5 hours
+Max Marks: 20
+Submitted By: Praveen Kumar Yadav, Ms. Nilchar Bhatnagar
+Session: First
+PART-B
+Q.4 Answer: The K-Nearest Neighbors [KNN) algorithm is a simple and intuitive classification method used in machine
+how you can apply the KNN algorithm to a classification problem and determine the optimal value of k:
+learning, It classifies a data point based on the majority class among its k nearest neighbors in the feature space. Here's
+Steps to Apply KNN Algorithm
+1. Choose the Number of Neighbors (k):
+Start with an odd value for k to avoid ties in classification. Common starting points are k=3 or
+k=5.
+2. Select a Distance Metric:
+Common distance metrics include Euclidean, Manhattan, and Minkowski distances. Euclidean
+distance is the most frequently used.
+3.- Normalize the Data:
+Ensure that all features are on a similar scale to prevent features with larger scales from
+dominating the distance calculations.
+Train the Model:
+KNN is a lazy leaming algorithm, meaning it doese'1 esplicitly learn a model. Instcad, it stores
+the training data and makes predictions based on the stored data.
+5. Make Predictions:
+For a niew data point, calculate the distance to all training points.
+Identify the k nearest neighbors.
+Assign the class that is most frequent among these k neighbors to the new data point.
+Determining the Optimal Value of k
+The choice of k is crucial as it directly impacts the model's performanee. Here's how to delemine the optimal
+value:
+Cross-Validation:
+Use techniques like k-fold cross-validation to evaluate the model's perfommance for different
+values of k
+Split the data into k subsets (folds), train the model on k-1 folds, and test it ee the feeaining
+fold. Repeat this process k times, each time using a different fold as the test sel.
+Page 3
+
+======================================================================
+PAGE 16
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+SKIT
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question.Paper
+LMid-Term.Examination,MARCH-2025
+Prog,./Sem: BTech / VI Semester
+Course Title: Machine Learning
+Duration: 1.5 hours
+Date: 11-03-25
+Course Code: 6IT4-02
+Session: First
+Submitted By: Praveen Kumar Yaday, Ms, Nikhar Bhatnagar
+Calculate the average accuracy or error rate across all folds for cach valuc of k.
+2. Elbow Method:
+jo san[ea luauauip 1sujrle Koeunsoe j0 atJ aou2 ap 10ld
+Look for the "elbow point" where the error rate starts to increase or the accuracy starts to
+decrease significantly. This point often indicates the optimal value ofk.
+3. Heuristie Techniques:
+Start with a small value of k (e.g., k3) and incrementally incrcise it while moeniloring the
+model's perfommance.
+Choose the valuc ofk that provides the best trade-off between bias and vatiancc.
+Impact of k on Model Performance
+Small Values of k:
+training data. The model may overfit the training data, capturing noise and outliers, which
+A very small value of k (e.g, k=1) can lead to a model thal is highly sensitive to noise in thc
+reduces its generalization capability.
+The decision bcunday will be highly itregular snd complex, fitting the training data too ckosely.
+Large Values of k:
+A very large value ofk can lead to a model that is too simplistic and may underfit the data. The
+decision boundary will be smoother, but it may not caplure the underlying patems in the data.
+The model may ignore important features and fail to capture the complexity of the data, leading
+to higher bias and lower accuracy.
+Q.5 Answer:
+(a) Finding the Equation of the Regression Line
+To find the equation ofthe regression line, we use the fommula for simple linear regression:
+y=mx+ e
+where:
+m is the slope of the line.
+c is the y-intereept.
+Page 4
+
+======================================================================
+PAGE 17
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.of Question Paper
+LMid-Term.Examination.MARCH-2025
+Prog./Sem: BTech / VI Semester
+Course Title: Machine Learming
+Date: 11-03-25
+Course Code: 61T4-02
+Duration: 1.5 hours
+Session: First
+Max Marks: 20
+Submitted By: Praveen Kumar Yadav, Ms, Nikhar Bhatagar
+The slope m and intercept c can be calculated using the following fommulas:
+N(ry) - (a)(Zy)
+m =
+N(Z2)  (Za)2
+()()  ()(y)
+N(Za2)  (Za)2
+where N is the number of data points.
+First, we calculate the necessary sums:
+XY
+35
+70
+50
+200
+16
+65
+390
+36
+75
+600
+64
+10
+90
+900
+100
+Sum of X (x) = 2 + 4 + 6 + 8 + 10 = 30
+Sum of Y (y)  35 + 50 + 65 + 75 + 90 = 315
+Sum of XY (≥xy) = 70 + 200 + 390 + 608 + 90)  2160
+Sum of X* (>x°) = 4 + 16 + 36 + 64 + 100  220
+Page 5
+
+======================================================================
+PAGE 18
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term Examination,MARCH-2025
+Prog,/Sem: BTech / VI Semester
+Course Tite: Machine Learning
+Course Code: 61T4-02
+Duration: 1.5 hours
+Date: 11-03-25
+Session: First
+Max Marks: 20
+Submitted By: Praveen Kumar Yadav, Ms. Nikhar Bhatnagar
+Number of data points (N) = 5
+Now, we substitute these values into the formulas for m and c:
+5(2160)  (30)(315)
+9450
+10800
+1350
+m :
+5(220)  (30)2
+1100900
+200
+6.75
+(315)(220)  (30)(2160)
+69300
+64800
+4500
+5(220)  (30)2
+900
+200
+1100  9
+22.5
+So, the eguation of the regression line is:
+y=6.75x+22.5
+(b) Predicting the Marks Obtained for 7 Hours of Study
+To predict the marks obtained ifa student studies for 7 houes, we substitute x=7 into the regression equation:
+y=6.75(7)+22.5
+j=6.75(7)+22.5
+y=47.25+22.5
+y=69.75
+So, the predicted marks obtained for 7 bours of study are approximately 69.75.
+Interpretation of the Slope
+marks increase by 6.75 points. In other words, each extra hour of study is associated with an average increase
+The slope of the regression line is 6.75. This means that for every additional bour of study, the predicted
+of 6.75 marks in the exam score.
+PART-C
+Q.6 Ansaer: (a) Hierarchical Clustering Using Cemplete Linkage
+Step 1: Initialization
+Starn with each data point as its own clusle:
+Clusters: (P), (Q), (R;, (S), {T)
+Page 6
+
+======================================================================
+PAGE 19
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term Examination, MARCH-2025
+Prog./Sem.: BTech / VI Semester
+Course Titlec Machine Learning
+Duration: 1L5 hours
+Course Code: 61T4-02
+Date: 11-03-25
+Session: First
+Max Marks: 20
+Submitted By: Praveen Kumar Yadav, Ms. Nikhar Bhatnagar
+Step 2: First Merge
+Find the pair of clusters with the smallest complete linkage distiamce. The complete linkage distance between
+two closters is the maximum distance betwern any data point in the first cluster and any data point in the
+second eluster.
+From the distance matrix:
+The smallest distanee is between R and S with a distanee of 2.
+Merge R and S:
+New Chster: (R, S)
+Remaining Chusters: (P). (Q). {T)
+Step 3: Update Distance Matris
+Calculate the complete linkage distances between the new cluster (R, S) and the remaining clusters:
+Distance berween (R, S) and (P): max(8, 10) = 10
+Distance between (R, S) and (Q): max(5, 7) = 7
+Distance betaeen (R, S) and (T): max(4, 3) = 4
+Updated distance matrix:
+(R, S)
+10
+12
+(R, S)
+10
+12
+Step 4: Seeond Merge
+Find the pair of clusters with the smallest complete linkage distance.
+The smallest distance is between P and Q with a distance of 3.
+Merge P and Q:
+Page 7
+
+======================================================================
+PAGE 20
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria,Jagatpura,Jaipur-302017
+Solution.of Question.Paper
+LMid-Term.Examination, MARCH-2025
+Prog./Sem.: BTech / VI Semester
+Course Titlec Machine Learning
+Duration: 1L5 hours
+Date: 11-03-25
+Course Code: 6IT4-02
+Max Marks: 20
+Submitted By: Praveen Kumar Yadav, Ms. Nikhar Bhatsagar
+Session: First
+New Cluster: (P, Q)
+Remaining Clusters: (R, S), (T)
+Step 5: Update Distance Matrix
+Calculate the complete linkage distances between the new cluster (P, Q) and the remaining clusters:
+Distance between (P, Q) and (R, S): max(10, 7)  10
+Distance between (P, Q) and (T): max(12, 9) = 12
+Updated distance matrix:
+(P, Q)
+(R, S)
+(P, Q)
+10
+12
+(R, S)
+10
+12
+Step 6: Third Merge
+Find the pair of clusters with the smallest complete linkage distance.
+The smallest distance is between (R, S↓ and T with a distatce of4,
+Merge (R, S) and T:
+New Cluster: (R, S, T)
+Remaining Clusters: (P, Q)
+Step 7: Update Distance Matrix
+Calculate the (omplete linkage distances between the new cluster (R, S, T) and the remaining cluster (P, Q):
+Digance between (P. Q: and (R, S, T): mau(10, 12)  12
+Updated distance matrix:
+Page 8
+
+======================================================================
+PAGE 21
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term Examination.MARCH-2025
+Prog./Sem: BTech / VI Semester
+Course Title: Machine Learning
+Duration: 1.5 bours
+Date: 11-03-25
+Course Code: 61T4-02
+Session:First
+Max Marks: 20
+Submitted By: Praveen Kumar Yadav, Ms. Nikhar Bhatnagar
+(P, 0)
+(R, S, T)
+(P, Q)
+12
+(R, S T)
+12
+Step 8: Final Merge
+Merge the remaining closters (P, QI and (R, S, T):
+Final Cluster: (P, Q, R, S, T
+(b) Dendrogram
+The dendrogram represents the hiearchical clusering proces. Here is the structure ef the dendrogram based
+ce the merges:
+Pape 9
+
+======================================================================
+PAGE 22
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+SKITE
+Ramnagaria,Jagatpura,Jaipur-302017
+Solution.of Question Paper
+LMid-Term_Examination,MARCH-2025
+Prog-/Sem.: BTech / V1 Semester
+Course Title: Machine Learning
+Duration: 15 hours
+Course Code: 61T4-02
+Date: 11-03-25
+Session: First
+Max Marks: 20
+Submitted By: Praveen Kumar Yadav, Ms. Nilhar Bhatnagar
+Q.7 Answer:
+Siep 1: Generate 1-itemsets
+First, we count the occurrences of each item in the datasel.
+Support
+Item
+Count
+Support
+(%)
+Mik
+75%
+Eg9
+25%
+Bread
+10
+83%
+Butter
+10
+Ketchup
+83%
+25%
+Cookies
+42%
+Step 2: Prune 1-itemsets
+We prune the 1-itemsets based on the minimum support threshold of 33%
+Support
+Item
+uoddns
+Count
+(%)
+Milk
+75%
+Bread
+10
+83%
+Butter
+10
+83%
+Cookies
+42%
+Step 3: Generate 2-itemsets-Next, we generate 2-itemsets from the frequent 1-ilemsets and count their
+occurrencrs.
+Support
+2-itemset
+Support
+Count
+(%)
+(Milk, Bread)
+58%
+(Milk, Butter)
+58%
+(Mik, Cookies)
+25%
+(Bread, Butter)
+75%
+(Bread.
+Cookies)
+33%
+(Butter,
+Cookies)
+25%
+Page 10
+
+======================================================================
+PAGE 23
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura,Jaipur-302017
+Solution.of Question Paper
+LMid-Term.Examination,MARCH-2025
+Prog,/Sem: BTech / VI Semester
+Course Title: Machine Learning
+Duration: 1.S hours
+Date: 11-03-25
+Course Code: 61T4-02
+Session: First
+Max Marks: 20
+Submitted By: Praveen Kumar Yadav, Ms. Nikhar Bhatnagar
+Step 4: Prune 2-itemsets
+We prune the 2-itemsets based on the minimum support threshold of 33%.
+Support
+2-itemset
+μoddns
+Count
+(%)
+(Mik, Bread)
+(Mik,Butter)
+58%
+58%
+(Bread, Butter)
+75%
+(Bread,
+Cookies)
+33%
+Next, we generate 3-itemsets from the frequent 2-itemsets and count their occurrences.
+Step 5: Generate 3-itemsets
+Support
+3-itemset
+Support
+Count
+(Milk, Bread, Butter)
+(%)
+50%
+(Milk, Bread, Cookies)
+17%
+(Milk, Butter, Cookies)
+8%
+(Bread, Butler, Cookies)
+Step 6: Prune 3-itemsets; We prvee the 3-itemsets based on the minimum mugpoet threshold of 33%.
+25%
+Support
+3-itemset
+Support
+Count
+(Mik, Bread, Butter]
+(%)
+50%
+Step 7:  Generate Association Rukes
+confidence thresbold of 60%.
+Finally, we generate association rules from the frequent itemsets, and prune based on the minimum
+Freqent 3-item set = 1 = (Milk, Bread, Butter)
+Non-Empty Subset are - S
+S ((Milk), [Bread), (Butter), (Milk, Bread), (Milk, Butter;, (Bread, Butter))
+How to form Association rule -
+For every noll-empty subset S of 1, thie association rule is -
+S → (I - S)
+IF Suppori(l) / Support(S) ≥ min_confidence
+Min sipport  33% and Min_confidence = 60%
+Page 11
+
+======================================================================
+PAGE 24
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+SKIT
+Ramnagaria, Jagatpura,Jaipur-302017
+Solution of Question Paper
+LMid-Term Examination,MARCH-2025
+Prog./Sem: BTech / VI Semester
+Course Title: Machine Learning
+Course Code: 61T4-02
+Duration: 1.5 hours
+Date: 11-03-25
+Session: First
+Max Marks: 20
+Submitted By: Praveen Kamar Yadav, Ms. Nikhar Bhatnagar
+Rule 1: (Milk) → (Bread, Butter)
+Confidence = Supporl(1) / Support(S)  Support( (Milk, Bread, Butter) / Support(Millk) = 6/12 / 9/12= 6/9 =
+66.67%
+Valid rule.
+Rule 2: (Bread) → [Milk, Batter)
+Confidence = (6/12) / (10/12) = 6/10 = 60% ≥ 60%
+Valid rule.
+Rule 3: (Butter) → (Milk, Bread)
+Confidence = (6/12) / (10/12) = 6/10 = 60% ≥ 60%Valid rule.
+Rule 4: (Milk, Bread) → (Butter)
+Confidence = Suppor((Milk, Bread, Butter) / Support(Milk, Bread)) = 6/7 i: 85.7% ≥ 60%
+Valid rule.
+Rule 5: (Milk, Butter) → [Bread)
+Confidence = Ssppon( (Milk, Brcad, Botter;) / Support((Millk, Butter) = 6/7 = 85.7% ≥ 60%
+- Valid rule
+Rule 6: (Bread, Butter) → [Milk)
+Confidence  Support( (Milk, Bread, Butter)) / Support((Bread, Butter) = 6/9 = 66.67% ≥ 60%
+Valid rule
+Association Rule
+Confidence
+(Milk, Bread) - (Butter)
+(%)
+85.70%
+(Milk, Butter) → (Bread)
+85.70%
+(Bread, Butter) → (Milk)
+(Milk) → (Bread, Butter)
+66.67%
+66.67%
+(Bread) → (Milk, Butter)
+60.00%
+(Butter) →+ (Milk, Bread)
+Likeaise generate all zssociation rules from qualified pruned 2 itcmsct also.
+60.00%
+Page 12
+
+======================================================================
+PAGE 25
+======================================================================
+
+SKIT
+Swami Keshvanand Institute of Technology,
+Managcment & Gramothan, Jaipur
+L-Mid Term Examination, March-2925
+Branch:
+B.Tech-VI
+Prog/Semester
+Infarnatien Techaslagy
+Course Code:
+Course Title:
+ISS
+6TT4-03
+1.5 Hours
+Maximum Marks:
+Duration:
+20
+Sessiow :_Secead
+PART-A (Short answer.typt.qeestions)
+Roll No:
+(Ml gastism are caapeha]
+Mas.
+CO(s)
+Q. No.
+Qustise
+Bloom's
+Marks
+Led
+Defiae the termsc cryptography & cryptawutysis.
+Analyse the applicsbility of CFB to buth strean
+and block ciphers? Draw the block diagram of the
+same
+Explain the eere principles ef security, and how do
+they contribute to the overall protection of
+iaformation systens?
+PART-B (AnalvticalPredlem solving.questioms)
+(ull ggestices are coengalhorn)
+CO()
+Mas.
+Q. No.
+Questicn
+Bloon's
+Marks
+Level
+Deseribe the desiga prisciples of Mock cipher is
+detail
+Apply Playfair cipher technique to_eaerypt the
+mesage "MY NAME IS SKIT", Ue krywerd
+*PLAYFAIR SECURITY"
+(Descrigtice(AaebticalPrmtiem solving/Designqusstions.salving)
+PART-C
+engt any eer (ecstiet)
+Mat.
+CO(s)
+Q. Ne.
+Quntin
+Bloon's
+Markx
+Level
+Deseribe DES algorithm with the belp of suitable
+bdack diagrams. Compute the 4- bit output of 6-
+bit inpet (101101) using S-Bos.
+distribntion in
+Discuss the coneept of key
+symmetrie key eryptography.
+Cempute the shared secret kay ssing fhke Diffit-
+Hellman Key Exchange Algorithm
+with the
+Given: Prime sumber p=5, Base g-, Aliee's
+previded values:
+private key.tr6, Bob's private key b=15.
+
+======================================================================
+PAGE 26
+======================================================================
+
+SK
+Swami Keshvanand Institute ofTechnology,Management& Gramothan,
+Ramnagaria,Jagatpura, Jaipur-302017
+SolutionofQuestion Paper
+LMid-Term_Examination.March -2025
+Prog-/Sem.: B, Tech-V1
+Course Title: ISS
+Duration: 1.5 hours
+Date: 11 March,2025
+Course Code: 61T4-03
+Session : Second
+Max Marks: 20
+Submitted By: Ritu Shukla, Sunita Gupta
+S. Na.
+Course Outcome
+Perceatagt
+100
+Understand Security Fundamentals and Encryption Techniques.
+Cwerage
+C02
+40
+Apply modem block cipher with modes.
+E00
+Apply Public Key Cryptosystems for Secure Communication.
+60
+C04
+Analyze the fundamentals concepts Cryptographic Hash Functions and MACs.
+C05
+Illustrate proficiency in kcy management and web engineering security.
+S. No.
+Bloom's Level
+BLI- Remember
+Percentage Coverage
+20
+10
+BL2- Understand
+BL3- Apply
+BL4- Analyze
+50
+20
+BL5- Evalute
+BL6- Create
+-- Question Paper Solution -
+Q.1 Define the terms: eryptography & eryptanalysis.
+Ans, Cryptography is the practice and study of techniques used to secure communication and infomation. It is primaril,
+concemed wth creating systems (algorithms) that esure the confidentiality, istegrity, authenticatioe, and non-repadistion e
+data. Cryptography involves encoding or encrypting messages so that only authorized parties can read or understand them.
+Cryptanalysis is the art of bresking cryptographie systems and algorithms, It inwolves atalyzing enerypted data with the goal of findin
+weakneses in the cryptognaphic techniqses vied and gaiting acesa to the cncrypted infienatioe wittout the key.
+Q.2 Analyse the applicability of CFB to both Stream and Block Ciphers? Draw the block diagram of the same.
+Ans. Stream Cipher-Like Behavior: Even though it uses a block cipher, CFB mode can encrypx dita one bit ar byte at
+time, making it function like a stream cipher.
+Block Cipher-Based Seeurity: lt leverages the strong cryptographic properties of a block cipher to create a secure ke,
+stream.
+
+======================================================================
+PAGE 27
+======================================================================
+
+SKT
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria,Jagatpura,Jaipur-302017
+Solution.ofQuestion Paper
+LMid-Term Examination,March-2025
+Prog./Sem.: B. Tech.-V1
+Course Title: ISS
+Course Code: 6IT4-03
+Duration: 1.5 hours
+Date: 11 March,2025
+Session : Second
+Max Marks: 20
+Submitted By: Ritu Shukla, Sunita Gupta
+Biock Cipher
+Cipher Feedback (CFB) Mode Encryption
+Q.3 Explain the core prisciples of security, and how do they eontribute to the overall protection of informatior
+systems?
+Ams, Five security services to prevent security attacks
+Dsta Inlegrity
+Data Confidentiality
+iv.
+Non-Repudiation
+Authentication
+v.
+A process (or a device compilation such a process) that is designed to identity, avoid, or restore from a security attack, The
+Access Control
+mechanisms are divided into those that are performted in a definite protocol layer, inclading TCP cr an application-layer
+protocel.
+These principles ensure that sensitive data remains seeure, systems are resilient to threats, and access is controlled and
+monitored.
+Ans. Designing a block cipher involves several key principles to ensure the algorithm's security, efficiency, and usability
+Q.4 Describe the design principles of block cipher in detailL
+Here are the core design principles of block ciphers:
+1. Confusion
+Goal: Make the relationship between the plaintext and ciphertext as complex as possible.
+Deseription: The ciphertest should not reveal any tseful information about the plaintext. This is achiever
+by mixing up the bits of the plaintext in a wzy that is not easily reversible without the key. The use o
+substitution steps in block ciphers, such as the S-boxes (substitution boxes), helps achieve confusion.
+2. Diffusion
+
+======================================================================
+PAGE 28
+======================================================================
+
+SKIT
+SwamiKeshvanand Instituteof Technology,Management&Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term Examination.March-2025
+Course Title: ISS
+Prog,/Sem.: B, Tech.-V1
+Course Code: 61T4-03
+Duration: 1.5 hours
+Date: 11 March,2025
+Session : Second
+Max Marks: 20
+Submitted By: Ritu Shukla, Sunita Gupta
+Goal: Spead the influence of each bit of the plaintext over may bits ef the ciphertext.
+plaintext should affect many parts of the ciphertext. Diffusion is often achieved by permutation operations
+Descriptionc This makes patterns in the plaintext less discernible in the ciphertexl. A small change in th
+such as p-boxes (permutation boxes) or bitwise shifting, which rearrange bits across the block.
+3. Key Schedule
+Goal: Derive a series of round keys frem the main secret key.
+Description: A secure block cipher requires that the key schedule (the prooess of generating round key
+from the original key) should prevent the attacker from inferring the secret key from the round keys. Th
+schedule should also ensure that each round key is used in a manner that makes it difficult for attackers b
+4. Rounds
+guess cr correlate keys.
+Goal: Repeatedly apply confusion and difusion processes to increase security.
+Descriptior: Block ciphers typically operate by applying several rounds of encryption. Each round consist
+of suestinutien, permitation, and posibly XOR eperitices, ensuring that the encryption process is not easil;
+reversible without the key. The number of rounds is critical—too few rounds make the cipher vulnerable b
+aftacks, and too many rounds may result in inefficiency.
+5. Inversion (Reversibility)
+Goal: The encryptien process must be invertible to enable decryption.
+Description: A cipher is invertible if, given the ciphertext and the key, it is possible to recover the origins
+plaintext. This is important for both eneryption and decryption to work correctly and efficiently.
+6. Security Against Known Attacks
+Goal: Design the cipher to withstand various cryptanalytic attacks.
+Description: The block cipher must resist common attacks, including
+Differential Cryptanalysis: Uses the differences between pairs of plaintexts to analyze the cipher.
+Linear Cryptanalysis: Uses linear approximations to describe the relationship between plaintexd
+ciphertext, and the key.
+Meet-in-the-Middle: Used for ciphers with multiple stages or keys
+7. Eficiency
+Ensuring high resistance against these attacks is essential to the cipher's security.
+Goal: The cipher should be efficient in both eneryption and decryption processes.
+Deseription: The design should ensure that the cipher runs efficiently cn the available harduare or softwar
+platfonms, with a reasonable tradeoff between speed and security. It should minimize computatiora
+complexity, as excessive rounds or operations can reduce performance.
+8. Randomization
+Goal: Ensure that the same plaintext encrypts to different ciphertexts each time.
+Description: Some ciphers use a technique called initialization vectors (IVs) or nonce values to ensure tha
+otcryptio of the same plainteat with the sime key results in different cipher texts, This emsures ths
+patterms in the plaintext dorit repeat in the cipher text and enhances security.
+
+======================================================================
+PAGE 29
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.ofQuestion Paper
+LMid-Term.Examination.March-2025
+Prog./Sem.: B. Tech.-V1
+Course Title: ISS
+Course Code: 6IT4-03
+Date: 11 March,2025
+Duration: 1.5 hours
+Session : Second
+Max Marks: 20
+Submitted By: Ritu Shukla, Sunita Gupta
+9. Minimal Key Size
+Goal: Use the smallest possible key size while maintaining security.
+Description: The key size must be large enough to provide security agsinst bnute-foree aftacks, but it shoul
+nxt be unnecessarily large as that would lead to inefficiency in terms of memory and oomputation.
+10. Block Size
+Goal: Choose a reasonable block size for the cipher to balance security and efficiency.
+in the: cipher test. However, it also increases the peocessing time for encryption and decryption, Mos
+Description: A larger block size generally provides better security, as it reduces the likelihood of collision
+modern block ciphers use a block size of 128 bits, which provides a reasonable balance between securit
+and performance.
+11. Avalanche Effect
+Goal: A small change in the plaintext cr the key should drastically change the cipher test.
+Desecription: This is related to both confiusion and diffusion, μhrre a small change in the inpit (e.g, a singl
+bit in the plainlext) should result in a large, unpredictable change in the butput cipher text. This ensures the
+attackers cannxt easily gaess paftems in the cipher text.
+Q.5 Apply Playfair cipher technique to enerypt the message *MY NAME IS SKIT* by. Use keywort
+"PLAYFAIR SECURITY"*
+Ans. To encrypt the message "MY NAME IS SKIT’ using the Playfair cipher technique with the keywon
+"PLAYFAIR SECURITY," we follow these steps:
+Create the Playfair matrix/key table using the keyword.
+Break the plaintext into digraphs (pairs of two letters).
+Apply the Playfair encryption rules to each digraph.
+The encryption process:
+Create the Playfair matrix/key table:
+P L A Y F
+IRSEC
+UTDGH
+KBMNO
+QVWXZ
+
+======================================================================
+PAGE 30
+======================================================================
+
+SKT
+SwamiKeshvanand InstituteofTechnology,Management&Gramothan,
+Ramnagaria,Jagatpura,Jaipur-302017
+SolutionofQuestion Paper
+LMid-TermExamination,March-2025
+Prog./Sem: B. Tech.-V1
+Course Title: ISS
+Duration: 1.5 hours
+Date: 11 March,2025
+Course Code: 6IT4-03
+Session : Second
+Max Marlcs: 20
+Submitted By: Ritu Shukda , Sunita Gupta
+Break the plaintext into digraphs: "MY*, NA", "ME*, "IS*, *SK*, "IT*
+Apply the Playfair encryption rules to each dEgraph:
+"MY*: M -> row 3, column 2, Y -> row 4, column 4. Encrypted as *MU YO°.
+"NA*: N -> row 4, column 1, A -> row 1, column 3. Encrypted as *RU VA*.
+*ME*: M -> row 3, column 2, E -> row 2, column 3. Encrypted as *MO VE*.
+*IS*: I -> row 1, column 1, S -> row 2, column 2. Encrypled as *PI SE*.
+SK°: S > sow 2, column 2, K > row 4, column 1. Encrypted as *IS RU°.
+'IT*: 1 -> row 1, column 1, T -> row 3, column 3. Encrypted as *PI DG.
+So, the encrypted message “MY NAME IS SKIT* using the Playfair cipher technique with the keywori
+Q.6 Deseribe DES algorithm with the belp of suitable block diagrams. Compute the 4- bit ostpst of 6-tit iapat
+(101101) using S-Box.
+Ans. DES (data Encryption standard) is block cipher symmetric key algo. In which 32-bit swap swaps left and 32
+bit halves obtained after Round 16, we get pre output. Finally, pre output passes through a permutation IP-, that i
+inverse to initial permutation IP, to produce the 64-bit cipher text. The right-hand portion of Fig, 3.1 shows th
+way in which 56-bit is used. For each of 16 rounds a subkey Ki is produced by the combination of a left circula
+shift and a permutation. The permutation function is the same for each round.
+
+======================================================================
+PAGE 31
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.of Question Paper
+LMid-TermExamination,March-2025
+Prog,/Sem: B. Tech.-V1
+Course Title: ISS
+Course Code: 6IT4-03
+Duration: 1.5 hours
+Date: 11 March,2025
+Session : Second
+Max Marks: 20
+Submitted By: Ritu Shukla, Sunita Gupta
+Initial Permutation: It affects on 64-bit input
+ 34 26 18 10 2
+$ 38 30 22 14 6
+ 40 32 24 16 8
+33 25 17 9 1
+E I1 61 LZ SE 
+8 37 29 21 13 5
+39 31 23 15 7
+Details of Single Round
+
+======================================================================
+PAGE 32
+======================================================================
+
+SwamiKeshvanand Instituteof Technology,Management&Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+SolutionofQuestionPaper
+LMid-Term Examination,March-2025
+Prog./Sem: B. Tech.-V1
+Course Title: ISS
+Course Code: 6IT4-03
+Date: 11 March,2025
+Duration: 1.5 hours
+Max Marks: 20
+Session: Second
+Submitted By: Ritu Shukla, Sunita Gupta
+Figure
+Single Round of DES Atgorithm
+The left and right halves of each 64-bit intermediate value are treated as separate 32-bit quantities, labeled L and R. As in th
+classie Feistel cipher, the overall process at each round is sumnarized as follous:
+L, = R,-
+R, = L,-,  F(R,K,)
+The round key Ki is 48 bits. The R input is 32 bits. This R input is first expanded to 48 bits by Expansion/Penmutation (I
+table):
+Expansion/Permutation (E table)
+32
+9 10 11 12
+13
+13 14 15 16
+12
+17
+16
+17 18 19 20
+21
+25
+
+======================================================================
+PAGE 33
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.of Question Paper
+LMid-Term.Examination.March-20z5
+Prog-/Sem.: B, Tech.-V1
+Course Title: ISS
+Date: 11 March,2025
+Course Code: 61T4-03
+Duration: 1.5 hours
+Session : Second
+Max Marks: 20
+Submitted By: Ritu Shukla, Sunita Gupta
+24
+25 26 27 28
+29
+28
+The resulting 48 bits are XORed with Ki. This 48 bit result passes through a substitution function that produces 32-bit outpul
+which is permuted by Permutation function (P):
+The role of S-boxes is illustraled in Fig.
+Figure
+Cakutatian ef FoR, K)
+The substitution consists ofa set of 8 S-boxes, cach of which accepts 6 bits input and produces 4 bits as output. Each row o
+an S-box defines a general reversible substitutionc middle 4 bits of each group of 6-bit input are substituted by S-box outpul
+I- and last 6- bits define what particular substitution ouf of to use.
+Key Generation
+Input key has 64 bits. But each 8+ bit is not used: bits 8,16,24,32,40,48,56,64 are not further used. The 56-bit key is firs
+subjected to permutation Permuted Choice 1:
+Permuted Choice 1 (PC-1)
+57 49 41 33 25 17 9
+1 58 50 42 34 26 18
+10 2 59 51 43 35 27
+
+======================================================================
+PAGE 34
+======================================================================
+
+SKIT
+Swami Keshvanand institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term.Examination.March -2025
+Prog,/Sem.: B, Tech.-VI
+Course Title: ISS
+Course Code: 61T4-03
+Date: 11 March,2025
+Duration: 1.5 hours
+Session : Second
+Max Marks: 20
+Submitted By Ritu Shukla, Sunita Gupta
+9 + s 09  11 61
+63 55 47 39 31 23 15
+7 62 54 46 38 30 22
+21 13 5 28 20 12 4
+14 6 61 53 45 37 29
+The resulting 56-bit key is then-treated as 2 28-bit quantities, labeled CO and D0. At each round, Cu and D, are separatel,
+sstjected to a cicularleft shif, or rotation, of1or 2 bits as govemed by the following
+Schedule of Left Shifts
+Round number 1  2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+Bits rotated
+1 122222212 2 2 2 2 2 1
+These shifted values serve as input to the next round. They also serve as input to Permuted Choioe 2, which produces a 48-i
+ouput that serves as input t the functien F(R,-K,),
+Penmuted Choice 2 (PC-2)
+14 17 1124 1 5 3 28
+1 61  01  9 S1
+26 8 16 7 27 20 13 2
+41 52 31 37 47 55 30 40
+51 45 33 48 44 49 39 56
+34 53 46 42 50 36 29 32
+Des Decryption
+As with ary Feistel cipher, decryption uses the same algorithm as encryption, exeept that the application of sub-keys i
+reversed.
+IP: 101101 -> (b1,b6) -> 1 1 -> 3 (in binary) ROW number
+(b2 to b5) > 0110 -> 6 (in binary) COLUMN number
+Intersectioe -> 4 -> 0100 (in binary)
+
+======================================================================
+PAGE 35
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management& Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term Examination,March.-2025
+Prog./Sem: B, Tech.-VI
+Course Title: ISS
+Course Code: 61T4-03
+Date: 11 March,2025
+Duration: 1.5 hours
+Session : Second
+Max Markes: 20
+Submitted By: Ritu Shukla , Sunita Gupta
+Q.7. Diseuss the concept of key distribution in symmetrie key cryptography. Compute the shared secret key esing th
+Diffie-Hellman Key Exchange Algorithm with the provided values:
+Giverc: Prime nsmber p=5, Base g-3, Alice’s private key a=6, Bob’s private key b15.
+Ans. In symmetrie key cryptography, both parties must use the same secret key for eneryption and decryption
+The challenge is securely distributing this key between them.
+The methods of key distribution are as follows:
+1.
+Pre-shared Key (PSK): The key is physically shared in advance or via a secure channel.
+2.
+Key Distribution Center (KDC): A trusted third party provides keys dynamically to
+Public Key Cryptography: Symmetric keys can be exchanged securely using asymmetric
+communicating entities (e.g-, Kerberos).
+Diffie-Hellman Key Exchange: A mathematical method to securely generate a shared secret over
+encryption (e-g- RSA or Diffie-Hellman).
+4.
+an insecure channel.
+Prime number p = 5
+Alice's private key a = 6
+Base g = 3
+Bob’s private key b = 15
+Each party computes their public key using the fommuls:
+Step 1: Compute Public Keys
+A=g’ mod p
+Bg’ mod p
+Fer Alikce:  A=3°mod 5
+A729mod5=4
+For Bob:
+B=3'°mod S
+Step 2: Compute the Shared Secret
+Now, both Alice and Bob compute the shared secret using the received public key:
+For Alice:
+S=B*mod p =36mod 5729mod 5
+For Bob:
+
+======================================================================
+PAGE 36
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term Examination, March -2025
+Prog-/Sem: B. Tech-VI
+Course Title: ISS
+Duration: 1.5 hours
+Date: 11March,2025
+Course Code: 6IT4-03
+Session : Second
+Max Marks: 20
+Submitted By: Ritu Shukda, Sunita Gupta
+S=A'mod p = 4"°mod 5
+Thus, the shared secret key is 4.
+
+======================================================================
+PAGE 37
+======================================================================
+
+SKITE
+Swami Keshvanand Institute of Technology.
+L-Mid Term Examinatlon.March-2025
+Management & Gramothan,Jaipar
+Branch
+IT
+Prog/SemesterB.Tech.V
+Course Code;
+6IT4-04
+CAO
+Cogrse Titler
+Maximum Marks:
+20
+Duration:
+1.5 Hours
+Session: Second
+Roll No.
+Instructiossifamy.
+EARL-A.(shadt.anarer.luge.qeestions)
+co()
+LAlgrtieasartcomptosery)
+Marles
+Question
+No.
+Defne [r-1fs aod r's ormpiemret using ecample
+Defiae regabee triader langsngr snil microaperatise.
+Define rudes ef writing aassenbly languagr pwogran
+EART-B(Amabtical/Prollemunlsing.qmestieas)
+Mas
+(Al gerstiens arecrmpsdesry)
+Maris
+Qurstion
+Led
+Q N.
+12
+brw gd epian Sow chunt atfr paus ettae
+pus aisembkrr.
+A Sipiwl compur las t ermnor hes sysicsn fur 4
+npises of 4 bit esda, The bus s cinstreted wsfh
+MUX.
+How raty aleein ingds srt Oer in ct(h
+12
+Wlut sint ef ra r netbed.
+Hes tury nta sec Bredod.
+Page 1 of 2
+
+======================================================================
+PAGE 38
+======================================================================
+
+PAT-.C.(Deacrigtixg/dnabtical/Poblemsebing/Deslgn.gutstions)
+(uonsanDaooiuradman)
+Questian
+CO()
+WhetaetedSeettypesefinetranfonts
+Bloom's
+hased e runher of adormes? Exphin (or)
+Levet
+(C-D) uing igetenl register ccetgutpr with thnt
+Ewlsah the aritmetit ittesuet X - (A-B) *
+addresx, and we addres, eal adfres i ao
+adfess ieration fortac?
+L3
+pipslinte pcosae bsed sytem A ses pipdise
+Discuss il fxlaes which eeras tle pertomercr of
+oe ske 120 ts to cepl tk. The an
+sabock odit ef 21 ns. Detetine tbt yechig ntie
+tak can te pcesed is a sit segront pipeise sid
+ef the pepeint igsen far t00tukis. Who is
+masinsas geed tlut can he axchicvedt
+13
+Papt 2 ef 2
+
+======================================================================
+PAGE 39
+======================================================================
+
+SKIT:
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.of Question Paper
+LMid-Term.Examination,March-2025
+Prog-/Sem: B, Tech,-VI
+Course Title: CAO
+Duration: 1.5 hours
+Course Code: 61T4-04
+Date: 10.3.2025
+Session :Second
+Max Marks: 20
+Submitted By: Maaju Choudhary
+S, No.
+Course Outcome
+Percentage
+Coverage
+Undkrstand the bsik operatious of oomples digial cumnpeter systeres, arithmetic logic asd
+CO1
+shiftmicm.opertiosinomlic.fsm.Lgierr.rmiferlevel
+40%
+CO2
+Aprly fhe assemhly tanpoge oracrphs, micrcosde generatiee Sur the contnt menogy ml
+adlresitg,neesrsslin.instrui
+30%
+-pmr 'ap-aghs, po nainnsp gonxuo pae 'ssurmurgod perad ep> az.ije)
+crckc.andziplited itglenetuieds efasimplc insracticeset
+30%
+CO4
+eehaomisfaithmotireraies ndinpkmwatonfiALU desi
+Classify difleren menory cmmirafios.
+005
+Bloom's Level
+S.Na.
+Percemtage Coverage
+ML,1- Remenber
+40%
+30%
+BL2- Understand
+BIL3- Apply
+30%
+BL4- Analyze
+BL5- Evaluate
+BL6- Create
+ Qorstion Paper Solution --
+Ans 1: Define (r-1)'s and r’s complemtt urisg example
+Thr morly ssod comglments are I', 2, 9s, and 10v ecmpkenems. Apet from these eomglentents, fhere are mamy more
+conplaments front which mostly peoples are not familiar. For finding the sebtractise of tht tutber beic syslen, thc
+ie., r's aod (r-1)s. wle csn fisd the rs compkenmott, and (r-lfs coenylemest of fhe nunher, here r is the radix. Tbe r's
+cemplenmts ite tsed. If r is tle bast of the tuatiber systen, fhos there are two tyipes of conplonets thut are possible,
+complerenl is also knoun as Radix (oimplement (r-1)s complemeil, is kmoun as Diranished Radix complerstentL.
+If the base of the aunber is 2, thea gre cin find I's and 2s compkiment of the Bumhr. Similarly, if the membcr is the octal
+rumber, then wxt can fnd 7s tod S's euerplement of the itamber.
+There is the fellowing formula fer finding the 's ard (r-1Js conplemett:
+ s- complemert (r*)μ-N
+(r-1)’s camplemere- (r°)h-1)-N
+In the above formulas,
+- The n is the mumher of digits in fhe nunber.
+Papt1of7
+
+======================================================================
+PAGE 40
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+LMid-Term Examination.March-2025
+SalutienetOuestlen Paner
+Prog./Sem. B, Tech-VI
+Course Title: CAO
+Duration: 1.5 hours
+Course Code: 61T4-04
+Date: 10.3.2025
+Session : Second
+Max Marks: 20
+Subemitted By:Manje Chouthary
++ The N is the given number. Ther io the radis ce base of the nutnber
+Ans 2: Define register trnnsfer language aod sicroegeratios.
+Register Transfer Language (RTL) is a low-level language that is used to describe the fusetioning of a digital
+circvit atd, more specifically, ec uansfer of infonttation betueen registers. It provides liow deta (moves from
+one register to the other aud how data is processed within the digital system. Thregh RTL, there is s
+capobillity ef creating abstrsctian levels sbere bigh-level design deseniptices can be created and easily linket
+to low-level hundware implemenution in designing, simuilsting, as well as synthesizing Gigital circwits
+The symbolic notation used to describe tbe miczo-operation transfer among registers is called RTL (Registecr
+Transfer Langsage). , The use of syrobols instead of a narnative explunation pronides an orginized and
+coneise mtanner for listing the micro-opcration sequences in registcrs and the cottrol functioes that initiatc
+them.
+Micre-tperatiees
+The eperation executed on the data stoe is registers are called micro-eperaticus, Thy awe detiled lou-level
+instructions used in some desigms to implemcmt complex atachise intrpctiots,
+Types ef Micro-operatieas:
+Register Trasfer Microoperations: Transfer binary informnation from one register to another. -
+Arithmetic Micro-operatioss: Perform arithmetic operation on sumeric doia stored in fegisers.
+Logical Micro-epentiods: Perfanm bit manipulation eponatiots on data sicered in registers.
+Shif Micto-operutions: Parfocm skin operations en datz stored in regisers.
+Ans 3: Defline rules of writing a assembly language program:
+A programeming lamguage is defined by a set of rgles.
+The basic unit of an assenbly language peogram is a liot ef code.
+set of rules speeify the symbols that can be vsel and bow they may be cumbinol to form a linc of
+code.
+Each line of an assembly languagv program is arranged in threv culumns called ticelds
+The ficlds specify the followiag infecavtica.
+Pag207
+
+======================================================================
+PAGE 41
+======================================================================
+
+Swami Keshvanand Institute ofTechnology,Management&Gramothan,
+Ramnagaria,Jagatpura,Jaipur-302017
+Solution of Question Paper
+LMid-Term Examination, March -2025
+Prog./Sem: B.Tech-VI
+Course Title: CAO
+Duration: 1.5 hours
+Course Code: 6IT4-04
+Date: 10.3.2025
+Session : Secomd
+Max Marks: 20
+Submitted By: Manju Choudhary
+1. The field may be empty or it may speeify a symbolic address.
+2. The label instruction field specifies a machine instruction er a pseudo instructioe.
+3. The comment field may be empty or it may inclode a comment
+A symbolic address consists of ome, tuo, or three, but not more than three alphamemeric characters.
+The instruction field in an assembly language program may specify one ofthe following items:
+1. A memory-refierence instruction (MRI)
+2. A register-reference or isput-output instruction (non-MRI)
+3, A pseudo instruction writh or withour anl operand
+• A memory-reference instruction occupies two or three symbols separated by spaces. The first must
+be a three-letter symbol defining an MRI operation. The second is a symbolic address. The third
+symbol, which may or may ntot be present, is the letter.
+• non-MRI is defined as an instruction that does not have an address part.
+• A pseudoinstruction is not a machine instruction but rather an instruction to the assembler giving
+information abeut some phase of the translation.
+Ans 4: Draw and explain flou chart of first pass of tue pess assembler:
+Atwo-pass assembler scans the entiresymbolic program twiee. During the finst pass, it genenates atable that coeelates all
+eser-defised adtress synbobs wid their bisury equivalest vlue. The binary translation is dane during the second pass. Te
+kcep track of the location of irstructices, the assembler uses a memory location conter (LC) word called a location
+countcr (abbreviated LC). The contemi of LC stores the value of the memory location assigned to the instruction or
+operand presestly being proeessed. The ORG pseudoinstrectios isitializes the location counter to the value of the first
+location. Since instructions are stored in sequential
+lecations, the cotert of LC is incremerted by 1 afler processing each line ef eede, Te svoid smtigity in eae ORG is
+missing, the assembler sets the location counter to 0 initially. LC is initially set to 0. A line of symbolie code is analyzed
+to determine if it has a label (by the peesence of a conma). If the line of code has ne label, the assembler checks the
+symbol in the instruction fiek. Ifit eontasins sn ORG pscudoinstruction, he assembler sets LC to the mumber that follows
+ORG and goes back to process the next line, Ir the line hes an END pseudoinstruxtion, the asembler terminales the first
+pass and goes to the second pass. (Note that a lisc with ORG or END should not have a label.) If the line ef code corains
+a label, it is stored in the address symbol table together vith its binary equivelent mumber specified by the eontent of LC.
+Nothing is storod in the table ifno label is encountered. LC is then ineremented by 1 and a new line of code is processed.
+Page 3 of 7
+
+======================================================================
+PAGE 42
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management&Gramothan,
+Ramnagaria,Jagatpura,Jaipur-302017
+Solution.of Question Paper
+LMid-Term.Examination.March-2025
+Prog/Sem:B.Tech-VI
+Course Title: CAO
+Duration: 1.5 hours
+Course Code: 61T4-04
+Date:10.3.2025
+Session : Second
+Max Marks: 20
+Submitted By: Manju Choudhary
+SConixf bne
+Y 44
+Sforesymbofin
+no
+add.Lymibelfouc
+togetuuywittaValut
+Post
+PlowchoutforHxtPass4ossemblu
+Ans 5: A digital computer has a common bus system for 4 registers of 4 bit each. The bes is constructed
+with MUX
+How nmany mux are teoded
+What size of mux are needod
+3.
+How many selecties inputs sre there in cach mu
+1.
+MUX are needed: no of bits in each register
+No of Mux= 4
+2.
+Size of mux= No of registers*1
+=4*1
+Selection inputs: 4 =2#
+Page 4 ot 7
+
+======================================================================
+PAGE 43
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.of Question Paper
+LMid-Term.Examination.March-2025
+Course Title: CAO
+Prog./Sema B, Tech,-V1
+Course Code: 61T4-04
+Date: 10.3.2025
+Duration: 1.5 bours
+Max Marks: 20
+Session : Second
+Submitted By: Manju Choudhary
+4x1
+MUX3
+MUX2
+MUXI
+21
+321
+321
+3210
+3210
+3216
+3216
+RegucluB
+RegaluaD
+RegictuA
+Ans 6: What are the different types ef instrectiea formats based on number of addresses? Esplain. (or)
+Evaluate the arithmetie statement X = (A+B) * (C+D) ssing a general register computer with three
+address, ad pwe address, eae address and zere address instruction format?
+Types of Imstrectiows: Basod au tte surbar ef adreees, instrscties uie deaifol as
+Zero Address Instractions
+These iestnuctioas do not specify any operstds er adlresses. lssaal, they epente oa disy sared is rrgites or mrmery
+locatio implicity definod hy the issctin, Fee eawyle, a zoo-address insatrwotios might sinyply add the ceaones ef
+tve Rgiecs topeslher withvet speciflyiag the repitater names.
+Onc Address Instructions
+These iesvticss rpenify coe epuand er adidss, shich tpically tcfivs te a csacry leratios er Foginint. The
+itezrwctian cpoces es the Cortcats -aftlat opcuod, and the rosadt aag hec staend in tlhe Sige ev a diforest locatiex. Fae
+Campk, a ctc-adfaa isactice mige leud slac coicrts efa moair) leceics inlo a fegister.
+Two Address Instrections
+operates (et the cormenis ct both opetands, and the resali aay be stered in the same ct a dinerem kecation. Foe esnnple,
+Theic ingtruclions specify two operands or addregies, which may be meinory loxafions or regislers. The insirvetion
+a lveadfres insauctim imigit add de eoments ef tae registers tageihxt and stree fhe fesult ia onc ef the registen.
+These intsinuctions spocify three cpcrands er adreses, which may be menory lneations at regiaem, The isinvetioe
+Threv Address Instroctions
+opeotos on the (enteth of all thiroc operindk, sol thc reselt may be sticod in the sane et s differet loeaticet, For
+esanple, a three-address isstruction miglnt umeltiply thc coeleats ef two registers togetlxt and add the corents of s
+Dire ingieer, syofing the fisalt it a fourth regiter.
+X = (A+B) * (C+D)
+
+======================================================================
+PAGE 44
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura,Jaipur-302017
+LMid-TermExamination.March-2025
+Solution af Quxtian Pangr
+Prog./Semu B, Tech,-VI
+CogrseTitle CAO
+Duration: L.S hours
+Date; 10,3.2025
+Caurse Code: 6rT4-04
+Session :Secund
+Submitted By, Manju Choudhary
+Max Marks: 20
+PUSH
+PUSH
+TOS - A
+ADD
+TOS + (A + B)
+TOS + B
+PUSH
+PUSH
+TOS + D
+TOS + C
+ADD
+MUL
+TOS +- (C + D)
+POP
+M [X] -- TOS
+TOS  (C + D) - (A + B)
+Oae sddreas Iastructioec
+LOAD
+AC - M [A]
+ADD
+STORE
+AC-- A (C] - M [8]
+LOAD
+M [T] -- AC
+ADD
+AC  AC + M [D]
+AC + M [C]
+MUL
+AC- AC - M (T]
+STORE
+M [X] +- AC
+Twe address iastrictios:
+MOV
+R1, A
+ADD
+R1, B
+R1 ~ N [A]
+MOV
+R2, C
+R1 - R1 + M [B]
+ADD
+R2, D
+R2 + M [C]
+MUL
+R1. R2
+R2 + R2 + M [0]
+MOV
+X, R1
+R1 R1-R2
+M [X] + R1
+Three addrns istructioe:
+ADD
+R1, A, B
+ADD
+R2, C, D
+R1 - M [A] + M [B]
+MUL
+X, R1, R2
+R2 -- M [Cj + M [D]
+M [X] - RI + R2
+Ans 7: Factors which effects the performance of pipeline protessori
+Factors are as fedlows:
+1) Pipeline latency: The fact that the execution time od each instnuction does not decreast pats limitatiots on
+pipeline depth.
+Z) Imbolace anongpipelint stages: Imbalance amog the pipe stages reduce perfoemunce since the clock can
+Page 6 of 7
+
+======================================================================
+PAGE 45
+======================================================================
+
+SKIT
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.of Question Paper
+LMid-Term Examination,March-2025
+Course Title CAO
+Prog./Semz B, Tech-V1
+Course Code: 61T4-04
+Dute: 18.3.2025
+Duration: 1.5 hours
+Max Markes: 20
+Session:Serond
+Submitted By: Manju Choudhary
+rut so futer thuan the tine oreted fer the slewest pipdaee stugrs.
+3) Ppeline overhead: Pipeliae overhead arises from the comtieation of pipeline register delay and clock
+skew.
+Time non pipeliced syntem tn = 100ns
+Tiete token pipelined system tp - 29 ss
+No of segment k - 6
+No of task n = 200
+we get here first time taken by Non-Pipeline to process 100 task is
+Time taken for non Pipeline Precesser= 200 × 100 = 20000 ss
+so here Time Taken by Pipe lined Processer will be
+Time Takes Pipe line Processor = (k + n - 1 ) × t p
+put here value and we will get
+Time Taken Pipe line Processor = (6+ 200 - 1 ) × 20
+*+Time Taken Pipe line Procesor = 4100 ns
+so here speedup will be = Noa pipeline/ Pipeline
+20000/4100=4.87
+Max speed up that can be achieved = 100/20
+= 5
+Page7 of 7
+
+======================================================================
+PAGE 46
+======================================================================
+
+Swami Keshvanand Institute of Technology,
+SKITE
+Management&Gramothan,Jaipur
+(An Aotoomous lastitute Amliated to Rajasthan Technical
+University,Kta)
+L-Mid Term_Examination.March-2025
+Branch:
+IT
+Prog./SemestenB.Tech-VI
+Course Code:
+A1
+6FT4-05
+Course Title:
+Maximum
+1S Hours
+20
+Duration:
+Marks:
+Session:First
+Roll No.:
+Instructionsifany:
+PART-A(shertanswer.tpe.gucstiens)
+(All questions are cempulsory)
+cO(s)
+Max.
+Bleo's
+Qurstion
+Marks
+Level
+No.
+C01
+Explain Artificisl ntelligenee? Liat out some of
+BL2
+task domains of Artificial Iateltigence
+C01
+BL2
+Explain Censtraist Satistaction with suituabde
+CO2
+example.
+BL2
+Discuss Game Piaying with its types
+EART-B (Anabtical/roblem.sotving.questiens)
+CO(b)
+(Allgerstieus are compelsery)
+Max.
+Bloom's
+Question
+Marks
+Level
+No.
+CO2
+Analyze and ifierentiate betuoen Indorwed
+BL4
+andUniaformedSrardhslgerithms by
+based ea thrir dharacteristics aad heuristics.
+categeritine various searching techniques
+BL3
+(Min cosl from S to D)
+Pape-1of-2
+
+======================================================================
+PAGE 47
+======================================================================
+
+PART-C (Descrigtive/Anabtical/Preblem.sobing/Design
+questions)(Attempt any one Question)
+No.
+Question
+Max.
+(O(*)
+Marks
+You are given 2 jugx, 4 litre capacities and
+Bloow's
+3 litre capacities. Neither has amy
+Level
+Measuring mark em it We bave unlimited
+water supply. How can we get exactly 2
+c02
+Litre water in 4 litre jug? Show using state
+BL3
+space search equatios.
+Zeyoud rpg rpdry Teya rpdmes Zajuepg
+Caleslate tae optimal sequence ef monts for
+Algurithas aad Alpha Beta gruslag.
+Analyeetimecemgksityf Minimax
+CO2
+BL3
+Page -2 of- 2
+
+======================================================================
+PAGE 48
+======================================================================
+
+Swami Keshvanand Institute of Technology, Mauagement & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+(An Autooseecs lastibute Afusted ba Ra(jasthan Tedaical thsivenity.Eets)
+LMid-Term Examination,Marrh-2025
+SolutionofQuestionPaper
+Prog./Sem: B, Tech-VI
+Course Title: AI
+Course Codex61T4-05
+Date; 10/03/2025
+Duratioe: 1.5 bours
+Max Marks: 20
+Session FIRST
+Submitted By: Ms Shalini Singhal
+ON'S
+Course Outcome
+Percoelage
+Coverage.
+Understand she informed and uninformed problen types and apply search
+COI
+60%
+strategies to solve them.
+Apply inoellget algorithgs for constraind satisfaction problems and also
+C02
+40%
+Apely husic principles of Al in solutices that require problemt solving.
+design intlligent systemts foe Gnme Playing.
+C03
+inferenceperception, kowledg.ngresestution,and reasening.
+Ilustate basic principle of Al in expert System and Natural Language
+C05
+Analy xe the limitatios of different type of machine Leaming model.
+Processing.
+S. No.Boom's Leve
+Perccmiuge Cowenage
+BL1- Remember
+BL2- Lederstand
+BL3- Agely
+50%
+BL4- Aralyze
+20%
+BL5- Evalsate
+B1.6- Create
+- Question Paper Solutioe -
+L Gi Oee Amifkil fielge? Lidotsmefeak das Aificid igme?
+Thr ailiy of dipigl empeter ar cowpum-eehrelled nobot io perfionn iasls cemarly ssocined sih ineligomt bcings. The
+onn is frcgucrrly arpled so the peejxt ordeucinping systents cndowad gith fhz itilectux proceoa chencteristicafheas,
+sxdh as Sle bility te ngsat, dixoorer meaiag- geterilizt, er kcam fiet post (spcricoe.
+Tad DooinefAM
+I. Al in Asronerty
+Aetifikial hinclligmce can be vary cizfal te seiu coemrtet ustirene peoblems.AI wdmelogr can e hdpfil fir
+2. Al in Tlelthcaee
+undervtanding fhe uriverse sath as how it works, origin, efe.
+Boohcasc Indaaries arc applying Al so nuke a buer urd fuog diaprosis than lumas Af cn helg sickes wid dispeses
+ied cn itfien he paties ire worsesing so thet.rodica hclp cas reach so fie pefiot before hoipituizadion,
+3. Al in Ganing
+Al can be ssed for gming purgese, The Al adines can pay stwegicgamos liz ches, sbre fhe malisr aee totia
+ofa lagr aumber of peoiNe plaos.
+4. Al in Pinance
+Al snd futer indsaris sr fhe hez mathes for ach ohor. The fiuaste islamy la irplomerting sutometion, (hefhet,
+5. Al is Das Securly
+adinptir irtzligenct, algariten maling, id smchise leeting iote finnkial proonues
+Page1 of1
+
+======================================================================
+PAGE 49
+======================================================================
+
+SKIT
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+(As Autatomaas Imtitute Amtiated te lbajastahan Techaicil Uiversity, Keta)
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.of Question Paper
+LMid-Term.Examination,March-2025
+Prog./Sem.: B, Tech-V1
+Courw TitleAl
+Course Code:61T4-05
+Duratioe: 1.5 bonrs
+Date: 10/03/2025
+Session : FIRST
+Max Marks: 20
+Submitted By: Ms Shalini Singhal
+used e makc yoer dia tore safe and sevurr. Sone camples sxh s AEG boL AI2 Patfemarv esad te drlkcmnine
+The sceray of das is cruial for rey ecergery ane cyboe-ataks are growing vey rapidly in the digial wodid, Al ean be
+6. Al in Secial Medis
+seltware bog snd cyoer-atacks in a beter way.
+Social Media siles sech as Faccbook, Twinezr, aod Suanhat conain biliors of user profiles, wtich sed fo be stored and
+identifly be latest teds, hosdag, aod regiremctt of difiner mses.
+mreged in srery cfcios wiy. Al can cegniexr and nasag otassiwr amenits ef diam Alcan atalyoe lots of dats lo
+2. Explein Constraint Setistatioe with ssitatte esunple?
+Cnerais sfifacion is a tecriquc vbae a peobicn is selrod whxn its valaes satisty outtais csinints or rukes eftbe probktn
+Constrtisl satisfoxtion depands ee theve eonpeecgts, carnely:
+Soch type ofsxthnige leods to a derper waderstanding of te problen rtructuev as wll as in ecepooity.
+-X: It is a set of variabks.
+-D: l is a sel of domaiss ubere fhe varialles eside. There is a specific doreie fer each varistde.
+Gesgh Celorisg: The probleei where the costraint is thot ao adjaoat sides cas ane fhz sarne color.
+-C: It is s sct efcoastrsints which are fellowed by the set of viriables.
+Graph Coloring
+3.
+Discus Game Plaxying with its types?
+Searches in which tvro coe more playes witbh copdticing gcals are trying to esplore the sante search space
+Sar the sobrico, are callad advrsarial seashus, cftes kaowo as Gunes.
+fxtors wbich belip ke model and sele pomes in Al.
+Ganes av modeled as a Seanh (poblen asd hauristic evaluetioer finstion, and these are fhie tso ireis
+Types of Games in Al:
+O Perkoc inkenuinr A gane vib fhe perfistiafomatisn is thus ia wtica aponts cas foxdk iste the cacplric heand
+Agests hate all the informution iheut the gar, iand hey can see each othr neves alhe. Exaniples arv Chos, Chackun,
+Ge, cte.
+ Ireperfict infimmetiee: Irin a gans agets de sat bove all infoemstire aboul the game aod not such as tie-loc-te.
+Bakeship, tliad, Brilge. (tc.
+e Ditemisitic ganes Dekmirisie gintes ae thlose gans whicdh foliog a strict peem astset cfaules fe tle gims,
+asd fhene is so randotnese ansociaad uith than Eaumples are ches, Checkers, Ge, tic-tac-lee, eic.
+o Nou-detamminiseic ganesc Non-deimministic are thoe gimes stich bave various unpredicable evets and bas a fictor ef
+chance cr leck. This factor of chaace or lack is istroduced by cither dice ce canls. Thote are candon, and cach actico
+responge is sot faxed. Ssch ganss are also called ss stochatic ganes. Exanple: Backgannos, Menopoly, Pokr, eic.
+Derncostrate Spinst Mokt wio ias aplications.
+Page 2 of 1
+
+======================================================================
+PAGE 50
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+(ln atoormess asttute Afliuted toRisasthan Technical Uaiversty, Eeta)
+Ramnagaria,Jagatpura, Jaipur-302017
+Solution.of Question.Paper
+LMid-Term Examination,March-2025
+Course Titlet Al
+Prog./Sem:E, Tech-M1
+Course Code:61T4-05
+Date: 10/03/2025
+Duration: 15 hours
+Max Marks: 20
+Session:FIRST
+Submitted By: Ms Shalini Singhal
+Analyze and differentiate betwees Informed and Uninfonned Search algorithms by categorizing various
+searching techniques based on their characteristics and heuristics?
+Utinimrceshuc is1des ofgtenlguposr sahspotiams stichepenis is hne Scopmy,Utidemed sene
+alpritemr de tet huew adbifiorol indomutiun shnt stas ar seech spacr ather ton hesr te tuor the toc, se it ik slse
+cardiod Nind santh.
+Follogring ire the varios types ef urisformed search algoritrms:
+Breadth-firs Seaxch
+Dpth-insi Seorch
+Iierine depairg depcb-Gst sem3
+Dkpth-linitod Serck
+Bidirectional Sewrch
+/nifom cost search
+Ifiemod sarch isa t ofsowchalpeiles in atifcial inellignce tuf uses Mifioal iadomutiee orherieties to meke
+Blere acurale deciviors ahout ntich parths to esplere firgt, These hceristics provide estirats ofhow dose  givea tiste is
+to the pel, piding fhe search towand mere peronining soluicm. Inficned scarch in poticularly usefid in selting oonplex
+prollare cficieuly.ie it cas sigrificantly meduoe fhe sourch space and irpoue the speed offinding solufions.
+lafomal seareh algorithrs cat qgicily ntjectimulvsrter less pronsing shumstiuns, allpwing the search te ooneerdstr
+ce fie rtcol rcliatde optionti, by cnpkging donsin-apecifir kasfelg: to drihe the seirdh Hcristies ze osad ly thes)
+linsb of Al search algorithis to iacreane the sesrctb/s edlectiveness and speed.
+Bent Fist Serch
+techniques like deph-fied seirch aad bresdb-firsl smrch It uses search and tbe baurisfic fenction, We (en bvsefit from
+both slgoritbame' abvaxrages by tsing bese-fint serdh., We cin seleca de mst geniing asde at each stept uriag abee-
+fint such, The sode that is oxanet to fie gul soe is cspendel eing for bet fist seardh tsdniga, asd tle closest oeat
+is cakulated using a beuristis fiaktin
+We (sfand be oode flat in closest te fhe grof sade, nd the cloal cost b antimuted ly Heritie Siotion, ie. fis)3(s)
+Whe, hon) stimated cest fhan node s to fhe goel.
+A* Scirh
+A* skerch is the mst oornouly koown fem ofbesi-finst seurch. The heuristic functioa hca), slong wit the didanee fion
+the irifisl stie g(s)to the node , is usol, Due te the oombirutios of UCS smd pealy hess-fiestscarch feats, tle iae lk
+cffeetively solved. Using fle hcuriaie findlticn the A* scndh method lacites fhe shanat rae teangh fle seanch pxce
+Jifl Clinhing
+To osoais the sumitof monsinar te ifenity e int setutine e giu petticn, ee nay rmploy fe bi
+climbing algerifhm. This alperitin, (anrpicinnl as a kxal seirch soseipe. poputully advaces in de diwtire ef
+clevated krain or incoascd valae. Whes it reaches a peak value where aone ofis geigibors have a grenter valee, it ends.
+Thar NiE clinbingrlpotifm ibamethad Sir selsing mulenutical proddems sifi optiniartion Trevefisg-solesmun ir efe of
+thu mwt firgculy merintet cses oa hill dinding algrihin jeubiom wtere we arod e redace he slesnan's joumey
+distane.
+Solve bhe filovring coarmplk osing A* Alge(Mn et fiun S te DIE
+Page 3 of 1
+
+======================================================================
+PAGE 51
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+(An Autonomoas testitsteAiated te lajasthas Tecinical University, Kata)
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term Examination, March-2025
+Prog./Sem: B, Tech-VI
+Course Title: Al
+Duration: 1.5 bours
+Date: 10/03/2025
+Course Code61T4-05
+Session FIRST
+Max Marks: 20
+Submitted By: Ms Shalini Singhal
+Graph Regresensnion  The girven gaph has weighred olges.
+2.
+Hesristic Funticn (h(s)  The estimed cosz from a node to the goal.
+Cost Fumctioo (g(m)  The actual cost from the start node to the cunient nodk.
+Exalustion Function (f(s)  Definod as: f(,e)g(n)+h(n)6,n) = g(n) + h(s)f(n)g(s)h(n)
+og(n): Cost to reach sode n fhom the start.
+Step-by-Step Solution
+h(n): Estimated cost fronn n to the geel.
+1. Define Givn Elencats
+Nodes: A, B, C, D, E, F
+Edpes wgth Weighns: Protided in the imagc.
+Suri Node: B
+Ik(s) valhaes Given as thsc oringe rmnben in the image.
+Goal Nede: F
+2. Inidialize
+We mraintzin an Open List (odes to cxploee) and a Clated List (rodes slrady exploeel)
+Node Heuristic lb(n)
+10
+10
+3. Start fiom Node B
+g(B)  0 (Cos to stant bode itselil)
+[B) = g(B) + h(B) = 0 + 15  15
+4. Expand Node B (Neighbors: A, C, E)
+Add B to Open Lis, set Panet(B) = Neec.
+A: g(A) = g(B) + c0s(BA)  0 + 10 = 10
+C: g(C)  g(B) + cos(B→C) = 0 + 11  11
+f(A) = g(A) + b(A) = 10 + 10  20
+E: g(E)  g(B) + oes(BE)  0 + 11  11
+(C) = gIC) + h(C) = 11 + S  16
+lowest fs):C (16)
+I = 01 + [1  ( + (3)  (3g
+S. Expund Node C (Neighbors: A, D, E, F)
+aoor os oz o(aaid umg 3uoa) sZ  1  11  (vi q go ltaV :V
+D: g(D)  (C) + cos(CD)  11 + 6 = 17
+E: Alreaby exiss tew g(E)  11 + 11  22 (worse tbas 21), so ignorc.
+{D)  p(D) + h(D) = 17 + 5  22
+F: g(F) = 8(C) + cos(C→F) = 11 + 8 = 19
+Iowest f(n): F (19).
+f(F) = α(F) + b(F) = 19 + 0  19
+Page 4 of 1
+
+======================================================================
+PAGE 52
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+(AnAutenametshutinteAntutedoiasunTehnicaltahwrefyKser)
+Solution of Question Paper
+LMid-TermExaminationManch-z025
+Course Title: AI
+Pros/Sem.: B, Tech-VI
+Course Code:61T4-05
+Date: 10/03/2025
+Daration: 1.5 hours
+Max Marks: 20
+Sessiea : FIRST
+Subnitted By: Ms Shalint Singhal
+6. Goal Reached!
+The panhk fosnd is B → C → F with ± kstul cest ef 19,
+Optimul Putlk: B  C  F
+Final Path Output
+Toul Cost: 19
+Measuring muark on i, we hare unlimilted watet sepply, How can we get eactly2
+6.Yu2je caodities an3litreeieth
+Utre water in 4 Itre jng? Shdsr using stute spaoe search equatien.
+The Water Jug Problem is a classic state-space search problem in Artificial Intelligence, We have:
+,lug 1 [4, caprcity]
+Jug 2 (3L capac/ty)
+Goot: Ootain exactly Z. in the 4L jug
+Unlimted witer supply and emptyirng is aliowed
+State Representation
+Each state is represemed as (x, y) where:
++x= amount of water in the 4L jug.
+State Space Search Approach
+-y = amount of woher in the 3. jug
+We use thse Breadth-First Search (BFS) ox Depth-Fins Search (DFS) to caplore all posble opentioesc:
+Allowed Operations
+1. FiE Jug 1 (4L jug) -→ (4, v)
+2.  Fill lug 2 (3L jug) → (, 3)
+3. (mgty Jug1 → [0, y]
+5.  Pour jug 1 -→ lug 2 (untit lug 2 is full or Jug 1 is empty)
+4.  Empty Jug 2 → (x, 0)
+Step-by-Step Solution
+(oduo   Brrae u t inl1gut) 'Rnt (- 2 3ne anod
+Using BFS, we explore the valid sates:
+Initial State: (0,0)
+1. ± Fill 3L. jug → (0,3)
+2.
+Pour 3L into 41 jug → [3,0]
+4, Pour from 3t jug into 4L jng une1  -→ (4,2)
+Fl 31 Jug apain → (3,3)
+State Space Search Equations
+Empty 4L jug -→ (0,2)  (Goo Readhedl)
+The state transition funetion fis, a) → s' follows:
+nitial 5tate: S0=(0,0)5_0 = (0,0)50(0,0)
+2.
+Goal State: 5g=(2,v/_g - (3,v/%g-(2/v)
+Oprator:
+0x,rL,FI_4)(4vxzL, Fi_4) - (4, vLRi_4)-(4,)
+(x,x),Fi_3)=(x,3)(x,l, F_3) - (x, 3Ex),FI_3)(x,3)
+Page 5 of 1
+
+======================================================================
+PAGE 53
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+(An Aatensmeus lastibute Afiliated to Rapasthim Techsicad Dairersity, ota)
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.of Question Paper
+LMid-Term.Examination,March-2025
+Prog./Sem: B, Tech-VI
+Course Title: Al
+Duratioe: 1-5 bours
+Date: 10/03/2025
+Cowrse Code:61T4-05
+Sessien:FIRST
+Submitted By:Ms Shaliai Sisghal
+f|Ix,yl,Empty_4)=(0,vlrUxxl, Empt/_4) = (0, vlfx,yl,Empty_4)=(0,v)
+xx,Emty_3)-(x,0)ix,yl, Empty/_3) = (x, 0)xvLEmmpty_3)-(x,0)
+f[xr,Posur_4_to_3)kvL Pour_4_to_3x,rLPour_4_to_3)
+fEls,vL,Pour_3_to_4/x, Pour_3)_tel_4)kaLPour_3_to_4)
+Solution Path
+[0,0)-→(0,3)9(3,0)→(3,3)→(4,2)>(0,2)(0,0) /rightarrow (0,3) vigntamow [3,0] \rightarow (3,3) vievtaow (4,2)
+vrightarrow (0,2)(0,0)→(0,3)>(3,0)→(3,3)→(4,2)>(0,2)
+7, Calaulae tor oprinal sosenee ef meves fie Sodloring coanple eing Alpte Bri pruting- Asulyzr tintr conpleitly sf Mitines
+Algporithm and Alphe Betn pruring
+Alpla (best value for MAX) and Beta (hest value for MIN) help cul off unoro/ssry coupulatices.
+Traversal and Pruning Process
+Step I: Evaluate the first MAX subtree (4,3) -> MAX chooses 4.
+Step 2: Evaluate the redt sutree (6,2) → MAX chooses 6.
+Step 3: MIN chooses the minimum between 4 and 6 -→ 4.
+Step 4: Evaluate the net M6AX subtree (2,1) -> MAX chooses 2.
+ saieosp x - (s'6) aaatns xau aa aemymg g das
+Step 7: Since 4 is already smaller than 2, we prune the rest of the tree on this branch.
+Step 6: MIN chooses min(2,5) = 2.
+Step B: Repeat for the remaining branches and prune where unnecessary.
+Finol Minimax Volue
+The optimel move sequence is determined at the root by triaversing the pruned tree.
+The final Mininax value at the root is the best move for MAX.
+Time Complexity Analysis
+Minimax Algorithm Complexity
+Page 6 of 1
+
+======================================================================
+PAGE 54
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+(AnAutenomass lnstihuteAritiated ieBbjrrthunTediaical Eahnrsily Kata)
+Solution of Question Paper
+LMid-Term Examination,March-2025
+Cowrse Title: Al
+Pro/Sem: B, Tech.-V1
+Course Code-61T4-5
+Date: 10/03/2025
+Duration: 1.5 hours
+Max Marks: 20
+Session:FIRST
+Submitted By: Ms Shalini Singhal
+If the tree has b branches per node and d depth,
+Time Cempleety: O/bd)O|b*d)0(bd)
+This is exponontial, maling it infficienefer large-depth trees
+Alpha-Beta Pruning Complexity
+Best case (shon prining is macimaly erlectivt): 0(ad/2)0(bAld/2))0(bd/2)
+Raduces tompicity sigificantly comgared to standaed Minimax.
+Conclusion
+Without pruning 0(hd)o(b^d)o(bd)
+(Aupxada00 jtus8o jo 100u axenis (agtuxoudde) (z/peio(tz/p)-qlotz/9qo:u)unad um
+Pruning helps skip unnecessary evaluations, imgroving efficiency.
+Page7 of1
+
+======================================================================
+PAGE 55
+======================================================================
+
+SKIT
+Swami Keshvanand Institute of Technology,
+Management&Gramothan,Jaipur
+L-Mid Term Examination, March-2025
+Prog,/Semester:B, Tech-V1
+Branch:
+DS
+Course Code:
+Course Title:
+6IT4-06
+1.5 Hours
+Maximem Marks:
+Duration:
+Session: First
+Roll No,:
+20
+Instructions if any:
+N/A
+EART-(sherLansuxer.typt.geestion)
+[Allqiestions are cempulsory),
+00(s
+Q. Ne.
+Qutstiea
+Mat.
+Marks
+Bloom's
+Level
+List the main characteristics ef a DS?
+Describe
+Distributed
+Computing
+Environment? Name any four components of
+DCE.
+Define Process and Threads. Write tweo
+similarities
+and two differenoes between
+these two.
+ERT-B (Analstical/Problemusolving.questions)
+(Gosjndueo aue suo(gsanb mV)
+co(s
+Max.
+Q. No.
+Question
+Marks
+Bloom's
+Lered
+Compare and contrast the Netwerk Operating
+System and Distributrd Operating System.
+Analyse the graph modets for Frocess
+Represeatation in Distributed System.
+PaRT-C.(Descriptixe/Analytical/boblcetselving/Design.exestions)
+(Attempt any one Question)
+Max.
+CO(s
+Q. No.
+Question
+Bloom's
+Marks
+Level
+Discussthelanguage
+mechanism
+for
+synchronization in distributed systeins.
+Describe architecture of RPC and RMI in DS.
+Write a case study of any obt (either RPC ar
+RMI).
+Page 1of)
+
+======================================================================
+PAGE 56
+======================================================================
+
+Siwskit eshvanand Institute of Technology, Management & Gramothan, Ramnagaria,
+Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term.Examination, March -2025
+Prog./Sem.: B.Tech, VI sem
+Course Title: Distributed Systems
+Course Code: 6/T4-06
+Duration: 1.5 hours
+Date: 1/03/2025
+Sessior: FIRST
+Max Marks: 20
+Submitted By: Dr. Saroj Agrawal/ Ms, Sanju Choudhary
+S. No.
+Course Outcome
+Percentage
+Coverage
+C01
+Understand the fundamental concepts associated with distributed
+40%
+systems. And various issues.
+C02
+Ilustrate
+and
+analyze
+process
+management,
+Inter-process
+60%
+Communication techniques.
+C03
+Compare
+Distributed FileSystems, andDistributedProcess
+Scheduling with Transaction Services and Concurrency Control.
+C04
+Analyze Distributed Shared Memory with memory consistency models
+NA
+and models of distributed computation.
+C05
+NA
+concepts of
+distributed agreement and replicated data management
+S.
+Bloom's Level
+Percentage Coverage
+No.
+BL1- Remember
+20%
+BL2- Understand
+10%
+BL3- Apply
+NA
+BL4- Analyze
+70%
+BL5- Evaluate
+NA
+BL6- Create
+NA
+Page 1
+
+======================================================================
+PAGE 57
+======================================================================
+
+Shskiteshvanand Institute of Technology, Management & Gramothan, Ramnagaris,
+Jagatpura, Jaipur-302017
+Solution of Question.Paper
+LMid-Term_Examination, March -2025
+Prog./Sem.: B.Tech, VI sem
+Course Title: Distributed Systems
+Duratior:1.5 hours
+Max Marks: 20
+Date; 1/03/2025
+Course Code: 6IT4-06
+Submitted By: Dr. Saroj Agrawal/ Ms. Sanju Choudhary
+Session: FIRST
+ Question Paper Solution-
+Q. No.
+Question
+Max. Marks
+co(s)
+Blicom's Level
+List the main characleristics of a DS?
+Describe  Distributed  Computing Emvironment72
+Niame any four components of DCE.
+Define Process and Threads. Write two tsimilarities E
+and two differences between these two.
+Compare and contrast the Network Operating
+System and Distributed Operating System
+Discussthegraph
+models
+for
+Procets
+Representation in Distributed Systems.
+language
+mechanism
+Discuss
+the
+for6
+synchronization in distributed systems.
+Describe architecture of RPC and RMl in DS. Wirite s6
+case study of any one (either RPC or RMI)
+A1> (ary 4 can be considered) Concurrency: Distributed systems involve muitiple independent components running
+concurrently, allowing for parallel processing and multitasking
+Transparency: Distributed systems aim to provide transparency to users, hiding the complexities of the underlying
+architecture. This includes transparency in acoess, location, migration, replication, concurrency, and failure.
+Scalabilty Distributed systems are desigred te scatle horizontaly, aliwing for tht addition of mote resaurces or sodes
+to handie increasing workicads without significant performanot degradastios.
+function despite individual component failures. This inckudes redundancy, replication, and fault ditection and recovery
+Fault Toleranoe: Distributed systems incorporate mechanisms to tolerate failures, ensuring that the system continues to
+mechanisms.
+Irteregeratility, Disributed systems supont interogerabilty, allwirg composerts dereloped using different
+technologies and programming languages to communicate and work together seamlessly.
+Htersgenity: Distributed systems ohen oompise heterogeneous hardware ard software components, incloding
+diferent types of operating systems, programming longuagts, and network grotccols.
+Autonomy: Distributed systems consist of autonomous components that operate independently and make local
+decisions without central coordination. This autonomy enhances system flexibility and responsiveness
+Resource Shgring Distributed systems faciltate resource sharing among mltiple users or spplicaticns, enatling
+Page 2
+
+======================================================================
+PAGE 58
+======================================================================
+
+SiwskiTeshvanand Institute of Technology, Management & Gramothan, Ramnagaria,
+Jagatpura, Jaipur-302017
+Solution.of Question.Paper
+IMid-Term.Examination, March-2025
+Prog./Sem.: B.Tech, VI sem
+Course Title: Distributed Systems
+Duration: 1.5 hours
+Course Code: 6IT4-06
+Date: 1/03/2025
+Session: FIRST
+Max Marks: 20
+Submitted By. Dr. Sarej Agrawal/Ms, Sanju Choudhary
+efficient utilization of computing resouroes such as processing power, storage, and bandaidth
+Consistency: Distributed systems aim to maintain data consistency across multiple nodes, ensuring that all replicas of
+data remain synchronized and up-to-date.
+Security Distributed systems implement security measures to protect data and resources from unauthorized acoess,
+ensuring confidentialty, integrity, and availability.
+A2> Distributed Computing Environment (DCE).The Distributed Computing Ervironment (DCE) is a set of specifications
+and technologies developed by the Open Software Foundation (0SF) in the late 1980s and early 1990s. DCE wa5
+designed to provide a standardized framework for building and deploying distributed computing systems across
+heterogeneous hardware and software platforms.
+components of the Distributed Computing Environment include(any 4 can be condisdered)
+Remote Procedure Call (RPC):
+Security Services:
+Naming Services:
+Directory Services:
+Threads and Concurrency Control
+Time Servioes:
+Interoperability and Portability
+A3> Process-A process is defined as a sequenoe of instructions executed in a predefined order. In simple words, any
+program that is executed is termed as a process. Processes change their state as they execute and can be either new,
+ready, running, waiting or terminated.
+Thread- A thread is a flow of esecution through the process code, with its own program counter that keeps track of
+which instruction to execute next, system registers which hold its current working variables, and a stack which contains
+the execution history.
+Any 2 can be considered for both
+Similarities: -Like processes, threads share CPU and only one thread is active (running) at a time. -Like processes,
+threads within a prooess, esecute sequentially. -Like processes, thread can create children, -And like a process, if one
+theead is blocked, another thread can run.
+Differenoes: -Unlike prooesses, threads are not independent of one another, -Unlike processes, all threads can access
+every address in the task. -Unlike processes, threads are designed to assist one ancther. Niote that ptocesses might cr
+might not assist one another because processes may originate from different users.
+A4> Cormpare and contrast the Network Operating System and Distributed Operating System.
+Page 3
+
+======================================================================
+PAGE 59
+======================================================================
+
+SskiTEeshvanand Institute of Technology, Management & Gramothan, Ramnagaria,
+Jagatpura, Jaipur-302017
+Solution.of Question Paper
+LMid-Term_ Examination, March -2025
+Prog/Sem: B.Tech, VI sem
+Course Titie: Distributed Systems
+Duration: 1.5 hours
+Date: 1/03/2025
+Course Code: 6IT4-06
+Session: FIRST
+Max Marks: 20
+Submitted By: Dr, Saroj Agrawal/ Ms. Sanju Choudhary
+3,Comparison:Network OS vs.Distributed OS
+Feature
+Network OS (NOS)
+Distributed 0S (DOS)
+Definition
+Manages resources in a networiked
+Mansges retources across multipie
+rystems as a single urit
+Autonomy
+Each node runs independenty
+Nodes work in collaboration
+Resource
+Users explicitly share resources
+Sharing
+Resources sre shared transparently
+Fault
+Limited fault tolerance
+Tolerance
+High fasult tolerance with redundancy
+Example
+Windows Server, Linux
+Amoeba, Mach, LOCUS
+Bloom Level: Evaluatina (Level 5)
+Ans 5 Discuss the graph models for Process Represertation in Distributed Systen.
+• Graph representation
+- Nodes processes
+- Links can be bidirectonal (undirected graph) or
+'Linkscan haveweigtis torepresertderent
+(ude/5pspaup) (euogaupun
+things (Ex. delay. length, bandwigh..)
+-Linksinthegraphmay ormaynotcorrespond
+win physical links
+Examples
+Clicnt enve sodel
+SoaTeo
+Page 4
+
+======================================================================
+PAGE 60
+======================================================================
+
+SwSkiTeshvanand Institute of Technology, Management & Gramothan, Ramnagaria,
+Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term.Examination, March.-2025
+Prog./Sem.: B.Tech, VI sem
+Course Titie: Distributed Systems
+Course Code: 6IT4-06
+Duration: 1.5 hours
+Date: 1/03/2025
+Max Marks: 20
+Submitted By: Dr, Saroj Agrawal/ Ms, Sanju Choudhary
+Session: FIRST
+A6> Discuss the language mechanism for synchronization in distributed systems.
+Synchronization mechanisms ensure proper sequencing of events in distributed systems. Some language-based
+mechanisms include:
+Monitors: Encapsulate shared data and provide synchronization primitives.
+2.
+Message Passing: Uses send0) and receive0 primitives for inter-prooess communication.
+3.
+Semapheres & Mutexes: Cortrol access to shared resources using wait (P0) and signal [V0) operations.
+Condition Variables: Used in monitors to delay processes until s specific condition is met.
+A 7. Describe architecture of RPC and RMI in DS. Write a case study of any one (either RPC or RMI).
+Remote Procedure Call (RPC)  It is a communication paradigm that has an ability to invoke a new prooess or a method
+the message is passed to the required server process using communication protocols. These message passing
+on a remote process as if it were a local procedure call The client process makes a procedure call using RPC and then
+protocols are abstracted and the result once obtained from the server process, is sent back to the client process to
+continue execuftion.
+he Padel
+Terver Fedtel
+The RMl system consists of three layers: the stub/skeferton (syw, the /emote refevence laye, and the ratsport ibyert The
+boundary at each layer is defined by a specifi; interface and protocol; each layer, therefore, is independent of the next
+Page 5
+
+======================================================================
+PAGE 61
+======================================================================
+
+Siskiteshvanand Institute of Technology, Management & Gramothan, Ramnagaria,
+Jagatpura, Jaipur-302017
+Solution.of Question Paper
+IMid-Term.Examination,March-2025
+Prog./Sem.: B.Tech. VI sem
+Course Title: Distributed Systems
+Duration: 1.5 hours
+Date: 1/03/2025
+Course Code: 6IT4-06
+Session: FIRST
+Max Marks: 20
+Submitted By: Dr. Saroj Agrwal/ Ms. Sanju Choudhary
+and can be replaoed by an alternate implementation without affecting the other layers in the system, For example, the
+current transport implementation is TCP-based (using Java sockets), but a transport bastd on UOP couls be
+substituted.
+To accomplish transparent transmission of objects from one address space to another, the technique of object
+serialization (designed specifically for the Java language) is used. Object serialization is described in this chapter only
+with regard to its use for marshaling primitives and objects. For complete details, see the specification Object
+Senialization (n the lava System.
+Another technique, called dymamie stub loading, is used to support client-side stubs which implement the same set of
+remote interfaoes as a remote object itself. This technique, used when a stub of the exact type is not already available
+to the client, allows a clent to ute the Jara language's built-in operators for casting and type -checking
+Architectural Overview
+The RMI system consists of three layers:
+The stub/skeleton layer - client-side stubs (proxits) and server-side sikeletons
+The temote neference layer - remote reference bthavfor (e g itvocation to a single object or to a replicated
+object)
+The transport layer - cornection set up and management and remote object tracking
+The application layer sits on top ofthe RME system, The relationship between the layers is shown in ihe following figure
+Page 6
+
+======================================================================
+PAGE 62
+======================================================================
+
+SsKikeshvanand Institute of Technology,Management & Gramothan, Ramnagaria
+Jagatpura, Jaipur-302017
+Solution_of Question.Paper
+LMid-Term,Examination,March-2025
+Prog./Sem.: B.Tech. VI sem
+Course Title: Distributed Systems
+Course Code: 6IT4-06
+Duretion: 1.5 hours
+Date: 1/03/2025
+Session: FIRST
+Max Marks: 20
+Submitted By: Dr, Saroj Agrawal/ Ms. Sanju Choudhery
+Client
+Applicazion
+Server
+Stubs
+Skeletons
+RMI
+System
+Remote Reference Layer
+Transport
+A remote method invocation from a client to a remote server object travels down through the layers of the RM system
+to the client-side transport, then up through the server-side transport to the server.
+A client invoking a method on a remote server object actually makes use of a stub ar proxy for te remote object as a
+inplementatien of the nemcte interfaces of the remote object and forwards imrocation requests to that server object via
+the remote reference layer. Stubs are generated using the rmic compiler.
+The remefe referance Jayeris respensible for carrying out the semantics of the invecastion, For examgple, the remote
+reference layer is responsible for determsining whether the server is a single object or.is a replicated object requiring
+communications_.with multiple locations. Each remote object implementation chooses its own -remote reference
+semantics/whethr the server is a single object cr is a replicated object requiring commusications with its replicas.
+example, abstracts the differert ways of referring to objects that are implemented in (a) servers that are always running
+Also handled by the remote reference layer are the referenot semantics for the server, The remote relerence layer, for
+on some machine, and (b) servers that sre run only when some method invocation is made on them (activation). At the
+layers above the remote reference layer, these differences are not seen
+The rangortis resgonsele for connectien set-up, cornection management, and keeping track of and dispatching to
+remote objects (the targets of remote calls) residing in the transport's address space.
+In order to dispatch to a remote object, the transport forwards the remote call up to the nemote reference layer. The
+Page 7
+
+======================================================================
+PAGE 63
+======================================================================
+
+Swskieshvanand Institute of Technology, Management & Gramothan, Ramnagaria,
+Jagatpura, Jaipur-302017
+Solution of Question_Paper
+LMid-Term.Examination, March -2025
+Prog./Sem.: B.Tech. VI sem
+Course Title: Distributed Systems
+Duration: 1.5 hours
+Date: 1/03/2025
+Course Code: 6IT4-06
+Session; FIRST
+Max Marks: 20
+Submitted By: Dr. Saroj Agrewal/ Ms. Sanju Choudhery
+ai os isanbau aui ino Gutpuey aaopaq auop aq ot spaas ji souegag eprs-amuas fut sapuery aiey aouayai agcuai
+server-side skeleton, The skeleton for a remote object makes an up-call to the remote object implementation which
+carries out the actusl method call
+The return value of a call is sent back through the skeleten, remete referenoe layer and transpart on the server side, and
+then up through the transiport, remote referenoe layer and stub on the client side.
+Java RMI example:
+A banking system where a client remotely accesses account details.
+The cient sesds a requtst to the RMi negistry, which locates the acpropriate remote object cn the server.
+The server executes the method and returns the result to the client.
+Page 8
+
+======================================================================
+PAGE 64
+======================================================================
+
+SwskiT eshvanand Institute of Technology, Management & Gramothan, Ramnagaria,
+Jagatpura, Jaipur-302017
+Solution.of.Question.Paper
+IMid-Term.Examination,March-2025
+Prog./Sem.: B.Tech, VI sem
+Course Title: Distributed Systems
+Duration: 1.5 hours
+Course Code: 6IT4-06
+Date: 1/03/2025
+Sessionc FIRST
+Max Marks: 20
+Submitted By: Dr, Saroj Agrawal/ Ms, Sarju Choudhary
+Page 9
+
+======================================================================
+PAGE 65
+======================================================================
+
+dlottst efTachaolao.MasigmtaGraesthan.jiper
+1-id Tere tasihute,Matb-2125
+Coune Tite:
+Cedr
+615-11
+Duraticrv
+Susinas
+Jesiasneand
+Cueitice
+Marks
+Ma.
+BHeartencetaepstingalangwihiscljecthes.
+Wiutaee deshevage/ssefatarealcesdhrasinaarerrer
+qam
+Mal.
+Mark
+usediaed sin Cw aigaian and recasmred bent practice ts
+Bona ow che b he priadger cudid e the dead
+referesnmsdlas besft SarispTladesigteeod eeperiu
+Chatarerekerantu Sancp Vimeiresessasdephinhow dey
+ceeeudrtoscaktty.srewrtg.ndpefartana
+AssyehesMapluduelaedoudceheyEessmerosFuora
+Lee
+igMgfetumdksuhutko
+rotasas coesiduone ber deyleyirg reahine aealyies
+Sady fer Fiauedd lotsties Trigresas pnsieit Disouns hre
+nadereiasss
+canpiaace
+asd
+reptsry
+geals for
+Page1of1
+
+======================================================================
+PAGE 66
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-30z017
+LMid-Term Examination,March-2025
+Solution.of Question_Paper
+Prog./Sem: B.tech/V1
+Course Title: Cloud Computing
+Duration: 1.5 hours
+Date: 08 March,2025
+Course Code: 61T5-12
+Session : SECOND
+Max Marks: 20
+Subenitted By: Dr. Anil Chaudhary, Mr. Jageadra Singh Chaedhary
+5, No.
+Course Outcome
+Percentage
+Understand the fundamental principles and architectuee of cloud computing
+Coverape
+(0]
+40%
+002
+Analyze various cloud service models (laaS, PaaS, SaaS).
+60%
+E00
+Idenify security, privacy, and cemplance issues in cloud envireements.
+004
+Diseaver scalable and resilient cloud-bused applications.
+005
+Evaluate economic and business implications of cloud computing solutions
+S. No.
+Bloom's Level
+BL1- Remember
+Percentage Coverage
+BL2- Understand
+20%
+10%
+BL3-Apply
+BL4- Analyze
+20%
+BL5- Evaluat
+50%
+BL6- Creatr
+- Questien Paper Solution --
+EART-(shortaswer.ope_eeatinns)
+(Kaogedaes ur saagsasb im)
+Ql: Brief thx tern clane rompating alerg nith is etijectives
+aalyics.and incligacrmer fe intomt rle det'j te offier faser insnatin, ficsible resouree, ansd aonontics of scale.
+xNS: Cloolcanputing is te delinoy ofoarpuring senicesisdaliag sonurs, seog, drubeses, teeakting seivcare,
+You typically (puy eily fer claad scrviccs yes ue, hclping yea lewsr your ejcrating coss, ras yeer iefiasracture rere cfficiearly.
+and calg a your pesiness gecks chenge.
+Cleed coapuieg aies te pronvide on-derund, siulable, aed efficisl competing reseerces. Tar key objectics inclader
+CoaEffcimky
+Scalahiliy & Flpinility
+-Acccsihility A Collabotation
+-Rzliaility & Bucrcss Coetinsity
+Sexumty & Crephasr
+Amnaice & S/l-Smice
+Energ Effkhmy & Setairuhiht)
+Page 1 of
+
+======================================================================
+PAGE 67
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution_ofQuestion Paper
+LMid-TermExamination,March -2025
+Preg./Sem.: B.lech/VI
+Course Title Cloed Compating
+Duration: 1.5 hours
+Date: 08 March,2025
+Course Code: 6IT5-12
+Session : SECOND
+Max Marks: 20
+Subanitted By Dr. Anil Chaudhary, Mr. Jageadra Singh Chaudhary
+(Q2: What are te aevantagis/main featares sf dsud iafrastructare amer ceementieral physkcal infraufrectere?
+NS: Clesd itfstnxherr dfen seroal starfaga over tradiaaual on-rcminespetycical indiastnscure, sakicg it o prefemee
+choice Far businesses ind individuals.
+Piysiesl isfrziraterc rcqtires hip iniist imonont andonpirg raisctusc coes
+1. Cost Eicimry
+2. Soalabiliy & Flesiblity
+Phyikxl isfrnoinkdare is linied by anailaM: kedxzc and tapires matl upgades, vlich arr (osly asd tine-atasing
+Piysikslisfrstnctert is psmne to filere (eg, hahwae crashs powar eugeso. loading te data less and deomtine.
+3, High Axuilability & Reliabiliry
+Plrysicsl isfancture requires ee-six pemxe, lindting accesibility asd celuboraie.
+4. Aecessitiliry & Repote Woek Suppet
+Pfyskcal isftamcture reqires dadicated secwrity tar6 asd (estcen skcwrity impkomestatioro increairg compleity adoot
+5. Sererity & Cempliancr
+Ftrysical isloatructev dopleymat sukes wedks er atoeds de ie lanliarc pexurconedf inlsehp
+6. Faiter Depleynest & Autamution
+Plrysical infastructue rnires dedicated power and ooling, increising agoratiorul cests
+T, Encrg Eficiktsy & Sastainability
+≤. Gabal Rrsth & Cenimt Datinery
+Physical iofiagtrocture is linited to a single lxatfion, lesdisg te high lakcrey far distirt uscs.
+QO: Esplsis difircst dolongn facrd in Clusd Coapatisg scheologs.
+thc kcy chellengex inclade
+ANS: Cleed conspeting effims nunmaus benefis, but it alse pres(nts several challoges fhat orgatizatioro reet adrca. Senc ef
+brcaches, unauthorieedacces, mnd coriplianxe with dailn jpreiectioe noplatieas can arisc. buaring Jaa peivacy asd ingkrsenting
+LSerurity ase Pviray Coneerec Seority remuiss a kp cascrme fe hesineucs noringtoihe dleez. Isais sxh as dita
+robsut security measeces are critical.
+HIPAA is the Uaied Sasks. Orgmistios rut emare camplince sie thene repletios uhen Sering end procosisg dta in thke
+2. Data hratectias ase Complatci: Diffeszt rogioss luve varying drtu pueeiee repulsiee, sch s GteR in Euragc ar
+3. Data Sorerrigrty: Dats stored is the cloud ey he soljet tothe lw> and regaluitioro of the cruntry vlharc thx data is physically
+cload.
+lacatad This cani sise conxami shou deta sovenipety: (opaciolly nhce ing ckolenkcs halal in nraligls nyiees
+varioss ficors skh as neraorl osags, hanhcere faelro, ar sotlioarr hos Erwaring alialle aeces to (loud senices is cssotisl
+4. Dowstimr snd Rdisbility: Despite ligh ugine rorantes jprecidedby cloud senke provides, doontine cun sil ociur dec le
+5, Vender Leck-la: Mening to a picifec claud provider can lkad ta vesder leck-in, ralking i dificuk to mipralc senrices ar dsu to
+naher pomider. letmopershiity sdandardi asd careful plauing canhclpreinganc dhis ris
+Page 2 of
+
+======================================================================
+PAGE 68
+======================================================================
+
+SKIT
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.ofQuestionPaper
+LMid-Term Examination, March -2025
+Prog./Sem: B.tech/VI
+Course Title: Closd Compating
+Duration: 1.5 hours
+Date: 08 March,2025
+Comrse Code: 6ITS-12
+SessionSECOND
+Max Marks: 20
+Submitted By: Dr. Anil Chaedhary, Mr. Jageadra Singh Chawdhary
+6. Prfermasee asd Latescy: Perfonaanxe issxs and lutesiy cae ocw uhen acessing ckudsenviccs, cspecially ifhc dsa
+carters are lecated far fion the uscrs. Opinsizing netwark ceefiguratiors asd otilizing contest delivery neorks (CDNs) can belp
+1, Cost Mamsgtnest: Whilke deed ceetsisg offens scalihility snd ool-ffectirmes, it'v euential te nesitor snd rurag cloud
+irprove perfomsance.
+E. Complesity of Integration: lelegrating coed sanvices vrah esisting ea-gemises systers aad appicatians (as bxe (onpks.
+sage la avesd enespected esperses. Clood eosis can qtickly escalate if resarecs are not grrvsioned and ruraged efficicmtly.
+S. Duta Traadfer Bettlemecks: Torsforieg large vekumes of dr to and fom the cleed cas be timnc_corourisg and oosfy.
+Conpatibility istes, dats migratice challesgel, and the nced for specializcd skils iruy arise durieg the ietegration pracrss.
+egpecially over the iesemet Employing efficient dita transfer meibasisns and corsilering fie it of dodicated nchwerk cornectiess
+1e. Resouret Allscatien snd Scalahlity: Preporly alloxcating nsources and scaling closd intastructure to mset chunging dereand
+uP2 S 3 dpue2
+Ple cn be chulleaging Maping sueeutol cliny medtetiss ad ckncly nciteirg oaecr uilzzies con lcly gtinix
+perfamresce anxl oxits.
+EaRT-BAtalstical(bshlcmusbiazguotiaas
+Q4: Determin fhr besfts of migrating Finundial lastitstiss V'slegay banliag applikcatios to the dleed. Discuss thke
+(Kue(ndeuss sut seeposb gV)
+poteetial rhks asadiated wita the migatias and recommced best practices te easere a smssth transition.
+Migrzing a legacy hanbisg applikatioe to the cleed provides severil advastepes
+I) Bencfits af Cleod Migrstice far Finindal lnstitetiss Y
+a) Cas Efficiency
+Lowe Isfradnictire Costs  Ne xed te naintais cspeasise ee-premises severs
+Pay-Bi-yee-ge Pricitg  Fisancial Iatitution Y (uys ealy fer the rescerces tscd.
+by Sclability & Perferronr
+Inprored Prfaoreace  Cleed daa contenc use high-perferranee oomputing asd storage.
+Aute-Scalisf  The doed cas huedle increaed arsacticn lools duning pesk times.
+c) Security & Complianee
+Advasecd Security  Cloud pretidars cffer enoyptian, firewals, ae idesity nanogrn(nt
+Regulakory Conplisasx  Clrad scrviccs carply ib feaicial wglaiees (ISO 27eL, PCIDSS, GDPR),
+d) Badineer Continsity & Bicaster Recetery
+High Arailslilily  Clrsl ctures 99.9% ugim wing redasdancy and filovcr mechunisn:
+Badoup & Disaste Reeovery  Autoroted tedkoups protecl agiest data koss.
+r) Accrssihiliry & lasevatins
+Forvtc Btnkrg SenxesErploytas ad castaean tan seorely acces lanking aplikcations froer atyshc
+Al & Macine Lcinaing htcgrtire  EruNos find dexction rid managnn, at do areltis
+Page 3 of
+
+======================================================================
+PAGE 69
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution of Question Paper
+LMid-Term_Examination,March-2025
+Prog./Sem.: B.tech/V1
+Course Title: Closd Compating
+Duration: 1.5 heurs
+Date: 08 March,2025
+Conrse Code: 61T5-12
+Session : SECOND
+Max Marks: Z0
+Subnitted By: Dr.Anit Chaudhary, Mr. Jagendra Singh Chaudhary
+Z) Potcntfial Ridks ef Cood Migraticn
+Despite fhe bonefits, migating firuncial applicaiees to the cloced cores vritk risks:
+Risk: Sersatire finuncial dins exuld be eponed daring nsigration.
+a) Dats Security & Prixacy BRisks
+Mitigitionc Use end-te-exd eiryption and sessre seces corols (IAM, MFA)
+b) Doatime & Sersiee Disruptisns
+Mitiptior Tefam suppdaipxiat ard we lod hdating o ririnize fisnptiors.
+Risk: Migration errors can cause banding sercices to lkeceee kmpararily urgtailable.
+ Coapliancr & Regelatery Chalosgs
+Misiptice Chose claul prerikrs fut men PC1DSS, GDFR, IS0 27t01, asl lecal usking lirrs.
+Risdc Firuncisl dits rasl eenply with barlieg repolatiens.
+Risk: Dependescy oe  single dleed provider can linsit flesihility.
+d) Vendor Lack-Is
+Miprioe Use mhi-doul er hytrid desl eritcgias te aoil lec3-in
+3) Best Prartices for : Smooth Clood Migztiae
+Strg 1: Cloud Readioess Assessmest
+Evaluate the lkegacy sskn archaeitere, depeedekiei, inl cenpliance requiremors.
+Besemire vhether spublic, privux, orhybrsd dleee is suisobile.
+Step 2: Choexg the Righi Migraltioe Svategy
+Migration Strategs
+Diseriotion
+chating iLa & Sain/ Move arelkatice witou medificice
+Ouck migrmce vah aisirul chanes
+When ta Ue?
+Replifeine
+22uneayu2d pr(3 ay 22k0
+Prixtarng
+E sral mogficasices can improut pefermonce
+Redesign application far cladative archikcawc lest far nadomezing legac vytcns
+Eheryt dst is ugsin and al rest.
+Step 3: Dsa Sexctrity & Conpliascc
+Inplkerent 1AM reles, Msli-Facior Asfhontication (MFA), and sccess contrels
+Coedset reglar secerity nadits.
+Stat with cee-cratikcal wokloub hedire mipating cere banking scrtico.
+Step 4: Condox11 Phased Mipirice
+Use jarall centinonncets (onpentibes + cksd) e nininirc dovminc.
+Stg 5: Cozuous Matioring & Oyinticrtce
+Irplenstt rcal-tine inonisring fer perfereurce asd s(curity
+Use Ano-scaling and Lced Balancing to landle saic yikes
+Page 4 of
+
+======================================================================
+PAGE 70
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+LMid-Term.Examination,March-2025
+Solution.of Question Paper
+Prog./Sem.: B.tech/VI
+Ceurse Title: Geod Compating
+Duratiot: 1.5 hours
+Date: 08 March,2025
+Course Code: 61T5-12
+Session :SECOND
+Max Marks: 20
+Subrmitted By: Dr. Anil Chaudhary, Mr. Jagedra Singh Chauthary
+(S: Esaniar bow adherisg ts the principlis outlised in the dssd referemce modd cae bescfit Start-op V In designing and
+deplaying their SaaS platforn. Idcetity hry cangscats ef hr rofernce medel that are rderast to Start-ep Y'
+reguiremuts aad aplals he they ceetrihete to scalability, security, asd perfarmunee.
+ANS: A Chaad Refeme Mokl peids sctuclpredh fer dsipi d deplayjagdeed-heed xdlutim,ansrig fh
+Suri-p Y'sSobxzte-s-+-Senict (Sea5) glatfamn is kalhet, secirt, and hgh-performing
+1L. Key Benefits af Adhering te the Clesd Referesce Model far Strart-up Y
+L1. Scalaiiry
+Elassic Cooupute & Stasagr: Srangp Y cas soale is eampeting and storagr eeeds eyvarically besed on dernasd.
+Micre sevices Awhitcecure: Allews iadkpeadet scaling df difloat.onpeeas
+Lead Balirging & Auio-Scahing: Enseres srooth performeancz cven ender high trafic.
+1.7. Security
+Idefay & Access Maragimemt (IAM): Ernsures seouwre aces (oetol o tle SaS plafom
+Carrgtuzee A Gowmascx: Aligs vith regilaztoryrogiranems (GDPR, ISO 2T0t3, ec)
+Data Escrgptiee: Protects sensitivt citilener deta iE rest asl in traroia.
+L3. Perfermance & Rliahiliry
+Susn p(T g sognggsp sa e speeg (NdD) powoln Gangl tEapo)
+Muli-Regice Deployeiant: Redaces lalemncy by placing scrveis cleser te usars.
+Contimss Meeitoring & Legeing: Detcrs and rmitigtes porformeance bottlerecks.
+2. Key Cempenents of tke Cloud Refermre Medel & Their Rslke in Siart-ep Y's SasS Platfam
+Companest Rckvanee to Stsri-sp Y Coatriboticon te Scalstiliy. Secerity & Perfarmonet
+lefrastrectere as a SesieeFresides canpxting, storae, and
+(laaS)
+actworking on demand
+Frubles autascalisg, flr itlr reseercr presisiasisp
+and cant efficiency.
+Nufues:Sodet
+Offes masagoe daseses, A sevoe
+(FaaS)
+nd DevOps toals
+SinpliGes developmes, enbasces spcsrity, asd
+aceederates deplornemt
+Safraare as a Service
+Tae SaS plafora iself, &civerig
+(SaaS)
+services to cunoner.
+Easures atailabiliay. dubul accris, and snasdes
+IAM Frcsalb. Frcryptiom
+Sesurity Lager
+cerepliasce
+Eeswes data pratnctias, acress castrsl, aad
+Netwerking & Coamrstisity
+aad Ralaicen, CDN. VP%
+Echasces labeny redodtiee, inailahility, and
+prfornace
+Page 5 of
+
+======================================================================
+PAGE 71
+======================================================================
+
+Swami Keshvanand Institute of Technology,Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+LMid-Term Examination,March-2025
+Solutionof Question.Paper
+Prog/Sem: B.tech/VI
+Course Title: Cloud Computing
+Duration: 1.5 hours
+Date: 08 March,2025
+Course Code: 61T5-12
+Session SECOND
+Max Marks: Z0
+Submitted Bly: Dr. Anit Chaudhary, Mr, Jagendra Singh Chaudhary
+3. Implemestatiss Recommcedatiomo far Start-sp Y
+To fully kvenage fae Cloud Rekrcnce ModelL Suri-g Y shode
+Chane the Rigat Cloud Provider (AS, Azre, asd GCP) fr latS & PauS sentices.
+Use Maneged Datahases & Server les cerputing te optimize coots & perforuncz.
+lrplemeni Zao Tnut Scceriy wing TAM, MA, nd eanincs seurity etioring
+Adegt CICD Pigelines for flot foploymeer & sofisare wplires.
+Levaroge Al-hised Moriloring lo deicet thrcatb & optinizc reseerecs szuonazically.
+By sliging vith the Cloet Referesce Medet, Sun-p Y can luil a salatle, secwre, and hig-perfaming SatS platfem. This
+Cenclesien:
+Elistie scaling to kandle user prenth.
+tep ixsrrs Mann eseal ar Sgraar (npg
+Reliable perSomrance far a suniks oser eoperienke.
+PART:C.(Desoigtive/doalytical/boblenusalbing/Dcsign.gcatiens)
+(Attempt any one Questien)
+bchurioe ta ingroe perfermuner snd scabhility, Diuceu de ardlitrctur and isphemratation ceesideratisss fer dpleying
+Qi Anslher bo Mapiteeacr in the deed cn hep Ecsnmrev Patfern Y analysis mtbsite tafic putteores sed tser
+real-tinr anilytics usisg MspRedect on clood platlarms.
+ANS: E-conneree Putfime Y can tmw MapRadacc is the ckad so asalywv wvhsite wafie patami asd uiar hehnier cfficicefly, By
+procesing large-scale daa distrihutod across neskiple seners, MapRedoce eaublci scalatlc, igh-pcrfornancc asalytici that halp
+irprovs sper cspericnc, optinixe irurketing seategies, aed (thasae infrasnkturt salability.
+1. Baw MapRedece Beeefits E-cenmerce Platfam Y
+1.1.Scalability & Perfermunce Optimization
+Handies Big Dets Efficicntly, Mapltodxct cn proceas iasiv ditosits te g- eiliaus af wchile visis in peralc.
+dh posh ptt opaaipq,iauos seaxaud e speuip)snpop 2bhipe ssoot gpt 3apigp (g pmem, aqued
+(nguring qtkck iroights
+AnoScliag ce Codt The clasl erkmticlly proiseeu tsonse hnel oe dennt cuceg co-cfintine scakhilty
+dt pacong
+12 Inproroe Drer Bnicer lesighs
+Clicktrcan Aralyin: Tsxks nthich puges oscrs visit their tinr rpetL and thcir ruvigatiomn pethe.
+Session Analysis: Iksiies fioquem bop-eff pointx and olence UIUX acoordiegly
+Perchuse Bchatior Prclitian: Detects papula prodecti, albundeel cars, andcuslomer beying puticres to irpeorc
+reeommedatm.
+Pagefof
+
+======================================================================
+PAGE 72
+======================================================================
+
+SKITE
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+LMid-Term.Examination,March_-2025
+Solution of Question Paper
+Prog./Sem. B.tech/VI
+Course Tite Closd Compatint
+Duration: 1.5 hours
+Date: 08 March,2025
+Course Code: 6fTS-12
+Session SECOND
+Max Marks: 20
+Subenitted By: Dr.Anil Chaudhary, Mr. Jagradra Singh Chaefhary
+1.3. Real-Tine Analytics & Decihion Making
+Frmad Dctection A& Anortaly Idmtificarsioe: Monitans umursal hitaxior (e-g- peax4 failedlogis anxrps) te prevest
+Deleel Tnffic Spikes in Real Time: Prerents dewntime by scaling infrinuctare dynatically.
+cyber threats.
+Persoealized Markitiag: Segrknts uses tused on bressing habits and rexemes gilored prometiors.
+2. MapReduce Architeetare far Clsse-Based E-eammirer Analyties
+Maptstscr cosits efthrnt rein pheses
+2.1. Ma Phase:
+Ihpst Drtu (W'chsite lkogs, user tlicb, trsrasction recenb) ib sglit imo chunks.
+Maapers proces cach chunk to estact relecant insights (e.- nurtber of clikcks per prodect)
+1.2. Shuffle & Sor1 Phase:
+Irtemeedirte Kery-Value Poirs are generated (e g, (°Prodxt A*, Soee clicks).
+Iitrmedse key-uboe peins art satict and gouped ly kry beforr lcing sct lo fie rekixes.
+2.3. Rdoet Phase:
+Roduxes aepregatz tle nuped dete (re.g, tetal visats per pralact).
+The firal preecssed fasa is stered is cloud-bused skrsg (HDFS, S), BligQlecry) fer rcperting
+3. Implcmrstatiss Caesideratioro fie Baglging Mapltcbsr om Cleud Plzfarm
+3.1. Choosing thr Righi Cloud Platferm
+Goegle Clkood Duaprec
+AWS: Araaon EMR (Elastic MapRedacx)
+Azure: HDInsight ,
+3.2. Staragx Csssideratioms
+Lsc dssihetcd skorax like IDTS, Ananon S3, or Geeglke Coed Siuragx telendl/ larpt-scalc deta -fficikcntly
+3.3. Optinizing MapRcduex Perfarmanst
+Daba Partisoeing & Paralicl Poccusitg: Etinres faslcr ceeputation by brcaking datu ito snllar chsunto.
+Using Spx Isstancex fie Crst Efficieicy: Reteres ces by runting jobs on lotur-cost insrances.
+Corrpression x Dua Locality Miintioes dala liansfer exahead
+Page 7 of
+
+======================================================================
+PAGE 73
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution.of Question Paper
+LMid-Term Examination, March -2025
+Prog./Sem: B.tech/V1
+Course Title: Cloud Computing
+Duration: 1.5 hours
+Date: 08 March,2025
+Course Code: 61TS-12
+Session : SECOND
+Max Marks: 20
+Submitted By: Dr. Anil Chaudhary, Mr. Jagendra Singh Chaudhary
+3.4. Real-Time Asalytikes nith MapRefoce Alersatives
+Apakcbe Spark (faster fhan Haleep MipRedlece) fer rcal-timc sircaring.
+Ksfes + Sperk Sreaming fe ive raffic mnoritaring
+Raw Data (Logs, AP()
+Map Phase, User Session Data
+Shutle & Sort (Grouping bry Key)
+Reduce Phase (Conversions)
+Cloud Storage (S3, BigQuery, HD5)
+Deshboard & Reports
+Condlunkn
+By letanping Mpltcohse re cleed platirms E-carnerce Plaforn  carc
+Precess rasine website taffik daa efficicntly.
+Scale reuurea dyrueically o bndis pck lsab.
+Gain deop isiphus io scr bchatsr fer pcrioruluarice.
+Page 8 of
+
+======================================================================
+PAGE 74
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+LMid-Term.Examination,March-2025
+Solution_of Question Paper
+Prog/Sem: B,tech/V1
+Ceurse Title: Cloud Computing
+Date: 08 March,2025
+Duration: 1.5 hours
+Course Code: 61T5-12
+Session : SECOND
+Max Marks: 20
+Submeitted By Dr. Anil Chaudhary, Mr, Jagendra Singh Chauthary
+(Q7: Outline thr potcetial beeefits af each coud serviee model (laaS, PaaS, Saa5) far Finindial lastitetiee Y's migraticn
+project. Bisess haw eac senie modd adiges uah the iastieurtica'> peah far slouizatin, secarity, smd emplinet sie
+regulatsry requirenests.
+ANS: As Firascial ltstintin Y nes uo fhe dout, sdeting fiript clrad smiax modilk will be key to aclievieg
+modertizgtion, iecerity, asd regslalary cerpliac. The three prirary claud medels—Irdiasrecaure as a Servioe (laS), Pleafacin as
+≤ Serticr (Psa5), ssd Saftvare ss a Senior (Ste5)offer unieee ahantapes fhat alig sinl thle iagtinetion's gulb.
+1. Isfratrecture as a Service (laa5)
+Petentiul Benefis fer Firuncial lestiotion Y:
+Scsllility & Cost Effcicncy  Flastic corsputisg resources crst
+insfatructas.
+cos>effective sraling uitheul fhe seed for of-pretises
+Secwily & Corrol  Full camrol (ner seners, skwagt, ansl eevorking allows cuslom security irplenentatiens
+Disaster Beerreory & High Availahility  Rounsent dra skags sed fzilover mecuriss inpresv sysxei reliahility
+Alipnent with Itstitetion's Gouls:
+Nodesinfor: Shits infastnuctze to deee-tased data olttos He f- AWS EC2, /Aere VMso.
+Seeerity: Coston firewalls, Idesily & Aecess Matagemost (IAM), sd cncyptien cshace security.
+Bsghixy Conglisscr: Mors PC3-SS, GtX9, snd IS0 2301 tasdrnd hy allowing fisanciat instisuiees to irplen(e1
+neccssory seourity certrols.
+Use Caor Esample:
+Hesting ore bankieg ipplikcwioes asd risk imulysis spskemts en vinul ntxctiss in the ckssl
+1. Platfarm an a Sersikr (Paa5)
+Pat(etial BeedSits Se Finas(ial lesitetion Y
+Fst: Developemem A Deployinctl  Pre-configs
+creble rapid spplikation devclegent
+Al & Ilig Tuts lexgnioe  Suppons adranced analylics, firsd detectoe, and Al-dives firakial irsighrs
+po 6 ale4
+
+======================================================================
+PAGE 75
+======================================================================
+
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+Solution_ofQuestion Paper
+LMid-Term.Examination,March._2025
+Preg-/Sem: B.tech/VI
+Course Title: Cloud Computing
+Duration: 1.S hours
+Bate: 08 March,2025
+Course Code: 6fT5-12
+SessionISECOND
+Max Marks: 20
+Submitted By: Dr, Anil Chaudhary, Mr. Jagendra Singh Chaudhary
+Aligrreez with Instisgies's Gcols:
+Modemizatian: Ensbles clasd-aatite appliostion denelepnmt uning frmeworls tike Aaure App Senices or Google Cleed
+Aop Engine.
+Secarity: PaaS pretidas lasdle security updaxs, reducing vulnerahilities.
+•Regsletary Complience: Astaruted lagging and aoditing eipuhilities hdlp in compliascc roporting
+Use Casr Esample:
+Depleying neebilc baunkieg apps, faed detiatian maddls, ind Al-triven crelit rik ssesnsmts.)
+3, Softnare as a Sersiee (Saa5)
+Potental Benefts fer Firunciul lrstigies Y:
+Ne hlhiatructire Mrmagmest  The ckud protider hndiet bosting security, ane rtaintesance.
+Fasy Conplianoc & Seourity  Leading SeaS providers adhere to sriet fintecitl reslitiors.
+Seankes Updes & Salihelity Ausrutic sefumr agdlites eneure complianer with rrolviag iedesry standuns
+Aliguncel urih IisButior's Gouls:
+Medemizatioe: Usex SaS-busd CRM, fiaarxial ospertiog, aet dcutes nitagones tyicns (c g- Salsisgr.
+Mistosofi 365).
+Security: Duts encryytion an) beilb.in aces (angrols pratcel sctsitive cestoer data
+Bepilatory Cerplince: Mees financiul irskutry stindurds (SOX, PCDSS, GDPR, ek.) sath witimal configirstion
+cffori.
+Use Cae Exanpke:
+U/iliting SatS-tesod firurcrisl mataemat soals, ceoinir reliutioeship masagenet (CRM), and cerplianct repertirg
+ipplicstors
+Page 10 of
+
+======================================================================
+PAGE 76
+======================================================================
+
+SKT
+Swami Keshvanand Institute of Technology, Management & Gramothan,
+Ramnagaria, Jagatpura, Jaipur-302017
+LMid-Term Examination, March -2025
+Solution of Question Paper
+Prog./Sem. B.tech/VI
+Course Title: Cloud Competing
+Date: 08 March,2025
+Course Code: 61TS-1Z
+Deration: 15 hours
+Sewxinn:STCOND
+Max Marks: 20
+Submitted By: Dr. Anil Chaudhary, Mr. Jagendra Singh Chaudhary
+4. Cangarison: Choosing the Right Cloud Medel
+IaaS (lafratructurc)
+PaaS (Platfarm)
+Frature
+SauS (Saftware)
+Coatrol
+Iigh (Full inrfirastnecure ceesol)
+Mclium (Lueied to app
+deploynet)
+Lew (Masaged by providar)
+Catemizatien Full flexibilty
+Pre-cmfigored cevironnetb
+Limited
+Custoes secarity policics
+Sccarity hendlod by provider
+Builb-in secerty & carpliancc
+Beil-in cerpliaxe teels
+Conglianit
+Reqsines anal inplencsation
+Fully conpliam nith fisancial
+regelatiaas
+Hosing (ore busking & risk anulysisDevekopieg Al-drivee firaneial
+Best for
+nedds
+sing pre-bealt finasial sclsurt
+syskenes
+(CRM, ERP)
+Conclasien
+Fer Finuncial Instiutice Y's cleed migatiaa, alybeid aproacl ceebining laaS, PaaS, and SaaS wil provide the best tulance
+between madamizatiaa, security, and canpliznce:
+laaS fir seere, ssleble infhasiructuere to last busking systces.
+PaaS fae fiute derelopnont of frrad deicctiee snd Al medeb
+SotS fer rcgelatery conapliascxc lool and cushoreer servicc platfisms.
+Page 11 of

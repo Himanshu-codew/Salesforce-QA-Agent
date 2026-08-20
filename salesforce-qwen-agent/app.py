@@ -225,6 +225,10 @@ class ChatRequest(BaseModel):
     file_info: dict | None = None
 
 
+# ── Session active uploaded files mapping ──
+session_files: dict[str, dict] = {}
+
+
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     """
@@ -236,6 +240,11 @@ async def chat_endpoint(request: ChatRequest):
             status_code=503,
             content={"error": "Agent not initialized"},
         )
+
+    if request.file_info:
+        session_files[request.session_id] = request.file_info
+    elif request.session_id in session_files:
+        request.file_info = session_files[request.session_id]
 
     user_message = request.message.strip()
     if request.file_info:
@@ -295,6 +304,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
             data = json.loads(raw)
 
             if data.get("type") == "clear":
+                session_files.pop(session_id, None)
                 if agent:
                     agent.clear_session(session_id)
                 continue
@@ -302,6 +312,11 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
             if data.get("type") == "message":
                 user_message = data.get("content", "").strip()
                 file_info = data.get("file_info")
+
+                if file_info:
+                    session_files[session_id] = file_info
+                elif session_id in session_files:
+                    file_info = session_files[session_id]
 
                 if file_info:
                     summary = file_info.get("summary", "")

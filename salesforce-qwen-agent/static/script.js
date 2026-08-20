@@ -1,8 +1,26 @@
 /**
- * Salesforce AI Agent — Chat UI Logic
+ * Salesforce Copilot — Chat UI Logic
  * WebSocket client with real-time tool execution display,
- * markdown rendering, and interactive chat.
+ * streaming text rendering, theme switching, and accessibility.
  */
+
+// ─── SVG Icon Library ───
+const SVG_ICONS = {
+    user: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>',
+    bot: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="8.5" cy="16" r="1.5"/><circle cx="15.5" cy="16" r="1.5"/><path d="M12 2v4"/><path d="M9 5h6"/></svg>',
+    copy: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+    check: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    fileDoc: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    fileSpreadsheet: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><line x1="12" y1="11" x2="12" y2="19"/></svg>',
+    filePdf: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M10 12h1.5a1.5 1.5 0 0 1 0 3H10v3"/></svg>',
+    fileImage: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+    fileText: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+    loading: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>',
+    error: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    tool: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>',
+    success: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    sparkle: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3z"/></svg>',
+};
 
 // ─── State ───
 let ws = null;
@@ -16,6 +34,7 @@ const messagesContainer = document.getElementById('messagesContainer');
 const messageInput = document.getElementById('messageInput');
 const sendBtn = document.getElementById('sendBtn');
 const clearChatBtn = document.getElementById('clearChatBtn');
+const newChatBtn = document.getElementById('newChatBtn');
 const connectionStatus = document.getElementById('connectionStatus');
 const headerSubtitle = document.getElementById('headerSubtitle');
 const welcomeScreen = document.getElementById('welcomeScreen');
@@ -30,23 +49,64 @@ const previewFileName = document.getElementById('previewFileName');
 const previewFileSize = document.getElementById('previewFileSize');
 const removeFileBtn = document.getElementById('removeFileBtn');
 const inputArea = document.getElementById('inputArea');
+const themeToggle = document.getElementById('themeToggle');
+const themeColorMeta = document.getElementById('themeColorMeta');
+
+// ─── Theme Management ───
+const THEME_KEY = 'sf-copilot-theme';
+
+function getSystemTheme() {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+}
+
+function getInitialTheme() {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === 'light' || saved === 'dark') return saved;
+    return getSystemTheme();
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem(THEME_KEY, theme);
+    if (themeToggle) themeToggle.setAttribute('aria-pressed', theme === 'light');
+    if (themeColorMeta) themeColorMeta.setAttribute('content', theme === 'dark' ? '#0B0814' : '#F7F5FC');
+}
+
+function setupTheme() {
+    applyTheme(getInitialTheme());
+
+    themeToggle.addEventListener('click', () => {
+        const current = document.documentElement.getAttribute('data-theme');
+        applyTheme(current === 'dark' ? 'light' : 'dark');
+    });
+
+    // Follow system changes when no explicit preference saved
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', (e) => {
+        const saved = localStorage.getItem(THEME_KEY);
+        if (!saved || (saved !== 'light' && saved !== 'dark')) {
+            applyTheme(e.matches ? 'light' : 'dark');
+        }
+    });
+}
 
 // ─── Initialize ───
 document.addEventListener('DOMContentLoaded', () => {
+    setupTheme();
     connectWebSocket();
     setupEventListeners();
     setupFileUpload();
+    setupSidebarBackdrop();
     messageInput.focus();
 });
 
 // ─── File Upload Helpers ───
-function getFileIcon(filename) {
-    const ext = filename.split('.').pop().toLowerCase();
-    if (['csv', 'xlsx', 'xls'].includes(ext)) return '📊';
-    if (['pdf'].includes(ext)) return '📕';
-    if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return '🖼️';
-    if (['txt', 'json', 'md', 'xml', 'log'].includes(ext)) return '📝';
-    return '📄';
+function getFileIconSvg(filename) {
+    const ext = (filename || '').split('.').pop().toLowerCase();
+    if (['csv', 'xlsx', 'xls'].includes(ext)) return SVG_ICONS.fileSpreadsheet;
+    if (['pdf'].includes(ext)) return SVG_ICONS.filePdf;
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return SVG_ICONS.fileImage;
+    if (['txt', 'json', 'md', 'xml', 'log'].includes(ext)) return SVG_ICONS.fileText;
+    return SVG_ICONS.fileDoc;
 }
 
 function formatFileSize(bytes) {
@@ -65,38 +125,40 @@ function setupFileUpload() {
 
     fileInput.addEventListener('change', (e) => {
         const file = e.target.files[0];
-        if (file) {
-            uploadFile(file);
-        }
+        if (file) uploadFile(file);
     });
 
     if (removeFileBtn) {
         removeFileBtn.addEventListener('click', clearAttachedFile);
     }
 
-    // Drag and drop support
     if (inputArea) {
+        let dragDepth = 0;
         ['dragenter', 'dragover'].forEach(evtName => {
             inputArea.addEventListener(evtName, (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                dragDepth++;
                 inputArea.classList.add('drag-over');
             });
         });
 
-        ['dragleave', 'drop'].forEach(evtName => {
+        ['dragleave'].forEach(evtName => {
             inputArea.addEventListener(evtName, (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                inputArea.classList.remove('drag-over');
+                dragDepth = Math.max(0, dragDepth - 1);
+                if (dragDepth === 0) inputArea.classList.remove('drag-over');
             });
         });
 
         inputArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dragDepth = 0;
+            inputArea.classList.remove('drag-over');
             const file = e.dataTransfer.files[0];
-            if (file) {
-                uploadFile(file);
-            }
+            if (file) uploadFile(file);
         });
     }
 }
@@ -105,7 +167,7 @@ async function uploadFile(file) {
     if (!filePreviewContainer) return;
 
     filePreviewContainer.style.display = 'flex';
-    previewFileIcon.textContent = '⏳';
+    previewFileIcon.innerHTML = SVG_ICONS.loading;
     previewFileName.textContent = `Uploading ${file.name}...`;
     previewFileSize.textContent = formatFileSize(file.size);
     attachBtn.classList.add('has-file');
@@ -116,42 +178,33 @@ async function uploadFile(file) {
     const startTime = Date.now();
     let uploadDone = false;
 
-    // Show elapsed time while processing
     const timerInterval = setInterval(() => {
         if (uploadDone) { clearInterval(timerInterval); return; }
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
-        if (!uploadDone) {
-            previewFileName.textContent = `Processing ${file.name}... (${elapsed}s)`;
-        }
+        previewFileName.textContent = `Processing ${file.name}... (${elapsed}s)`;
     }, 500);
 
     try {
-        const resp = await fetch('/upload', {
-            method: 'POST',
-            body: formData,
-        });
-
+        const resp = await fetch('/upload', { method: 'POST', body: formData });
         uploadDone = true;
         clearInterval(timerInterval);
 
-        if (!resp.ok) {
-            throw new Error(`Upload failed with status ${resp.status}`);
-        }
+        if (!resp.ok) throw new Error(`Upload failed with status ${resp.status}`);
 
         const data = await resp.json();
         currentAttachedFile = data;
 
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        previewFileIcon.textContent = getFileIcon(file.name);
+        previewFileIcon.innerHTML = getFileIconSvg(file.name);
         previewFileName.textContent = file.name;
-        previewFileSize.textContent = `${formatFileSize(file.size)} • ${elapsed}s`;
+        previewFileSize.textContent = `${formatFileSize(file.size)} · ${elapsed}s`;
         sendBtn.disabled = false;
     } catch (err) {
         uploadDone = true;
         clearInterval(timerInterval);
         console.error('File upload error:', err);
         previewFileName.textContent = 'Upload failed: ' + err.message;
-        previewFileIcon.textContent = '❌';
+        previewFileIcon.innerHTML = SVG_ICONS.error;
         currentAttachedFile = null;
         setTimeout(clearAttachedFile, 3000);
     }
@@ -193,7 +246,6 @@ function connectWebSocket() {
         isConnected = false;
         updateConnectionStatus('disconnected');
         headerSubtitle.textContent = 'Disconnected — Reconnecting...';
-        // Auto-reconnect after 3s
         setTimeout(connectWebSocket, 3000);
     };
 
@@ -204,6 +256,7 @@ function connectWebSocket() {
 }
 
 function updateConnectionStatus(status) {
+    if (!connectionStatus) return;
     const dot = connectionStatus.querySelector('.status-dot');
     const text = connectionStatus.querySelector('.status-text');
 
@@ -214,11 +267,11 @@ function updateConnectionStatus(status) {
         connecting: 'Connecting...',
     };
     text.textContent = labels[status] || status;
+    dot.setAttribute('aria-label', labels[status] || status);
 }
 
 // ─── Event Listeners ───
 function setupEventListeners() {
-    // Send message
     sendBtn.addEventListener('click', sendMessage);
 
     messageInput.addEventListener('keydown', (e) => {
@@ -228,18 +281,17 @@ function setupEventListeners() {
         }
     });
 
-    // Auto-resize textarea
     messageInput.addEventListener('input', () => {
         messageInput.style.height = 'auto';
-        messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+        messageInput.style.height = Math.min(messageInput.scrollHeight, 140) + 'px';
         sendBtn.disabled = !messageInput.value.trim() && !currentAttachedFile;
         charCount.textContent = `${messageInput.value.length} / 4000`;
     });
 
-    // Clear chat
     clearChatBtn.addEventListener('click', clearChat);
 
-    // Quick actions
+    newChatBtn.addEventListener('click', clearChat);
+
     document.querySelectorAll('.quick-action-btn, .example-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const query = btn.dataset.query;
@@ -251,40 +303,31 @@ function setupEventListeners() {
         });
     });
 
-    // Mobile menu
     mobileMenuBtn.addEventListener('click', () => {
         sidebar.classList.toggle('open');
+        toggleSidebarBackdrop(true);
     });
 
-    // Close sidebar on message click (mobile)
-    messagesContainer.addEventListener('click', () => {
-        sidebar.classList.remove('open');
-    });
+    messagesContainer.addEventListener('click', closeSidebar);
 }
 
-// ─── Theme Toggle Logic (Global) ───
-window.toggleTheme = function() {
-    const isLight = document.body.classList.toggle('light-theme');
-    localStorage.setItem('theme', isLight ? 'light' : 'dark');
-    const icon = document.getElementById('themeIcon');
-    const text = document.getElementById('themeText');
-    if (icon) icon.textContent = isLight ? '☀️' : 'Light';
-    if (text) text.textContent = isLight ? 'Light' : 'Dark';
-};
+function setupSidebarBackdrop() {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'sidebar-backdrop';
+    backdrop.id = 'sidebarBackdrop';
+    document.body.appendChild(backdrop);
+    backdrop.addEventListener('click', closeSidebar);
+}
 
-// Auto-apply saved theme instantly on script load
-(function initTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'dark';
-    if (savedTheme === 'light') {
-        document.body.classList.add('light-theme');
-        window.addEventListener('DOMContentLoaded', () => {
-            const icon = document.getElementById('themeIcon');
-            const text = document.getElementById('themeText');
-            if (icon) icon.textContent = '☀️';
-            if (text) text.textContent = 'Light';
-        });
-    }
-})();
+function toggleSidebarBackdrop(show) {
+    const backdrop = document.getElementById('sidebarBackdrop');
+    if (backdrop) backdrop.classList.toggle('show', show);
+}
+
+function closeSidebar() {
+    sidebar.classList.remove('open');
+    toggleSidebarBackdrop(false);
+}
 
 // ─── Send Message ───
 function sendMessage() {
@@ -293,22 +336,17 @@ function sendMessage() {
 
     if ((!text && !attachedFile) || !isConnected || isProcessing) return;
 
-    // Hide welcome screen
-    if (welcomeScreen) {
-        welcomeScreen.style.display = 'none';
-    }
+    if (welcomeScreen) welcomeScreen.style.display = 'none';
+    closeSidebar();
 
-    // Add user message to UI with attachment if present
     appendMessage('user', text, attachedFile);
 
-    // Send to server
     ws.send(JSON.stringify({
         type: 'message',
         content: text,
         file_info: attachedFile,
     }));
 
-    // Clear input & attached file
     messageInput.value = '';
     messageInput.style.height = 'auto';
     clearAttachedFile();
@@ -327,17 +365,17 @@ function handleServerEvent(event) {
 
         case 'tool_call':
             removeThinking();
-            appendThinking(`⚡ Accessing Salesforce (${event.data.name})...`);
+            appendThinking(`Accessing Salesforce (${event.data.name})...`);
             break;
 
         case 'tool_result':
             removeThinking();
-            appendThinking('🧠 Analyzing data & generating response...');
+            appendThinking('Analyzing data & generating response...');
             break;
 
         case 'response':
             removeThinking();
-            appendMessage('assistant', event.data);
+            appendMessage('assistant', event.data, null, true);
             isProcessing = false;
             headerSubtitle.textContent = 'Ready to help';
             break;
@@ -362,69 +400,118 @@ function handleServerEvent(event) {
 }
 
 // ─── UI Rendering ───
-
-function appendMessage(role, content, attachedFile = null) {
+function appendMessage(role, content, attachedFile = null, stream = false) {
     const messageEl = document.createElement('div');
     messageEl.className = `message ${role}`;
 
     const avatar = document.createElement('div');
     avatar.className = 'message-avatar';
-    avatar.innerHTML = role === 'user' ? 'U' : '🤖';
+    avatar.setAttribute('aria-hidden', 'true');
+    avatar.innerHTML = role === 'user' ? SVG_ICONS.user : SVG_ICONS.bot;
 
     const contentEl = document.createElement('div');
     contentEl.className = 'message-content';
 
-    // Render attachment badge for user if a file was attached
     if (attachedFile) {
         const fileTag = document.createElement('div');
         fileTag.className = 'message-attachment-tag';
-        const icon = getFileIcon(attachedFile.filename || '');
+        const iconSvg = getFileIconSvg(attachedFile.filename || '');
         const sizeStr = formatFileSize(attachedFile.file_size || 0);
-        fileTag.innerHTML = `<span>${icon}</span> <span>${escapeHtml(attachedFile.filename)}</span> <span style="opacity:0.75; font-size:0.7rem;">(${sizeStr})</span>`;
+        fileTag.innerHTML = `${iconSvg} <span>${escapeHtml(attachedFile.filename)}</span> <span style="opacity:0.65; font-size:0.65rem;">(${sizeStr})</span>`;
         contentEl.appendChild(fileTag);
     }
 
-    if (content) {
-        const textWrapper = document.createElement('div');
-        textWrapper.innerHTML = renderMarkdown(content);
-        contentEl.appendChild(textWrapper);
-    }
+    const textWrapper = document.createElement('div');
+    textWrapper.className = 'text-wrapper';
+    contentEl.appendChild(textWrapper);
 
     if (role === 'assistant') {
         const copyBtn = document.createElement('button');
         copyBtn.className = 'copy-response-btn';
         copyBtn.title = 'Copy response text';
-        copyBtn.innerHTML = '📋 Copy';
-        copyBtn.onclick = () => {
-            // Strip HTML tags for clean text copy
-            const textToCopy = contentEl.innerText.replace('📋 Copy', '').replace('✅ Copied!', '').trim();
+        copyBtn.innerHTML = `${SVG_ICONS.copy} Copy`;
+        copyBtn.addEventListener('click', () => {
+            const textToCopy = contentEl.innerText
+                .replace(/Copy$/, '')
+                .replace(/Copied!$/, '')
+                .trim();
             navigator.clipboard.writeText(textToCopy).then(() => {
-                copyBtn.innerHTML = '✅ Copied!';
+                copyBtn.innerHTML = `${SVG_ICONS.check} Copied!`;
                 copyBtn.classList.add('copied');
                 setTimeout(() => {
-                    copyBtn.innerHTML = '📋 Copy';
+                    copyBtn.innerHTML = `${SVG_ICONS.copy} Copy`;
                     copyBtn.classList.remove('copied');
                 }, 2000);
             });
-        };
+        });
         contentEl.appendChild(copyBtn);
     }
 
     messageEl.appendChild(avatar);
     messageEl.appendChild(contentEl);
     messagesContainer.appendChild(messageEl);
+
+    if (content) {
+        if (stream) {
+            streamMarkdown(textWrapper, content);
+        } else {
+            textWrapper.innerHTML = renderMarkdown(content);
+        }
+    }
+
     scrollToBottom();
 }
 
+/**
+ * Stream markdown into the container progressively (token-by-token).
+ * Falls back to instant render when reduced motion is preferred.
+ */
+function streamMarkdown(container, markdown) {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion || markdown.length < 40) {
+        container.innerHTML = renderMarkdown(markdown);
+        return;
+    }
+
+    const fullHtml = renderMarkdown(markdown);
+    const plain = markdown;
+    let index = 0;
+    const chunkSize = 4;
+    let renderedPlain = '';
+
+    // Set aria-busy while streaming
+    const messageEl = container.closest('.message');
+    if (messageEl) messageEl.setAttribute('aria-busy', 'true');
+
+    function tick() {
+        if (index >= plain.length) {
+            // Final render for proper formatting
+            container.innerHTML = fullHtml;
+            if (messageEl) messageEl.removeAttribute('aria-busy');
+            scrollToBottom();
+            return;
+        }
+
+        index = Math.min(index + chunkSize, plain.length);
+        // Render progressively with full formatting each step
+        container.innerHTML = renderMarkdown(plain.slice(0, index));
+        scrollToBottom();
+        setTimeout(tick, 16);
+    }
+
+    tick();
+}
+
 function appendThinking(text) {
-    removeThinking(); // Remove any existing
+    removeThinking();
 
     const el = document.createElement('div');
     el.className = 'thinking-indicator';
     el.id = 'thinkingIndicator';
+    el.setAttribute('role', 'status');
 
     el.innerHTML = `
-        <div class="spinner">
+        <div class="spinner" aria-hidden="true">
             <span class="dot"></span>
             <span class="dot"></span>
             <span class="dot"></span>
@@ -441,14 +528,6 @@ function removeThinking() {
     if (el) el.remove();
 }
 
-function appendToolCall(data) {
-    // Completely hidden from UI for clean user experience
-}
-
-function appendToolResult(data) {
-    // Completely hidden from UI for clean user experience
-}
-
 function appendConfirmation(content) {
     const el = document.createElement('div');
     el.className = 'confirmation-event';
@@ -463,25 +542,21 @@ function appendConfirmation(content) {
 }
 
 function clearChat() {
-    // Remove all messages but keep welcome screen
     const messages = messagesContainer.querySelectorAll(
         '.message, .tool-event, .thinking-indicator, .confirmation-event'
     );
     messages.forEach(el => el.remove());
 
-    // Show welcome screen
-    if (welcomeScreen) {
-        welcomeScreen.style.display = '';
-    }
+    if (welcomeScreen) welcomeScreen.style.display = '';
 
-    // Notify server
     if (ws && isConnected) {
         ws.send(JSON.stringify({ type: 'clear' }));
     }
+
+    messageInput.focus();
 }
 
 // ─── Helpers ───
-
 function scrollToBottom() {
     requestAnimationFrame(() => {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -495,7 +570,7 @@ function escapeHtml(text) {
 }
 
 /**
- * Simple markdown renderer — handles the most common patterns
+ * Simple markdown renderer — handles common patterns
  * without a full library dependency.
  */
 function renderMarkdown(text) {
@@ -503,47 +578,37 @@ function renderMarkdown(text) {
 
     let html = escapeHtml(text);
 
-    // Code blocks (```...```)
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
         return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
     });
 
-    // Inline code (`...`)
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
-    // Bold (**...**)
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-    // Italic (*...*)
     html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
 
-    // Headers (## ...)
     html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
     html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
     html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
-    // Unordered lists (- ...)
     html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
     html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
 
-    // Ordered lists (1. ...)
     html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
 
-    // Links [text](url)
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
-    // Horizontal rules (---)
+    html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+
     html = html.replace(/^---$/gm, '<hr>');
 
-    // Tables (basic | pipe tables)
     html = renderTables(html);
 
-    // Line breaks → paragraphs
     html = html.replace(/\n\n/g, '</p><p>');
     html = html.replace(/\n/g, '<br>');
     html = '<p>' + html + '</p>';
 
-    // Clean up empty paragraphs
     html = html.replace(/<p>\s*<\/p>/g, '');
     html = html.replace(/<p>\s*(<h[123]>)/g, '$1');
     html = html.replace(/(<\/h[123]>)\s*<\/p>/g, '$1');
@@ -555,11 +620,6 @@ function renderMarkdown(text) {
     html = html.replace(/(<\/table>)\s*<\/p>/g, '$1');
     html = html.replace(/<p>\s*(<hr>)\s*<\/p>/g, '$1');
 
-    // Emojis for common patterns
-    html = html.replace(/⚠️/g, '<span style="font-size:1.1em">⚠️</span>');
-    html = html.replace(/✅/g, '<span style="font-size:1.1em">✅</span>');
-    html = html.replace(/❌/g, '<span style="font-size:1.1em">❌</span>');
-
     return html;
 }
 
@@ -568,7 +628,7 @@ function renderMarkdown(text) {
  */
 function renderTables(html) {
     const lines = html.split('\n');
-    let result = [];
+    const result = [];
     let inTable = false;
     let tableRows = [];
 
@@ -576,9 +636,7 @@ function renderTables(html) {
         const line = lines[i].trim();
 
         if (line.startsWith('|') && line.endsWith('|')) {
-            // Check if this is a separator line (|---|---|)
             if (/^\|[\s\-:]+\|/.test(line) && line.includes('---')) {
-                // Skip separator line
                 continue;
             }
 
@@ -588,7 +646,7 @@ function renderTables(html) {
             }
 
             const cells = line
-                .slice(1, -1)  // Remove leading/trailing |
+                .slice(1, -1)
                 .split('|')
                 .map(c => c.trim());
 
@@ -603,9 +661,7 @@ function renderTables(html) {
         }
     }
 
-    if (inTable) {
-        result.push(buildTable(tableRows));
-    }
+    if (inTable) result.push(buildTable(tableRows));
 
     return result.join('\n');
 }
@@ -614,15 +670,12 @@ function buildTable(rows) {
     if (rows.length === 0) return '';
 
     let html = '<table>';
-
-    // First row as header
     html += '<thead><tr>';
     rows[0].forEach(cell => {
         html += `<th>${cell}</th>`;
     });
     html += '</tr></thead>';
 
-    // Remaining rows
     if (rows.length > 1) {
         html += '<tbody>';
         for (let i = 1; i < rows.length; i++) {
