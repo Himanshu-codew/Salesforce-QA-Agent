@@ -247,6 +247,32 @@ def parse_uploaded_file(file_path: str, filename: str) -> dict[str, Any]:
         else:
             result["content_preview"] = f"*(Image attachment ready for Salesforce upload / processing: {filename})*"
 
+    # 6. PowerPoint Files
+    elif ext in (".pptx", ".ppt"):
+        result["file_type"] = "powerpoint"
+        try:
+            from pptx import Presentation
+            prs = Presentation(io.BytesIO(file_bytes))
+            slides_text = []
+            for i, slide in enumerate(prs.slides):
+                slide_text = []
+                for shape in slide.shapes:
+                    if hasattr(shape, "text"):
+                        slide_text.append(shape.text)
+                if slide_text:
+                    slides_text.append(f"--- Slide {i+1} ---\n" + "\n".join(slide_text))
+            
+            full_text = "\n\n".join(slides_text)
+            if len(full_text) > 30000:
+                full_text = full_text[:30000] + "\n\n... [Remaining slides truncated]"
+                
+            result["summary"] = f"PowerPoint Presentation ({len(prs.slides)} slides): {filename}"
+            result["content_preview"] = f"### Presentation Content ({len(prs.slides)} slides):\n\n{full_text}" if full_text.strip() else f"*(PowerPoint attached: {filename})*"
+        except Exception as e:
+            logger.error(f"Error parsing PowerPoint file: {e}")
+            result["summary"] = f"PowerPoint File: {filename} ({file_size} bytes)"
+            result["content_preview"] = f"*(PowerPoint document attached: {filename})*"
+
     # ── Save to Disk Cache ──
     try:
         clean_result = json.loads(json.dumps(result, default=str))
