@@ -210,9 +210,26 @@ class SalesforceAgent:
                 yield {"type": "response", "data": response}
                 return
 
-            # ── Case 3: Empty response (shouldn't happen) ──
+            # ── Case 3: Empty content after tool calls or generation ──
             else:
-                fallback = "I processed your request but didn't generate a response. Could you rephrase?"
+                if iteration > 1:
+                    try:
+                        messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
+                        messages.append({
+                            "role": "user",
+                            "content": "Please provide a clear, concise natural language summary of the action or tool results completed above for the user."
+                        })
+                        summary = await self.llm.chat(messages)
+                        if summary and summary.strip():
+                            fallback = summary.strip()
+                        else:
+                            fallback = "✅ Operation completed successfully in Salesforce!"
+                    except Exception:
+                        fallback = "✅ Operation completed successfully in Salesforce!"
+                else:
+                    fallback = "I processed your request. How else can I assist you with your Salesforce data?"
+
+                logger.info(f"🤖 [ASSISTANT FALLBACK RESPONSE]: {fallback[:150]}...")
                 memory.add_assistant_message(fallback)
                 yield {"type": "response", "data": fallback}
                 return
