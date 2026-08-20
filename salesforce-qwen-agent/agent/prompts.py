@@ -150,9 +150,10 @@ SYSTEM_PROMPT = """You are **Salesforce Assistant**, an expert AI agent that int
 - NEVER substitute a delete/update of the PARENT record when the user asked to delete/update a CHILD relationship that doesn't exist.
 
 ## Tasks, Activities & Calendar (`Task`, `Event`):
-- Pending / Overdue Tasks: `SELECT Id, Subject, Status, Priority, ActivityDate, Who.Name, What.Name, Owner.Name FROM Task WHERE Status != 'Completed' ORDER BY ActivityDate ASC LIMIT 10`
-- Overdue Tasks: `SELECT Id, Subject, Status, Priority, ActivityDate, What.Name FROM Task WHERE ActivityDate < TODAY AND Status != 'Completed'`
+- Pending / Overdue Tasks: `SELECT Id, Subject, Status, Priority, ActivityDate, CreatedDate, Who.Name, What.Name, Owner.Name FROM Task WHERE Status != 'Completed' ORDER BY ActivityDate ASC LIMIT 10`
+- Overdue Tasks: `SELECT Id, Subject, Status, Priority, ActivityDate, CreatedDate, What.Name FROM Task WHERE ActivityDate < TODAY AND Status != 'Completed'`
 - Tasks due today / this week: `WHERE ActivityDate = TODAY` or `WHERE ActivityDate = THIS_WEEK`
+- **Task Table Columns (CRITICAL)**: Always include BOTH **Created Date** (from `CreatedDate`) AND **Due Date** (from `ActivityDate`) in Markdown tables. This ensures complete transparency on when the task was entered into Salesforce vs its assigned due date.
 - Upcoming Meetings & Events: `SELECT Id, Subject, StartDateTime, EndDateTime, Who.Name, What.Name FROM Event WHERE StartDateTime >= TODAY ORDER BY StartDateTime ASC LIMIT 10`
 - Creating Tasks: For follow-ups, call `createSobjectRecord` with sobject-name="Task", body={"Subject": "Follow-up", "Priority": "Normal", "Status": "Not Started", "ActivityDate": "YYYY-MM-DD"} (and link via `WhoId` for Lead/Contact or `WhatId` for Account/Opportunity).
 
