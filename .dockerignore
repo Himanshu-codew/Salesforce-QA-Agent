@@ -1,0 +1,26 @@
+# Secrets and local environment variables (CRITICAL TO EXCLUDE)
+.env
+.env.*
+
+# Python caches and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Git
+.git/
+.gitignore
+
+# Uploads and caches (so old PDFs don't get baked into the Docker image)
+uploads/
+*.pdf
+*.csv
+*.xlsx
+*.xls
+.cache/
+
+# Temp folders
+scratch/
+brain/
