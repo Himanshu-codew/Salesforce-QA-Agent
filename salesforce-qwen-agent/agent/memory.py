@@ -76,16 +76,16 @@ class ConversationMemory:
         """
         Add a tool execution result to the history.
         Must follow an assistant message containing the corresponding tool call.
-        Truncated to 800 chars to keep context payload small and inference super-fast.
+        Truncated to 4000 chars to preserve IDs and key data in multi-step queries.
         """
         clean_result = result
-        if len(clean_result) > 1500:
+        if len(clean_result) > 4000:
             # Cut at line boundary to preserve syntax integrity
-            truncated_pos = clean_result.rfind("\n", 0, 1500)
-            if truncated_pos > 500:
+            truncated_pos = clean_result.rfind("\n", 0, 4000)
+            if truncated_pos > 1000:
                 clean_result = clean_result[:truncated_pos] + "\n... [truncated for memory performance]"
             else:
-                clean_result = clean_result[:1500] + "\n... [truncated for memory performance]"
+                clean_result = clean_result[:4000] + "\n... [truncated for memory performance]"
 
         self._messages.append({
             "role": "tool",

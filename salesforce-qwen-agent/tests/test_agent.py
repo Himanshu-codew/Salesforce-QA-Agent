@@ -149,7 +149,7 @@ class TestToolDefinitions:
 
     def test_all_11_tools_defined(self):
         from tools.salesforce import SALESFORCE_TOOLS
-        assert len(SALESFORCE_TOOLS) == 11
+        assert len(SALESFORCE_TOOLS) == 12
 
     def test_tool_format_valid(self):
         from tools.salesforce import SALESFORCE_TOOLS
@@ -167,7 +167,7 @@ class TestToolDefinitions:
         )
 
         assert len(READ_ONLY_TOOLS) == 6
-        assert len(MUTATING_TOOLS) == 3
+        assert len(MUTATING_TOOLS) == 4
         assert len(DESTRUCTIVE_TOOLS) == 2
 
         assert is_read_only("soqlQuery")
@@ -179,7 +179,7 @@ class TestToolDefinitions:
         from tools.salesforce import get_tool_definitions
         tools = get_tool_definitions()
         assert isinstance(tools, list)
-        assert len(tools) == 11
+        assert len(tools) == 12
 
 
 # ──────────────────────────────────────────────────────────────
@@ -196,7 +196,7 @@ class TestToolRegistry:
         await registry.initialize(mcp_client=None)
 
         assert registry.is_initialized
-        assert len(registry) == 11
+        assert len(registry) == 12
 
     @pytest.mark.asyncio
     async def test_lookup_tool(self):

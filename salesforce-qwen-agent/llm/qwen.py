@@ -33,6 +33,22 @@ def strip_thinking(text: str) -> str:
     return cleaned.strip()
 
 
+def strip_raw_tool_json(text: str) -> str:
+    """
+    Remove raw JSON tool call blocks like { "name": "soqlQuery", "arguments": ... }
+    from response text so raw JSON code never leaks into the user UI.
+    """
+    if not text:
+        return text
+    # 1. Remove markdown json blocks containing "name": "..."
+    cleaned = re.sub(r"```(?:json)?\s*\{\s*\"name\"\s*:.*?\}(?:\s*```)?", "", text, flags=re.DOTALL | re.IGNORECASE)
+    # 2. Remove standalone { "name": "...", "arguments": { ... } } pattern
+    cleaned = re.sub(r"\{\s*\"name\"\s*:\s*\"[^\"]+\"\s*,\s*\"arguments\"\s*:\s*\{.*?\}\s*\}", "", cleaned, flags=re.DOTALL)
+    # 3. Remove XML tool tags <tools>...</tools> or <tool_call>...</tool_call>
+    cleaned = re.sub(r"<(?:tools|tool_call)>.*?</(?:tools|tool_call)>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    return cleaned.strip()
+
+
 def _get_headers(base_url: str) -> dict[str, str]:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -201,7 +217,7 @@ class QwenLLM(BaseLLM):
         try:
             extra_body = {}
             if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
-                extra_body["options"] = {"num_ctx": 2048, "num_predict": 512, "temperature": 0.0, "num_gpu": 100}
+                extra_body["options"] = {"num_ctx": 8192, "num_predict": 1024, "temperature": 0.0, "num_gpu": 100}
 
             response = await self._client.chat.completions.create(
                 model=self.model,
@@ -240,8 +256,8 @@ class QwenLLM(BaseLLM):
         try:
             extra_body = {}
             if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
-                target_tokens = min(max_tokens, 512) if tools else max_tokens
-                extra_body["options"] = {"num_ctx": 2048, "num_predict": target_tokens, "temperature": 0.0, "num_gpu": 100}
+                target_tokens = min(max_tokens, 1024) if tools else max_tokens
+                extra_body["options"] = {"num_ctx": 8192, "num_predict": target_tokens, "temperature": 0.0, "num_gpu": 100}
 
             # Sanitize None content to empty string for Ollama/GGUF template compatibility
             clean_messages = []
@@ -256,7 +272,7 @@ class QwenLLM(BaseLLM):
                 messages=clean_messages,
                 tools=tools if tools else None,
                 temperature=0.0,
-                max_tokens=min(max_tokens, 512) if tools else max_tokens,
+                max_tokens=min(max_tokens, 1024) if tools else max_tokens,
                 extra_body=extra_body if extra_body else None,
             )
 
@@ -286,8 +302,11 @@ class QwenLLM(BaseLLM):
                 extracted = _extract_text_tool_calls(result["content"])
                 if extracted:
                     result["tool_calls"].extend(extracted)
-                    cleaned = re.sub(r"<(?:tools|tool_call)>.*?</(?:tools|tool_call)>", "", result["content"], flags=re.DOTALL).strip()
-                    result["content"] = cleaned
+                    result["content"] = strip_raw_tool_json(result["content"])
+
+            # Clean any leftover raw JSON tool call syntax from text response
+            if result["content"]:
+                result["content"] = strip_raw_tool_json(result["content"])
 
             if result["tool_calls"]:
                 logger.info(

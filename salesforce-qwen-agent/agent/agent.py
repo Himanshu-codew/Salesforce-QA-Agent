@@ -43,7 +43,7 @@ class SalesforceAgent:
         # Per-session memories: {session_id: ConversationMemory}
         self._memories: dict[str, ConversationMemory] = {}
         self._max_history = max_history
-        self.rag_retriever = ToolRAGRetriever(default_top_k=4)
+        self.rag_retriever = ToolRAGRetriever(default_top_k=6)
 
     def _get_memory(self, session_id: str) -> ConversationMemory:
         """Get or create conversation memory for a session."""
@@ -75,7 +75,7 @@ class SalesforceAgent:
         memory.max_messages = self._max_history
         memory._trim()
         # RAG Tool Retrieval: Dynamically fetch top-K relevant tools for prompt optimization
-        tools = self.rag_retriever.get_relevant_tools(user_message, top_k=4)
+        tools = self.rag_retriever.get_relevant_tools(user_message, top_k=6)
 
         # ── Check for pending confirmations ──
         if self.planner.has_pending_confirmation(session_id):
