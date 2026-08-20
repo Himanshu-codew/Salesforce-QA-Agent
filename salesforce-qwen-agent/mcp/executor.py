@@ -93,15 +93,12 @@ class ToolExecutor:
         if isinstance(val, str) and ("T" in val) and (val.endswith("+0000") or val.endswith("Z") or val.endswith("+00:00")):
             try:
                 from datetime import datetime
-                import zoneinfo
                 clean = val.replace("+0000", "+00:00").replace("Z", "+00:00")
                 dt = datetime.fromisoformat(clean)
-                tz = zoneinfo.ZoneInfo("America/Los_Angeles")
-                local_dt = dt.astimezone(tz)
-                local_formatted = local_dt.strftime("%m/%d/%Y, %I:%M %p %Z")
-                if local_formatted.startswith("0"):
-                    local_formatted = local_formatted[1:]
-                return f"{val} ({dt.strftime('%I:%M:%S %p UTC')} | {local_formatted} Salesforce UI Time)"
+                formatted_date = dt.strftime("%d %b %Y, %I:%M %p UTC")
+                if formatted_date.startswith("0"):
+                    formatted_date = formatted_date[1:]
+                return formatted_date
             except Exception:
                 return val
         return val
