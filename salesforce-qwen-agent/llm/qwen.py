@@ -36,17 +36,32 @@ def strip_thinking(text: str) -> str:
 def strip_raw_tool_json(text: str) -> str:
     """
     Remove raw JSON tool call blocks like { "name": "soqlQuery", "arguments": ... }
-    from response text so raw JSON code never leaks into the user UI.
+    from response text so raw JSON code or stray braces never leak into the user UI.
     """
     if not text:
-        return text
-    # 1. Remove markdown json blocks containing "name": "..."
-    cleaned = re.sub(r"```(?:json)?\s*\{\s*\"name\"\s*:.*?\}(?:\s*```)?", "", text, flags=re.DOTALL | re.IGNORECASE)
-    # 2. Remove standalone { "name": "...", "arguments": { ... } } pattern
-    cleaned = re.sub(r"\{\s*\"name\"\s*:\s*\"[^\"]+\"\s*,\s*\"arguments\"\s*:\s*\{.*?\}\s*\}", "", cleaned, flags=re.DOTALL)
-    # 3. Remove XML tool tags <tools>...</tools> or <tool_call>...</tool_call>
-    cleaned = re.sub(r"<(?:tools|tool_call)>.*?</(?:tools|tool_call)>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
-    return cleaned.strip()
+        return ""
+    # 1. Remove markdown code blocks containing "name":
+    cleaned = re.sub(r"```(?:json)?[\s\S]*?\"name\"[\s\S]*?```", "", text, flags=re.IGNORECASE)
+    # 2. Remove XML tool tags <tools>...</tools> or <tool_call>...</tool_call>
+    cleaned = re.sub(r"<(?:tools|tool_call)>[\s\S]*?</(?:tools|tool_call)>", "", cleaned, flags=re.IGNORECASE)
+    # 3. Remove standalone { "name": "...", ... } JSON objects (including multi-nested braces)
+    cleaned = re.sub(r"\{\s*\"name\"\s*:[\s\S]*?\}\s*\}\s*\}", "", cleaned)
+    cleaned = re.sub(r"\{\s*\"name\"\s*:[\s\S]*?\}", "", cleaned)
+
+    # 4. Remove lines containing only stray braces, brackets, or codeblock markers
+    lines = []
+    for line in cleaned.split("\n"):
+        stripped = line.strip()
+        if stripped in ["{", "}", "]", "[", "```", "```json", "}}", "}}}", "`]"]:
+            continue
+        lines.append(line)
+
+    final_text = "\n".join(lines).strip()
+
+    # 5. If only stray symbols/braces/spaces remain, collapse to empty string
+    if re.fullmatch(r"[\{\}\[\]\`\s]*", final_text):
+        return ""
+    return final_text
 
 
 def _get_headers(base_url: str) -> dict[str, str]:

@@ -203,8 +203,8 @@ class SalesforceAgent:
                 # Continue the loop — LLM will see tool results and decide next step
 
             # ── Case 2: LLM returns a final text response ──
-            elif llm_result["content"]:
-                response = llm_result["content"]
+            elif llm_result["content"] and llm_result["content"].strip():
+                response = llm_result["content"].strip()
                 logger.info(f"🤖 [ASSISTANT RESPONSE]: {response[:150]}...")
                 memory.add_assistant_message(response)
                 yield {"type": "response", "data": response}
