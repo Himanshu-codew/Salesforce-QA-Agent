@@ -75,6 +75,19 @@ def _get_headers(base_url: str) -> dict[str, str]:
     return headers
 
 
+def _clean_json_str(s: str) -> str:
+    """Strip C-style comments (// and /* */) and trailing commas before json.loads()."""
+    if not s:
+        return s
+    # Remove // comments
+    s = re.sub(r"//.*", "", s)
+    # Remove /* ... */ comments
+    s = re.sub(r"/\*.*?\*/", "", s, flags=re.DOTALL)
+    # Remove trailing commas before closing braces/brackets
+    s = re.sub(r",\s*([\}\]])", r"\1", s)
+    return s.strip()
+
+
 def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
     """Extract tool calls embedded as XML, markdown JSON blocks, or raw JSON in model output."""
     if not content:
@@ -95,7 +108,7 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
             # Sometimes models return arguments as a stringified JSON
             if isinstance(args, str):
                 try:
-                    args = json.loads(args)
+                    args = json.loads(_clean_json_str(args))
                 except Exception:
                     pass
             if name and isinstance(name, str):
@@ -109,7 +122,7 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
 
     # 1. Try parsing the entire content as JSON directly
     try:
-        data = json.loads(content.strip())
+        data = json.loads(_clean_json_str(content.strip()))
         if try_add_tool(data):
             return tool_calls
     except Exception:
@@ -119,7 +132,7 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
     json_blocks = re.findall(r"```(?:json)?\s*(.*?)\s*```", content, re.DOTALL | re.IGNORECASE)
     for block in json_blocks:
         try:
-            data = json.loads(block.strip())
+            data = json.loads(_clean_json_str(block.strip()))
             try_add_tool(data)
         except Exception:
             pass
@@ -131,7 +144,7 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
     matches = re.findall(r"<(?:tools|tool_call)>(.*?)</(?:tools|tool_call)>", content, re.DOTALL | re.IGNORECASE)
     for m in matches:
         try:
-            data = json.loads(m.strip())
+            data = json.loads(_clean_json_str(m.strip()))
             try_add_tool(data)
         except Exception:
             pass
@@ -146,7 +159,7 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
             end_idx = content.rfind(end_char)
             if end_idx > start_idx:
                 try:
-                    data = json.loads(content[start_idx:end_idx+1])
+                    data = json.loads(_clean_json_str(content[start_idx:end_idx+1]))
                     if try_add_tool(data):
                         return tool_calls
                 except Exception:
