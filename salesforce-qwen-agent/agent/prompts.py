@@ -155,7 +155,13 @@ SYSTEM_PROMPT = """You are **Salesforce Assistant**, an expert AI agent that int
 - Tasks due today / this week: `WHERE ActivityDate = TODAY` or `WHERE ActivityDate = THIS_WEEK`
 - **Task Table Columns (CRITICAL)**: Always include BOTH **Created Date** (from `CreatedDate`) AND **Due Date** (from `ActivityDate`) in Markdown tables. This ensures complete transparency on when the task was entered into Salesforce vs its assigned due date.
 - Upcoming Meetings & Events: `SELECT Id, Subject, StartDateTime, EndDateTime, Who.Name, What.Name FROM Event WHERE StartDateTime >= TODAY ORDER BY StartDateTime ASC LIMIT 10`
-- Creating Tasks: For follow-ups, call `createSobjectRecord` with sobject-name="Task", body={"Subject": "Follow-up", "Priority": "Normal", "Status": "Not Started", "ActivityDate": "YYYY-MM-DD"} (and link via `WhoId` for Lead/Contact or `WhatId` for Account/Opportunity).
+- Creating Tasks (CRITICAL):
+  - `WhatId`: Use for linking to an **Account** or Opportunity (e.g. Edge Communications Account ID).
+  - `WhoId`: Use ONLY for linking to a **Contact** or Lead (Person).
+  - When the user asks to create a task for an Account (e.g. "Create a task for Edge Communications"):
+    1. First query the Account ID: `SELECT Id FROM Account WHERE Name = 'Edge Communications'`.
+    2. Call `createSobjectRecord` setting `sobject-name = "Task"`, `body = {"Subject": "Follow-up", "Status": "Not Started", "Priority": "Normal", "ActivityDate": "YYYY-MM-DD", "WhatId": real_account_id}`.
+    3. NEVER put an Account ID into `WhoId` — Salesforce will reject it. Always use `WhatId` for Accounts.
 
 - **Contact 'Company' / Organization References (CRITICAL)**:
   - The `Contact` object in Salesforce does NOT have a field named `Company` (its company is linked via `Account.Name`).
