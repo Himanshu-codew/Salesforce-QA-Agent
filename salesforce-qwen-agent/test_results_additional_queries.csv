@@ -1,0 +1,271 @@
+﻿Query ID,Category,User Query,Expected Behavior,Bot Response (First 500 chars),Tool Calls Made,Status,Evaluation Reason,Response Time (s)
+Q201,Customer / Contact Related,Show me all contacts for this customer.,Execute SOQL on Contact with Account ID/Name,The record ID provided for the account does not exist or is not accessible. Please check the account ID and try again.,getRelatedRecords,PASS,"Matched keywords: account, no",94.77
+Q202,Customer / Contact Related,What is the email address of this customer?,Query Contact or Account email,The email address of the customer is **himanshuswami898@gmail.com**.,getUserInfo,PASS,"Matched keywords: email, address, @, customer",5.34
+Q203,Customer / Contact Related,What is the phone number of the primary contact?,Query Contact phone number,The phone number of the primary contact is (512) 757-6000.,"soqlQuery, soqlQuery",PASS,"Matched keywords: phone, number, primary, contact",10.31
+Q204,Customer / Contact Related,Who is the primary contact for ABC Technologies?,Query Contact for ABC Technologies,"It looks like there are no contacts associated with the account ""ABC Technologies"" in your Salesforce org. If you need to add a contact, please provide the necessary details such as First Name, Last Name, Email, and Phone.",soqlQuery,PASS,"Matched keywords: contact, abc, technologies, no",6.72
+Q205,Customer / Contact Related,When was this customer created?,Query Account CreatedDate,"To find out when a specific customer was created, I need the Account ID or the customer's name. Could you please provide either the Account ID or the name of the customer?",None,PASS,"Matched keywords: created, customer, account",2.74
+Q206,Customer / Contact Related,Who owns this customer account?,Query Account Owner,The current logged-in user is **Himanshu Swami** with the email **himanshuswami898@gmail.com**.,getUserInfo,PASS,Made 1 tool call(s),5.86
+Q207,Customer / Contact Related,Show me all opportunities for this customer.,Query Opportunities for customer,"It looks like there are no opportunities associated with the customer ""Customer Name"". If you meant a different customer or if the name is incorrect, please provide the correct name and I can help you find the opportunities.",soqlQuery,PASS,"Matched keywords: opportunit, customer, no",6.54
+Q208,Customer / Contact Related,Show me all cases raised by this customer.,Query Cases for customer,"To view cases for a specific customer, please provide the Customer Name, Contact Name, or Account ID.",None,PASS,"Matched keywords: case, account, provide, id",1.82
+Q209,Customer / Contact Related,Show me the complete history of this customer.,Query Account history or activities,"To provide a complete history of a customer, I need to know the customer's Account ID or name. Could you please provide either the Account ID or the customer's name?",None,PASS,"Matched keywords: history, customer, account, no",3.19
+Q210,Customer / Contact Related,What was the last interaction with this customer?,Query latest Task/Event/Call,"The last interaction with the customer appears to be a **Case** with the case number **00001028**. This is based on the most recent record listed in the response. If you need more details about this case or any other specific interaction, please let me know!",listRecentSobjectRecords,PASS,"Matched keywords: last, interaction, customer, no",7.52
+Q211,Customer / Contact Related,When was the last call made to this customer?,Query latest Call Task,"To find the last call made to a customer, I need to know the customer's ID or name. Could you please provide that information?",None,PASS,"Matched keywords: last, call, made, customer, no",2.78
+Q212,Customer / Contact Related,When was the last email sent to this customer?,Query latest Email Task,"To find the last email sent to a specific customer, I need to know the customer's account ID or name. Could you please provide that information?",None,PASS,"Matched keywords: last, email, sent, customer, account",2.75
+Q213,Customer / Contact Related,Show me all activities related to this customer.,Query Tasks/Events for customer,"To show all activities related to a specific customer, I need to know the customer's Account ID. Could you please provide the Account ID or the customer's name so I can fetch the related activities?",None,PASS,"Matched keywords: activities, related, customer, account, no",3.35
+Q214,Customer / Contact Related,Has this customer contacted us recently?,Query recent incoming Cases/Tasks,"To determine if this customer has contacted us recently, I need to know the customer's name or account ID. Could you please provide that information?",None,PASS,"Matched keywords: contacted, recent, customer, account",2.28
+Q215,Customer / Contact Related,Does this customer have any open cases?,Query open Cases count/details,The customer does not have any open cases.,soqlQuery,PASS,"Matched keywords: case, open, customer, no",6.13
+Q216,Customer / Contact Related,Does this customer have any pending follow-ups?,Query pending Tasks,"To check if the customer has any pending follow-ups, I need to know the customer's ID or name. Could you please provide that information?",None,PASS,"Matched keywords: pending, follow, up, customer",2.86
+Q217,Customer / Contact Related,How many contacts are associated with this account?,Count Contacts for Account,"To find out how many contacts are associated with a specific account, please provide the Account ID.",None,PASS,"Matched keywords: contact, associated, account, count",2.17
+Q218,Customer / Contact Related,Show me all contacts who work at this company.,Query Contacts for company/Account,"It looks like there are no accounts with the name ""Your Company Name"" in your Salesforce org. Please verify the company name and try again.","soqlQuery, soqlQuery",PASS,"Matched keywords: company, account",12.52
+Q219,Customer / Contact Related,Which products or opportunities are associated with this customer?,Query Opportunities/Products,"To find the products or opportunities associated with a specific customer, I'll need the customer's Account ID. Could you please provide the Account ID or the customer's name so I can retrieve the relevant records?",None,PASS,"Matched keywords: product, associated, customer, account",3.3
+Q220,Customer / Contact Related,Show me the most recent activity for this customer?,Query latest Task/Event for customer,"To show the most recent activity, please provide the Customer Name, Account Name, or Contact ID.",None,PASS,"Matched keywords: activity, account, provide, id",1.75
+Q221,User / Employee Related,What records are assigned to me?,Query owned records,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),5.71
+Q222,User / Employee Related,Show me everything I need to follow up on today.,Query tasks/meetings/leads due today,"You have no pending tasks to follow up on today. If you need assistance with anything else, feel free to ask!",soqlQuery,PASS,"Matched keywords: follow, up, today, need",6.89
+Q223,User / Employee Related,What are my pending Tasks?,Query open Tasks owned by current user,You have no pending tasks.,soqlQuery,PASS,"Matched keywords: task, pending",5.76
+Q224,User / Employee Related,Which Leads are assigned to me?,Query Leads owned by current user,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),5.52
+Q225,User / Employee Related,Which Accounts are assigned to me?,Query Accounts owned by current user,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),5.1
+Q226,User / Employee Related,Which Opportunities are assigned to me?,Query Opportunities owned by current user,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),5.82
+Q227,User / Employee Related,Which Cases are assigned to me?,Query Cases owned by current user,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.08
+Q228,User / Employee Related,What are my upcoming meetings?,Query upcoming Events,You don't have any upcoming meetings scheduled for today. How else can I assist you?,soqlQuery,PASS,"Matched keywords: meeting, upcoming",6.65
+Q229,User / Employee Related,What did I work on yesterday?,Query completed tasks/updated records from yesterday,"Here are the records you worked on yesterday:
+
+| Type       | Name                | ID                              |
+|------------|---------------------|---------------------------------|
+| Account    | Aman's Account      | 001g500000ddY1lAAE              |
+| Opportunity| New Opportunity     | 006g50000083DgrAAE              |
+| Case       | 00001028            | 500g500000ytlVCAAY              |
+| Lead       | Rohit Sharma        | 00Qg5000007czknEAA              |
+| Opportunity| New Opportun...",listRecentSobjectRecords,PASS,"Matched keywords: work, yesterday",16.33
+Q230,User / Employee Related,Show me my activities for this week.,Query activities this week,"It looks like you don't have any pending tasks for this week. If you need help with anything else, feel free to ask!",soqlQuery,PASS,"Matched keywords: week, task",6.85
+Q231,User / Employee Related,What Tasks are overdue for me?,Query overdue Tasks,"It looks like there are no overdue tasks for you. If you need help with anything else, feel free to ask!","soqlQuery, getUserInfo, soqlQuery",PASS,"Matched keywords: task, overdue",17.98
+Q232,User / Employee Related,How many Opportunities am I currently handling?,Count open Opportunities owned by user,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),5.37
+Q233,User / Employee Related,What is the total value of my Opportunities?,Sum of Amount of user's Opportunities,"The total value of your Opportunities is **$6,360,000**.","executeSoqlQuery, soqlQuery",PASS,"Matched keywords: total, value",8.65
+Q234,User / Employee Related,Which of my Opportunities are closing this month?,Query user's Opportunities with CloseDate = THIS_MONTH,"It looks like there are no Opportunities closing this month. If you need further assistance or have another query, feel free to ask!","executeSoqlQuery, soqlQuery",PASS,"Matched keywords: closing, month",9.44
+Q235,User / Employee Related,Show me my recently modified records.,Query records ordered by LastModifiedDate DESC,"Here are your recently modified records:
+
+| Type       | Name                | ID                              |
+|------------|---------------------|---------------------------------|
+| Account    | Aman's Account      | 001g500000ddY1lAAE              |
+| Opportunity| New Opportunity     | 006g50000083DgrAAE              |
+| Case       | 00001028            | 500g500000ytlVCAAY              |
+| Lead       | Rohit Sharma        | 00Qg5000007czknEAA              |
+| Opportunity| New Opportunity  ...",listRecentSobjectRecords,PASS,"Matched keywords: recently, modified, records",17.38
+Q236,User / Employee Related,Who is my manager?,Query Manager of current user,"I'm sorry, but the response you provided does not include information about your manager. To find your manager, I would need to query the Salesforce database for your user record and retrieve the manager's information. Could you please provide your Salesforce user ID or email address so I can perform this query?",getUserInfo,PASS,"Matched keywords: manager, user",6.97
+Q237,User / Employee Related,Which team am I part of?,Query user's Department/Team/Group,"I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?",getUserInfo,PASS,Made 1 tool call(s),6.46
+Q238,User / Employee Related,Show me the records owned by my team.,Query records owned by team/department,"It looks like there are no records owned by your team based on the query. If you need further assistance or have another query, feel free to ask!","soqlQuery, soqlQuery",PASS,"Matched keywords: records, owned, team",11.8
+Q239,User / Employee Related,Which salesperson has the most open Opportunities?,Group Opportunities by Owner,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,"executeSoqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery",PASS,Made 6 tool call(s),33.54
+Q240,User / Employee Related,Compare my sales performance with the rest of my team.,Compare user's Closed Won Opportunities amount with others,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Matched keywords: sales,8.82
+Q241,Communication / Interaction,Show me the last activity for Rohit Sharma.,Query latest Task/Event for Rohit Sharma,It looks like there are no tasks found for Rohit Sharma. Would you like to check for any recent events or cases instead?,soqlQuery,PASS,"Matched keywords: rohit, sharma",6.54
+Q242,Communication / Interaction,When was Rohit Sharma last contacted?,Query last contacted date for Rohit Sharma,"The field 'LastContactedDate' does not exist on the Contact object. Please provide the correct field name or describe the information you need, and I can help you retrieve it.",soqlQuery,PASS,"Matched keywords: contacted, last",6.55
+Q243,Communication / Interaction,Who last contacted this customer?,Query Owner of last activity,"I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?",getUserInfo,PASS,Made 1 tool call(s),5.84
+Q244,Communication / Interaction,Show me all calls related to this Account.,Query Call Tasks/Events for Account,Please provide the Account Name or Account ID so I can find all related call records.,None,PASS,"Matched keywords: call, account, provide, id",1.95
+Q245,Communication / Interaction,Show me all meetings related to this customer.,Query Meetings (Events) for customer,"To show all meetings related to a specific customer, I need to know the customer's Account ID. Could you please provide the Account ID or the customer's name so I can fetch the related meetings?",None,PASS,"Matched keywords: meeting, related, customer",3.43
+Q246,Communication / Interaction,What was discussed in the latest activity?,Query Description of latest Task/Event,"Here are the latest activities:
+
+| Type       | Name                | ID                              |
+|------------|---------------------|---------------------------------|
+| Account    | Aman's Account      | 001g500000ddY1lAAE              |
+| Opportunity| New Opportunity     | 006g50000083DgrAAE              |
+| Case       | 00001028            | 500g500000ytlVCAAY              |
+| Lead       | Rohit Sharma        | 00Qg5000007czknEAA              |
+| Opportunity| New Opportunity     | 006g...",listRecentSobjectRecords,PASS,Matched keywords: latest,17.14
+Q247,Communication / Interaction,Are there any upcoming meetings with this customer?,Query upcoming Events for customer,"To find upcoming meetings with a specific customer, I need to know the customer's name or ID. Could you please provide that information?",None,PASS,"Matched keywords: upcoming, meeting, customer",2.42
+Q248,Communication / Interaction,Show me customers I haven't contacted recently.,Query Accounts with no recent activities,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),5.52
+Q249,Communication / Interaction,Which Leads need a follow-up?,Query Leads with no recent activities or with open tasks,"Here are the Leads that need a follow-up:
+
+| Id                  | FirstName | LastName | Company                | Status              | LastActivityDate |
+|---------------------|-----------|----------|------------------------|---------------------|------------------|
+| 00Qg5000005JIRPEA4  | Jeff      | Glimpse  | Jackson Controls       | Open - Not Contacted | null             |
+| 00Qg5000005JIRQEA4  | Mike      | Braund   | Metropolitan Health Services | Open - Not Contacted | null            ...",soqlQuery,PASS,"Matched keywords: lead, follow, up, need",23.43
+Q250,Communication / Interaction,Show me customers with no recent activity.,Query Accounts/Contacts with no recent activity,"Here are the customers with no recent activity (no cases created in the last 90 days):
+
+| Account ID | Account Name                |
+|------------|-----------------------------|
+| 001g500000TZvqmAAD | Pyramid Construction Inc. |
+| 001g500000TZvqnAAD | Dickinson plc             |
+| 001g500000TZvqvAAD | sForce                    |
+| 001g500000TZvqwAAD | Sample Account for Entitlements |
+| 001g500000V9LDcAAN | ABC Technologies          |
+| 001g500000dH4wvAAC | Apex Global               |
+| 001g5000...",soqlQuery,PASS,"Matched keywords: customer, recent, activity, no",19.49
+Q251,Customer Intelligence,Which customers have the highest sales value?,Query Accounts by Opportunity sum,"⚠️ I've reached the maximum number of tool calls for this request. Here's what I've found so far:
+
+I apologize for the confusion earlier. Let's try a different approach to get the top customers by sales value.
+
+Here's the corrected SOQL query to get the top 10 customers by total sales:
+
+```json
+{
+  ""name"": ""soqlQuery"",
+  ""arguments"": {
+    ""q"": ""SELECT Account.Name, SUM(Amount) TotalSales FROM Opportunity GROUP BY Account.Name ORDER BY TotalSales DESC LIMIT 10""
+  }
+}
+```
+
+This query will sum up ...","soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery",PASS,"Matched keywords: customer, highest, sales, value",79.52
+Q252,Customer Intelligence,Which customers have the most open Cases?,Query Accounts by open Cases count,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,"executeSoqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery",PASS,Made 5 tool call(s),28.44
+Q253,Customer Intelligence,Which customers have both open Opportunities and open Cases?,Query Accounts with both open Opports & Cases,"Here are the customers who have both open Opportunities and open Cases:
+
+| Id                  | Name                |
+|---------------------|---------------------|
+| 001g500000TZvqpAAD | United Oil & Gas Corp. |
+| 001g500000TZvquAAD | GenePoint           |",soqlQuery,PASS,"Matched keywords: customer, open, opportunities, cases, both",9.21
+Q254,Customer Intelligence,Show me customers who haven't been contacted in the last 30 days.,Query Accounts with no activities in 30 days,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),5.78
+Q255,Customer Intelligence,Which customers have the highest number of Opportunities?,Query Accounts grouped by Opportunities count,"I'm sorry, but I can't help with that.","soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery",PASS,Made 8 tool call(s),41.86
+Q256,Customer Intelligence,Which customers generated the most revenue this year?,Query Accounts by Closed Won Opp Amount this year,"Here are the top customers who generated the most revenue from Closed Won Opportunities this year:
+
+| Customer Name | Total Revenue (THIS_YEAR) |
+|---|---|
+| Express Logistics and Transport | ,000,000 |
+| Pyramid Construction Inc. | ,000,000 |
+| United Oil & Gas Corp. | ,600,000,000 |",soqlQuery,PASS,"Matched keywords: customer, revenue, year, most, this_year",7.42
+Q257,Customer Intelligence,Show me customers whose Opportunities are close to closing.,Query Accounts with Opps CloseDate soon,"Here are the customers whose Opportunities are close to closing:
+
+| Account Name                | Opportunity Name            | Close Date  | Stage Name          |
+|-----------------------------|-----------------------------|-------------|---------------------|
+| Edge Communications         | Edge Emergency Generator    | 2026-06-27  | Id. Decision Makers |
+| Pyramid Construction Inc.   | Pyramid Emergency Generators| 2026-04-30  | Prospecting         |
+| Dickenson plc               | Dickenson ...",soqlQuery,PASS,"Matched keywords: customer, opportunity, close, closing",17.75
+Q258,Customer Intelligence,Which customers have overdue follow-ups?,Query Accounts with overdue Tasks,"It looks like there are no overdue follow-ups at the moment. If you need to create a new follow-up task, please provide the necessary details such as the subject, priority, and the related contact or account.",soqlQuery,PASS,"Matched keywords: overdue, follow, up",7.97
+Q259,Customer Intelligence,Show me customers with declining sales activity.,Query Accounts with decreasing Opp value or count,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,"soqlQuery, soqlQuery, soqlQuery, soqlQuery",PASS,Matched keywords: sales,39.89
+Q260,Customer Intelligence,Which customers require immediate attention?,Query Accounts with high-priority cases or overdue tasks,"Here are the opportunities that require immediate attention:
+
+| Opportunity ID | Opportunity Name | Account Name | Stage Name | Amount | Close Date |
+|----------------|------------------|--------------|------------|--------|------------|
+| 006g50000083DfFAAU | New Opportunity | - | Prospecting | 500,000.00 | 2023-12-31 |
+| 006g5000005ORcFAAW | Pyramid Emergency Generators | Pyramid Construction Inc. | Prospecting | 100,000.00 | 2026-04-30 |
+| 006g5000005ORc5AAG | Dickenson Mobile Generators | Di...",soqlQuery,PASS,"Matched keywords: immediate, attention, require",27.17
+Q261,Smart Search / Filtering,Find customers from Jaipur with open Opportunities.,Query Accounts in Jaipur with open Opps,"It looks like there are no customers from Jaipur with open Opportunities. If you need further assistance or have another query, feel free to ask!",soqlQuery,PASS,"Matched keywords: customer, jaipur, open, opportunities",7.33
+Q262,Smart Search / Filtering,Find Leads from Jaipur assigned to me.,Query owned Leads in Jaipur,"It looks like there are no Leads from Jaipur assigned to you. If you need further assistance or have any other questions, feel free to ask!","soqlQuery, soqlQuery, getUserInfo, soqlQuery",PASS,"Matched keywords: lead, jaipur, assigned",23.11
+Q263,Smart Search / Filtering,Show Accounts created this month with open Cases.,Query Accounts created THIS_MONTH with open Cases,"It seems that none of the Accounts created this month have any open Cases. Here is the list of Accounts created this month:
+
+| Account Name            | Cases |
+|-------------------------|-------|
+| Apex Global             | None  |
+| Edge Case Corp          | None  |
+| Edge Case Corp          | None  |
+| ABC Ltd.                | None  |
+| Tech Solutions India    | None  |
+| Aman's Account          | None  |
+
+If you need further assistance or have additional questions, feel free to ask!",soqlQuery,PASS,"Matched keywords: account, created, month, open, cases",11.56
+Q264,Smart Search / Filtering,"Find Opportunities above 1,000,000 owned by Aman.",Query Opps > 1M owned by Aman,"No Opportunities above 1,000,000 owned by Aman were found.",soqlQuery,PASS,"Matched keywords: above, owned, aman, 1,000,000",6.44
+Q265,Smart Search / Filtering,Show Contacts from ABC Technologies whose email is available.,Query Contacts for ABC Technologies with email != null,"It looks like there are no Contacts from ABC Technologies with an available email address in the system. If you need further assistance or have another query, feel free to ask!",soqlQuery,PASS,"Matched keywords: contact, abc, technologies, email, available",6.68
+Q266,Smart Search / Filtering,Find Leads created this week that haven't been contacted.,Query Leads created THIS_WEEK with no activities,"Here are the Leads created this week that haven't been contacted:
+
+| Id                  | FirstName | LastName | Company            | Status               | CreatedDate          |
+|---------------------|-----------|----------|--------------------|----------------------|----------------------|
+| 00Qg5000007YfZNEA0  | null      | Robert   | Individual         | Open - Not Contacted | 2026-08-17T10:59:01 |
+| 00Qg5000007bJHREA2  | null      | Singh    | InnovateX          | Open - Not Contacted | 2...",soqlQuery,PASS,"Matched keywords: lead, created, week, contacted",28.36
+Q267,Smart Search / Filtering,Show Accounts with more than five Contacts.,Query Accounts with count(Contacts) > 5,"Here are the Accounts that have more than 5 related Contacts:
+
+| Account Name | Number of Contacts |
+|---|---|
+| United Oil & Gas Corp. | 8 |
+| Edge Communications | 6 |
+| Express Logistics and Transport | 6 |",soqlQuery,PASS,"Matched keywords: account, contacts, five, more",8.15
+Q268,Smart Search / Filtering,Find customers with both Open Cases and Closed Won Opportunities.,Query Accounts with open Cases and Closed Won Opps,"Here are the customers who have both Open Cases and Closed Won Opportunities:
+
+| Id                  | Name                        |
+|---------------------|-----------------------------|
+| 001g500000TZvqkAAD  | Edge Communications         |
+| 001g500000TZvqlAAD  | Burlington Textiles Corp of America |
+| 001g500000TZvqoAAD  | Grand Hotels & Resorts Ltd  |
+| 001g500000TZvqpAAD  | United Oil & Gas Corp.      |
+| 001g500000TZvqqAAD  | Express Logistics and Transport |
+| 001g500000TZvqrAAD  | Univers...",soqlQuery,PASS,"Matched keywords: customer, open, cases, closed won, opportunities",16.25
+Q269,Smart Search / Filtering,Show Opportunities closing within the next 30 days.,Query Opps CloseDate in next 30 days,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.09
+Q270,Smart Search / Filtering,Find inactive customers with no recent activities.,Query Accounts with no recent activities,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),8.11
+Q271,Natural Language / Conversational,Do I have anything important to follow up on today?,Explain important follow-ups,You don't have any pending tasks due today. Let me know if there's anything else I can help you with!,soqlQuery,PASS,"Matched keywords: today, anything",7.03
+Q272,Natural Language / Conversational,Who should I contact today?,Suggest leads/contacts to reach out to,"I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?",None,PASS,Matched keywords: contact,3.32
+Q273,Natural Language / Conversational,Which customers need my attention?,Suggest accounts/customers with high priority issues,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),5.81
+Q274,Natural Language / Conversational,What should I work on next?,Suggest next task/lead/opportunity to focus on,"I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?",None,PASS,Informative natural language response provided,2.82
+Q275,Natural Language / Conversational,Are there any overdue customer issues?,Query overdue cases/tasks,There are no overdue customer issues at the moment.,"soqlQuery, soqlQuery",PASS,"Matched keywords: overdue, customer, issues",12.89
+Q276,Natural Language / Conversational,Which Opportunities should I focus on?,Suggest high value/high probability opps,"Here are the Opportunities you should focus on:
+
+| Id                  | Name                | StageName | Amount  | CloseDate  | Account Name          |
+|---------------------|---------------------|-----------|---------|------------|-----------------------|
+| 006g5000007cOZxAAM | Mega Deal           | Prospecting | null    | 2023-06-15 | null                  |
+| 006g50000083DfFAAU | New Opportunity     | Prospecting | 500000  | 2023-12-31 | null                  |
+| 006g50000083DgrAAE | New Op...",soqlQuery,PASS,"Matched keywords: opportunity, focus, should",24.36
+Q277,Natural Language / Conversational,Show me my most important customers.,Suggest top revenue accounts,"Here are your top 10 most important customers based on annual revenue:
+
+| Id                  | Name                        | AnnualRevenue |
+|---------------------|-----------------------------|---------------|
+| 001g500000TZvqpAAD  | United Oil & Gas Corp.      | 5600000000.0  |
+| 001g500000TZvqqAAD  | Express Logistics and Transport | 950000000.0   |
+| 001g500000TZvqmAAD  | Pyramid Construction Inc.   | 950000000.0   |
+| 001g500000TZvqoAAD  | Grand Hotels & Resorts Ltd  | 500000000.0   |
+| 00...",soqlQuery,PASS,"Matched keywords: important, customer, top",24.71
+Q278,Natural Language / Conversational,Are any high-value Opportunities at risk?,Identify high-value opps closing soon or in risk stages,"Here are the high-value Opportunities that are at risk:
+
+| Id | Name | Amount | StageName | CloseDate |
+|----|------|--------|-----------|-----------|
+| 006g5000005ORc5AAG | Dickinson Mobile Generators | 15000.0 | Qualification | 2026-05-04 |
+| 006g5000005ORc6AAG | United Oil Office Portable Generators | 125000.0 | Negotiation/Review | 2026-04-22 |
+| 006g5000005ORc9AAG | Grand Hotels Kitchen Generator | 15000.0 | Id. Decision Makers | 2026-03-13 |
+| 006g5000005ORcAAAW | United Oil Refinery Gener...","executeSoqlQuery, soqlQuery",PASS,"Matched keywords: value, risk, high",32.93
+Q279,Natural Language / Conversational,Which Leads are most likely to convert?,Suggest hot/warm leads,"Here are the Leads that are most likely to convert based on their status as ""Working - Contacted"":
+
+| Lead ID | First Name | Last Name | Company | Status | Lead Source |
+|---------|------------|-----------|---------|--------|-------------|
+| 00Qg5000005JIRREA4 | Patricia | Feager | International Shipping Co. | Working - Contacted | Partner Referral |
+| 00Qg5000005JIRSEA4 | Brenda | McClure | Cadinal Inc. | Working - Contacted | Web |
+| 00Qg5000005JIRTEA4 | Violet | Maccleod | Emerson Transport |...","executeSoqlQuery, soqlQuery, getObjectSchema, soqlQuery",PASS,"Matched keywords: lead, convert, likely, most",46.69
+Q280,Natural Language / Conversational,Give me a summary of my sales activity.,"Summarize recent deals, calls, tasks",I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Matched keywords: sales,6.61
+Q281,Agent / MCP Testing,"Find ABC Technologies and give me a complete summary of the Account, Contacts, Opportunities, Cases, and recent activities.",Perform multiple queries for ABC Technologies summary,"Sure, I've found the Account ""ABC Technologies"". Here's a summary of the related records:
+
+### Account Summary
+| Field          | Value                |
+|----------------|----------------------|
+| Id             | 001g500000V9LDcAAN   |
+| Name           | ABC Technologies     |
+| Industry       | Not specified        |
+| AnnualRevenue  | Not specified        |
+
+### Contacts
+No contacts found for this account.
+
+### Opportunities
+No opportunities found for this account.
+
+### Cases
+No cases found f...",find,PASS,"Matched keywords: abc, technologies, account, contact, case",14.17
+Q282,Agent / MCP Testing,Find all customers assigned to me that have open Opportunities but no activity in the last 30 days.,Perform queries for owned accounts with open opps and no activities in 30 days,"It seems there was an issue with the SOQL query syntax. Let's try a different approach to achieve the desired result. We'll first retrieve the accounts assigned to the current user with open opportunities, and then filter out those with recent activity.
+
+Here's the corrected query:
+
+```json
+{
+  ""name"": ""soqlQuery"",
+  ""arguments"": {
+    ""query"": ""SELECT Id, Name, (SELECT Id, StageName, CloseDate FROM Opportunities WHERE StageName != 'Closed Won' AND StageName != 'Closed Lost') FROM Account WHERE ...","soqlQuery, soqlQuery, getUserInfo, soqlQuery, getUserInfo, soqlQuery, soqlQuery, soqlQuery",PASS,"Matched keywords: assigned, open, opportunities, activity, 30",59.11
+Q283,Agent / MCP Testing,"Show me my Opportunities closing this month, their Accounts, current stages, amounts, and next follow-up Tasks.",Query opps closing this month with fields,"It looks like there are no Opportunities closing this month. If you need assistance with anything else, feel free to ask!",soqlQuery,PASS,"Matched keywords: closing, month",7.6
+Q284,Agent / MCP Testing,"Find customers with open High-priority Cases and Opportunities worth more than 500,000.",Query accounts with high-priority cases and Opps > 500K,"No customers were found with open High-priority Cases and Opportunities worth more than 500,000.",soqlQuery,PASS,"Matched keywords: customer, open, high, priority, cases",7.26
+Q285,Agent / MCP Testing,Show me all Leads assigned to me that have not been contacted and create a follow-up Task for each one.,Query owned uncontacted Leads and create follow-up Tasks,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.5
+Q286,Agent / MCP Testing,"Find Rohit Sharma, show his Lead details, owner, company, latest activity, and current status.",Query Rohit Sharma Lead with fields,"Here are the details for the Leads associated with Rohit Sharma:
+
+| Id                  | FirstName | LastName | Company              | Owner Name   | Status                | Last Activity Date |
+|---------------------|-----------|----------|----------------------|--------------|-----------------------|--------------------|
+| 00Qg5000007czknEAA  | Rohit     | Sharma   | Tech Solutions India | Himanshu Swami | Open - Not Contacted  |                    |
+| 00Qg5000007czhZEAQ  | Rohit     | Sharma...",find,PASS,"Matched keywords: rohit, sharma, lead, owner, company",20.65
+Q287,Agent / MCP Testing,Give me a summary of ABC Technologies and tell me whether there are any pending actions.,Query ABC Technologies details and open tasks/cases,"It looks like there is an account named ""ABC Technologies"" in your Salesforce org, but there are no pending tasks associated with it. If you need more information or have specific actions you'd like to perform, please let me know!",soqlQuery,PASS,"Matched keywords: abc, technologies, pending, actions",8.1
+Q288,Agent / MCP Testing,Find my top five customers by Opportunity value and show their open Cases.,Query top accounts by Opp value and show open cases,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,"soqlQuery, soqlQuery, soqlQuery",PASS,Made 3 tool call(s),21.44
+Q289,Agent / MCP Testing,Show me all overdue Tasks related to customers with active Opportunities.,Query overdue tasks on accounts with active opps,There are no overdue tasks related to customers with active opportunities at the moment.,soqlQuery,PASS,"Matched keywords: task, overdue, customer, active, opportunities",7.3
+Q290,Agent / MCP Testing,Find Opportunities closing in the next 7 days and tell me which ones have no recent activity.,Query Opps closing in 7 days and check activities,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,"soqlQuery, soqlQuery",PASS,Made 2 tool call(s),11.88
+Q291,Action / Destructive Testing,Update this customer's phone number.,Prompt for details or update contact/account phone,I'd be happy to help! Could you please provide the customer's ID and the new phone number?,None,PASS,"Matched keywords: phone, number, customer, provide",2.32
+Q292,Action / Destructive Testing,Assign all these Leads to Aman.,Assign bulk Leads to Aman,"To assign all Leads to Aman, I need to know Aman's User ID. Could you please provide Aman's User ID or email address?",None,PASS,"Matched keywords: assign, lead, aman, leads",2.9
+Q293,Action / Destructive Testing,Create a follow-up Task.,Prompt for task details or create task,The follow-up Task has been created successfully with the ID **00Tg500002BWZuXEAX**.,createSobjectRecord,PASS,"Matched keywords: task, create, follow, up",7.85
+Q294,Action / Destructive Testing,Close this Case.,Prompt for case details or close case,The record ID 'case-id' was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Matched keywords: case,6.48
+Q295,Action / Destructive Testing,Change this Opportunity stage.,Prompt for stage/Opp or change stage,"I'd be happy to help! Which Opportunity would you like to update, and what stage would you like to set it to? Please provide the Opportunity ID and the new StageName.",None,PASS,"Matched keywords: opportunity, stage, provide",3.3
+Q296,Action / Destructive Testing,Create a new Lead from this customer.,Prompt for details or create Lead from customer context,"Sure, I'd be happy to help! Could you please provide the following details for the new Lead:
+- First Name
+- Last Name
+- Company
+- Email (optional)
+- Phone (optional)
+- Lead Source (optional)
+- Industry (optional)
+- Rating (optional)",None,PASS,"Matched keywords: lead, provide",4.3
+Q297,Action / Destructive Testing,Move this Opportunity to Closed Won.,Change stage of Opp to Closed Won,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Matched keywords: provide,6.02

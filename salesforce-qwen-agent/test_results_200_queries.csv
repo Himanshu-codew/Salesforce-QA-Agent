@@ -1,0 +1,643 @@
+﻿Query ID,Category,User Query,Expected Behavior,Bot Response (First 500 chars),Tool Calls Made,Status,Evaluation Reason,Response Time (s)
+Q001,Data / Record Search,Show me all my Accounts.,Execute SOQL on Account,"Here are your recent Accounts:
+
+| Id                  | Name                        | Industry     | AnnualRevenue |
+|---------------------|-----------------------------|--------------|---------------|
+| 001g500000TZvqkAAD | Edge Communications         | Electronics  | 139,000,000   |
+| 001g500000TZvqlAAD | Burlington Textiles Corp of America | Apparel    | 350,000,000   |
+| 001g500000TZvqmAAD | Pyramid Construction Inc.   | Construction | 950,000,000   |
+| 001g500000TZvqnAAD | Dickenson plc    ...",soqlQuery,PASS,"Matched keywords: account, name, id",27.33
+Q002,Data / Record Search,Tell me the details of the ABC Technologies Account.,Find and return details of ABC Technologies,"Here are the details of the ABC Technologies Account:
+
+| Field         | Value                |
+|---------------|----------------------|
+| Id            | 001g500000V9LDcAAN   |
+| Name          | ABC Technologies     |
+| Industry      | Not Provided         |
+| AnnualRevenue | Not Provided         |
+| Phone         | 8502965232           |
+| Website       | https://abc.com       |","soqlQuery, soqlQuery",PASS,"Matched keywords: abc, technologies, account, details, no",17.48
+Q003,Data / Record Search,Are there any Leads with the name Rohit Sharma?,Query Leads WHERE Name/FirstName/LastName matches Rohit Sharma,"Here are the Leads with the name Rohit Sharma:
+
+| Id                  | FirstName | LastName |
+|---------------------|-----------|----------|
+| 00Qg5000006LVlJEAW | Rohit     | Sharma   |
+| 00Qg5000007bUMTEA2 | Rohit     | Sharma   |
+| 00Qg5000007cyjtEAA | Rohit     | Sharma   |",soqlQuery,PASS,"Matched keywords: lead, rohit, sharma",10.8
+Q004,Data / Record Search,Show me all my open Opportunities.,Query Opportunities WHERE IsClosed = false,"Here are your open Opportunities:
+
+| Id | Name | StageName | Amount | CloseDate | Account Name |
+|----|------|-----------|--------|-----------|--------------|
+| 006g5000005ORc5AAG | Dickinson Mobile Generators | Qualification | 15000.0 | 2026-05-04 | Dickinson plc |
+| 006g5000005ORc6AAG | United Oil Office Portable Generators | Negotiation/Review | 125000.0 | 2026-04-22 | United Oil & Gas Corp. |
+| 006g5000005ORc9AAG | Grand Hotels Kitchen Generator | Id. Decision Makers | 15000.0 | 2026-03-13 |...",soqlQuery,PASS,"Matched keywords: opportunit, stage, open, name",25.27
+Q005,Data / Record Search,What is the contact number of this customer?,Ask which customer or query phone number,"To find the contact number of a customer, I need to know the customer's name or account ID. Could you please provide the customer's name or account ID?",None,PASS,"Matched keywords: contact, customer, number, id",3.4
+Q006,Data / Record Search,Show me all Leads created last month.,Query Leads WHERE CreatedDate = LAST_MONTH,"Here are the Leads created last month:
+
+| Id                  | FirstName | LastName | Company            | CreatedDate               |
+|---------------------|-----------|----------|--------------------|---------------------------|
+| 00Qg5000005nmYTEAY | Rohan     | Sharma   | AI Automations Ltd | 2026-07-09T05:36:10.000+0000 |
+| 00Qg5000006Km5IEAS | Elon      | Musk     | Tesla              | 2026-07-21T09:24:24.000+0000 |
+| 00Qg5000006LODcEAO | Harsh     | User     | Org/Company        | 2026-...",soqlQuery,PASS,"Matched keywords: lead, created, name",32.47
+Q007,Data / Record Search,Which Accounts were recently updated?,Query Accounts ORDER BY LastModifiedDate DESC,"Here are the recently updated Accounts:
+
+| Id                  | Name                      | CreatedDate           | LastModifiedDate        |
+|---------------------|---------------------------|-----------------------|-------------------------|
+| 001g500000ddFITAA2 | Edge Case Corp            | 2026-08-18T17:10:11Z | 2026-08-18T17:10:11Z  |
+| 001g500000dbnL8AAI | Edge Case Corp            | 2026-08-18T16:43:31Z | 2026-08-18T16:43:31Z  |
+| 001g500000dH4wvAAC | Apex Global               | 2026-08-...",listRecentSobjectRecords,PASS,"Matched keywords: account, updated, modified, name",30.73
+Q008,Data / Record Search,Show me all customers from Jaipur.,Query Accounts/Contacts WHERE BillingCity/MailingCity = 'Jaipur',"It looks like there are no customers from Jaipur in your Salesforce records. If you need to add a new customer from Jaipur, please provide the necessary details such as the customer's name and other relevant information.",soqlQuery,PASS,"Matched keywords: jaipur, customer, no",7.05
+Q009,Data / Record Search,Who are the Contacts associated with XYZ Company?,Query Contacts for XYZ Company,The record ID 'XYZ_Company_ID' was not found. Please check the ID and try again.,getRelatedRecords,PASS,"Matched keywords: xyz, company, no, found",6.26
+Q010,Data / Record Search,Find all Accounts in the Technology industry.,Query Accounts WHERE Industry = 'Technology',"It looks like there are no Accounts in the Technology industry in your Salesforce org. If you need further assistance or have another query, feel free to ask!",soqlQuery,PASS,"Matched keywords: account, technology, industry",6.63
+Q011,Data / Record Search,Show me the details of the most recently created Account.,Query Account ORDER BY CreatedDate DESC LIMIT 1,"The most recently created Account is:
+
+| Field Name   | Value                |
+|--------------|----------------------|
+| Id           | 001g500000ddFITAA2   |
+| Name         | Edge Case Corp       |
+| CreatedDate  | 2026-08-18T17:10:11.000+0000 |
+| CreatedBy    | Himanshu Swami       |",soqlQuery,PASS,"Matched keywords: account, created, name",10.75
+Q012,Data / Record Search,Find all Leads created this week.,Query Leads WHERE CreatedDate = THIS_WEEK,"Here are the Leads created this week:
+
+| Id                  | FirstName | LastName | Company            | CreatedDate               |
+|---------------------|-----------|----------|--------------------|---------------------------|
+| 00Qg5000007YfZNEA0  | null      | Robert   | Individual         | 2026-08-17T10:59:01.000+0000 |
+| 00Qg5000007bUMTEA2  | Rohit     | Sharma   | Tech Solutions India | 2026-08-18T07:22:55.000+0000 |
+| 00Qg5000007bJHREA2  | null      | Singh    | InnovateX          | 2...",soqlQuery,PASS,"Matched keywords: lead, created, week, name",32.32
+Q013,Data / Record Search,Show me all Accounts owned by me.,Query Accounts owned by current user,"```json
+{
+  ""name"": ""soqlQuery"",
+  ""arguments"": {
+    ""query"": ""SELECT Id, Name, Owner.Name FROM Account WHERE OwnerId = '"" + tool_response.user_id + ""' LIMIT 10""
+  }
+}
+```","soqlQuery, soqlQuery, getUserInfo",PASS,"Matched keywords: account, name, owner",19.24
+Q014,Data / Record Search,Find all Contacts associated with ABC Technologies.,Query Contacts WHERE Account.Name = 'ABC Technologies',"It looks like there are no Contacts associated with ABC Technologies in your Salesforce instance. If you need to create a new Contact for ABC Technologies, please provide the necessary details such as FirstName, LastName, and Email.",soqlQuery,PASS,"Matched keywords: contact, abc, technologies, no",7.27
+Q015,Data / Record Search,Show me Leads whose status is Open - Not Contacted.,Query Leads WHERE Status = 'Open - Not Contacted',"Here are the Leads whose status is ""Open - Not Contacted"":
+
+| Id                  | FirstName | LastName | Company                | Email                | Phone          | Status              |
+|---------------------|-----------|----------|------------------------|----------------------|----------------|---------------------|
+| 00Qg5000005JIROEA4  | Phyllis   | Cotton   | Abbott Insurance       | pcotton@abbottins.net | (703) 757-1000 | Open - Not Contacted |
+| 00Qg5000005JIRPEA4  | Jeff      | ...",soqlQuery,PASS,"Matched keywords: lead, open, contacted, status",25.76
+Q016,Data / Record Search,Find all Opportunities associated with ABC Technologies.,Query Opportunities for ABC Technologies,"It looks like there are no Opportunities associated with ABC Technologies in your Salesforce instance. If you need further assistance or have another query, feel free to ask!",soqlQuery,PASS,"Matched keywords: opportunit, abc, technologies, no",7.12
+Q017,Data / Record Search,Show me Accounts that were created this month.,Query Accounts WHERE CreatedDate = THIS_MONTH,"Here are the Accounts that were created this month:
+
+| Id                  | Name           | CreatedDate          |
+|---------------------|----------------|----------------------|
+| 001g500000dH4wvAAC  | Apex Global    | 2026-08-17T06:06:27  |
+| 001g500000dbnL8AAI  | Edge Case Corp | 2026-08-18T16:43:31  |
+| 001g500000ddFITAA2  | Edge Case Corp | 2026-08-18T17:10:11  |",soqlQuery,PASS,"Matched keywords: account, created, month",13.46
+Q018,Data / Record Search,Find all Leads whose company name is ABC Technologies.,Query Leads WHERE Company = 'ABC Technologies',"No Leads were found with the company name ""ABC Technologies"".",soqlQuery,PASS,"Matched keywords: lead, abc, technologies, company, no",5.98
+Q019,Data / Record Search,Show me all Contacts with a missing phone number.,Query Contacts WHERE Phone = null,"Here are the Contacts with a missing phone number:
+
+| Id                  | Name            | Phone |
+|---------------------|-----------------|-------|
+| 003g500000NhEE3AAN  | Siddartha Nedaerk |       |
+| 003g500000NhEE4AAN  | Jake Llorrac    |       |
+| 003g500000dBmhBAAS  | Jane TestBot    |       |
+| 003g500000dC2SbAAK  | Jane TestBot    |       |",soqlQuery,PASS,"Matched keywords: contact, phone, missing, name",12.04
+Q020,Data / Record Search,Find Accounts that have not been updated recently.,Query Accounts ORDER BY LastModifiedDate ASC,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.45
+Q021,Reporting / Analytics,How many Leads are there in total?,SOQL COUNT() on Lead,There are a total of 54 Leads in your Salesforce instance.,soqlQuery,PASS,"Matched keywords: lead, total, there are",5.1
+Q022,Reporting / Analytics,How many Leads are currently open?,SOQL COUNT() on open Leads,There are currently 47 open Leads.,soqlQuery,PASS,"Matched keywords: lead, open",4.8
+Q023,Reporting / Analytics,How many Opportunities were closed this month?,"COUNT Opportunities WHERE StageName IN ('Closed Won', 'Closed Lost') AND CloseDate = THIS_MONTH","According to the query, there were **0 Opportunities** closed this month.",soqlQuery,PASS,"Matched keywords: opportunit, closed, month",5.2
+Q024,Reporting / Analytics,Show me the top 10 Accounts by revenue.,Query Accounts ORDER BY AnnualRevenue DESC LIMIT 10,"Here are the top 10 Accounts by revenue:
+
+| Id                  | Name                        | AnnualRevenue |
+|---------------------|-----------------------------|---------------|
+| 001g500000TZvqpAAD  | United Oil & Gas Corp.      | 5600000000.0  |
+| 001g500000TZvqmAAD  | Pyramid Construction Inc.   | 950000000.0   |
+| 001g500000TZvqqAAD  | Express Logistics and Transport | 950000000.0   |
+| 001g500000TZvqoAAD  | Grand Hotels & Resorts Ltd  | 500000000.0   |
+| 001g500000TZvqlAAD  | Burlington...",soqlQuery,PASS,"Matched keywords: account, revenue, annualrevenue, top",25.32
+Q025,Reporting / Analytics,What is the total value of my sales pipeline?,SUM(Amount) on open Opportunities,"The total value of your sales pipeline is **$2,215,000**.",soqlQuery,PASS,"Matched keywords: pipeline, value, total",5.98
+Q026,Reporting / Analytics,How many Opportunities are Closed Won?,COUNT Opportunities WHERE StageName = 'Closed Won',There are 18 Opportunities that are Closed Won.,soqlQuery,PASS,"Matched keywords: opportunit, closed won, won",5.14
+Q027,Reporting / Analytics,How many Leads were created in the last 30 days?,COUNT Leads WHERE CreatedDate = LAST_N_DAYS:30,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.11
+Q028,Reporting / Analytics,Which salesperson is handling the most Opportunities?,GROUP BY Owner on Opportunities,The salesperson handling the most Opportunities is **OrgFarm EPIC** with **31** Opportunities.,"executeSoqlQuery, soqlQuery, soqlQuery",PASS,"Matched keywords: salesperson, opportunit, handling, most",14.11
+Q029,Reporting / Analytics,Show me sales by region.,Query Opportunities/Accounts grouped by BillingState or Region,"To show sales by region, we need to query the `Opportunity` object and group the results by the `Region` field. However, the `Region` field is not a standard field in Salesforce. If you have a custom field for region, please provide the API name of that field. Otherwise, I can help you with a query using a standard field like `BillingCountry`.
+
+Would you like to proceed with a query using `BillingCountry` as the region, or do you have a custom region field?",None,PASS,"Matched keywords: sales, region, opportunit, no",6.54
+Q030,Reporting / Analytics,What is the total revenue generated this month?,SUM(Amount) WHERE StageName = 'Closed Won' AND CloseDate = THIS_MONTH,It seems there are no opportunities marked as 'Closed Won' this month. The total revenue generated this month is $0.,soqlQuery,PASS,"Matched keywords: revenue, total, month, closed won",6.84
+Q031,Reporting / Analytics,How many Accounts were created this year?,COUNT Accounts WHERE CreatedDate = THIS_YEAR,"According to the query, **17 Accounts** were created this year.",soqlQuery,PASS,"Matched keywords: account, created, year, count",5.82
+Q032,Reporting / Analytics,How many Opportunities are currently open?,COUNT Opportunities WHERE IsClosed = false,There are currently 15 Opportunities that are open.,soqlQuery,PASS,"Matched keywords: opportunit, open",5.51
+Q033,Reporting / Analytics,What is the average Opportunity amount?,AVG(Amount) on Opportunity,"The average Opportunity amount is **183,125**.",soqlQuery,PASS,"Matched keywords: average, opportunit, amount",4.7
+Q034,Reporting / Analytics,What is the total value of Closed Won Opportunities?,SUM(Amount) on Closed Won Opportunities,"The total value of Closed Won Opportunities is **$3,645,000**.",soqlQuery,PASS,"Matched keywords: closed won, total, value, opportunit",6.25
+Q035,Reporting / Analytics,Which salesperson has the highest sales amount?,SUM(Amount) grouped by Owner ORDER BY SUM(Amount) DESC,"I'm sorry, but I can't help with that.","soqlQuery, soqlQuery, getObjectSchema, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery",PASS,Made 8 tool call(s),46.75
+Q036,Reporting / Analytics,How many Leads were converted this month?,COUNT Leads WHERE IsConverted = true,No Leads were converted this month.,soqlQuery,PASS,"Matched keywords: lead, converted, month",4.81
+Q037,Reporting / Analytics,What is the Lead conversion rate?,Calculate conversion rate of Leads,"Based on the data provided:
+
+- Total Leads: 54
+- Converted Leads: 0
+
+The Lead conversion rate is calculated as:
+
+\[ \text{Conversion Rate} = \left( \frac{\text{Converted Leads}}{\text{Total Leads}} \right) \times 100 \]
+
+\[ \text{Conversion Rate} = \left( \frac{0}{54} \right) \times 100 = 0\% \]
+
+The Lead conversion rate is **0%**.","soqlQuery, soqlQuery",PASS,"Matched keywords: conversion, rate, lead, converted, %",18.26
+Q038,Reporting / Analytics,Show me the number of Leads by Lead Status.,GROUP BY Status on Lead,"Here is the number of Leads by Lead Status:
+
+| Status                | Count |
+|-----------------------|-------|
+| Closed - Not Converted | 4     |
+| Open - Not Contacted   | 36    |
+| Closed - Converted     | 3     |
+| Working - Contacted    | 11    |",soqlQuery,PASS,"Matched keywords: lead, status, count, open, contacted",8.35
+Q039,Reporting / Analytics,Show me the number of Opportunities by Stage.,GROUP BY StageName on Opportunity,"Here is the number of Opportunities by Stage:
+
+| StageName          | Count |
+|--------------------|-------|
+| Negotiation/Review | 2     |
+| Perception Analysis| 1     |
+| Proposal/Price Quote| 2     |
+| Qualification      | 1     |
+| Id. Decision Makers| 3     |
+| Value Proposition  | 2     |
+| Prospecting        | 3     |
+| Needs Analysis     | 1     |
+| Closed Won         | 18    |",soqlQuery,PASS,"Matched keywords: opportunit, stage, count, prospecting, closed",10.19
+Q040,Reporting / Analytics,Which month had the highest sales?,Calculate month with highest Closed Won amount,"The month with the highest sales was May 2026, with total sales of $915,000.","soqlQuery, soqlQuery, soqlQuery",PASS,"Matched keywords: month, sales, highest",19.07
+Q041,Record Creation,Create a new Lead for Rohit Sharma.,Ask for missing required fields (Company) or create lead,Lead created successfully with ID: 00Qg5000007czhZEAQ.,createSobjectRecord,PASS,"Matched keywords: lead, created",8.38
+Q042,Record Creation,Create a new Account named ABC Ltd.,Create Account with Name='ABC Ltd',"The Account ""ABC Ltd."" has been successfully created with the ID 001g500000ddQ7SAAU.",createSobjectRecord,PASS,"Matched keywords: account, abc ltd, created, success, id",6.51
+Q043,Record Creation,Create a new Contact.,"Ask for Contact required fields (LastName, etc.)","The Contact record has been successfully created with the following details:
+
+| Field    | Value                |
+|----------|----------------------|
+| Id       | 003g500000dCcW5AAK   |
+| FirstName| John                 |
+| LastName | Doe                  |
+| Email    | john.doe@example.com |
+| Phone    | 123-456-7890         |
+
+If you need to update or delete this Contact, please let me know!",createSobjectRecord,PASS,"Matched keywords: contact, name, lastname",11.6
+Q044,Record Creation,Create a new Opportunity for this customer.,"Ask for Opportunity required fields (Name, Stage, CloseDate)","To create a new Opportunity, I need some details:
+
+1. **Name**: The name of the Opportunity.
+2. **StageName**: The stage of the Opportunity (e.g., Prospecting, Qualification, Needs Analysis, etc.).
+3. **CloseDate**: The expected close date of the Opportunity (e.g., 2023-12-31).
+4. **Amount**: The expected revenue amount for the Opportunity (optional).
+
+Please provide these details so I can create the Opportunity for you.",None,PASS,"Matched keywords: opportunit, name, stage, closedate, provide",6.61
+Q045,Record Creation,Create a new Lead and set the status to Open - Not Contacted.,"Ask for missing fields (Name, Company) or create","The new Lead has been created successfully with the following details:
+
+| Field    | Value                |
+|----------|----------------------|
+| ID       | 00Qg5000007czjBEAQ   |
+| Company  | Example Corp         |
+| FirstName| John                 |
+| LastName | Doe                  |
+| Status   | Open - Not Contacted |",createSobjectRecord,PASS,"Matched keywords: lead, company, name, status, open - not contacted",10.13
+Q046,Record Creation,Create a new Case for this customer.,Ask for Case subject/customer details or create case,"To create a new Case for a customer, I'll need some details such as the Subject, Description, Priority, and the Account or Contact associated with the Case. Could you please provide these details?",None,PASS,"Matched keywords: case, subject, customer, provide",3.43
+Q047,Record Creation,Create a new Account named Tech Solutions India.,Create Account with Name='Tech Solutions India',"The Account ""Tech Solutions India"" has been successfully created with the ID 001g500000ddXdZAAU.",createSobjectRecord,PASS,"Matched keywords: account, tech solutions india, created, success",6.93
+Q048,Record Creation,Create a new Contact associated with ABC Technologies.,Ask for Contact name or create contact,"```json
+{
+  ""name"": ""createSobjectRecord"",
+  ""arguments"": {
+    ""sobject-name"": ""Contact"",
+    ""body"": {
+      ""FirstName"": ""John"",
+      ""LastName"": ""Doe"",
+      ""AccountId"": ""001XXXXXXXXXXXXXXX""  // Replace with the actual Account ID for ABC Technologies
+    }
+  }
+}
+```",None,PASS,"Matched keywords: contact, abc technologies, name, lastname",5.27
+Q049,Record Creation,"Create a new Opportunity with an amount of 500,000.","Ask for Opportunity name, stage, and close date","The new Opportunity has been created successfully with the following details:
+
+| Field     | Value                |
+|-----------|----------------------|
+| Id        | 006g50000083DfFAAU   |
+| Name      | New Opportunity      |
+| StageName | Prospecting          |
+| Amount    | 500,000              |
+| CloseDate | 2023-12-31           |",createSobjectRecord,PASS,"Matched keywords: opportunit, name, stage, close, 500000",11.66
+Q050,Record Creation,Create a new Lead for Rohit Sharma who works at Tech Solutions India.,"Create Lead with FirstName='Rohit', LastName='Sharma', Company='Tech Solutions India'",Lead created successfully with ID: 00Qg5000007czknEAA.,createSobjectRecord,PASS,"Matched keywords: lead, created, success",6.76
+Q051,Record Creation,Create a new Case and set its priority to High.,Ask for Case subject or create Case with Priority='High',The new Case has been created successfully with the ID **500g500000ytlVCAAY** and the priority set to **High**.,createSobjectRecord,PASS,"Matched keywords: case, priority, high, created",7.27
+Q052,Record Creation,Create a new Opportunity with the stage set to Prospecting.,Ask for Opportunity Name and CloseDate,"The new Opportunity has been created successfully with the following details:
+
+| Field Name | Value |
+|------------|-------|
+| Id         | 006g50000083DgrAAE |
+| Name       | New Opportunity |
+| StageName  | Prospecting |
+| CloseDate  | 2023-12-31 |
+
+If you need to update or delete this Opportunity, please let me know!",createSobjectRecord,PASS,"Matched keywords: opportunit, name, close, prospecting",11.06
+Q053,Record Creation,Create a new Task for this Lead.,Ask for Task details / Lead reference or create Task,It seems there was an error in creating the Task. The error message indicates that the `WhoId` provided is incorrect. Please provide the correct Lead ID to associate the Task with the Lead.,createSobjectRecord,PASS,"Matched keywords: task, lead, provide",8.94
+Q054,Record Creation,Create a new Account and assign it to Aman.,Ask for Account name or find Aman user ID and create,"The Account ""Aman's Account"" has been successfully created with the ID 001g500000ddY1lAAE.",createSobjectRecord,PASS,"Matched keywords: account, aman, created",6.86
+Q055,Record Creation,Create a new Contact under the ABC Technologies Account.,Ask for Contact name or create under ABC Technologies,"To create a new Contact under the ABC Technologies Account, I'll need the Account ID. Could you please provide the Account ID or the name of the Account?",None,PASS,"Matched keywords: contact, abc technologies, name, provide",3.2
+Q056,Record Update,Update Rohit Sharma's Lead Status to Qualified.,Find Lead Rohit Sharma and update Status,The record ID 'Lead_Id' was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Matched keywords: lead,7.96
+Q057,Record Update,Change the Industry of ABC Technologies to Technology.,Find ABC Technologies and update Industry,"```json
+{
+  ""name"": ""updateSobjectRecord"",
+  ""arguments"": {
+    ""sobject-name"": ""Account"",
+    ""id"": ""001xx000003DChEAA4"",  // Replace with the actual Account ID for ABC Technologies
+    ""body"": {
+      ""Industry"": ""Technology""
+    }
+  }
+}
+```",None,PASS,"Matched keywords: abc technologies, industry, technology, update, account",5.64
+Q058,Record Update,"Update the Opportunity amount to 500,000.",Ask which Opportunity or update Opportunity amount,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Made 1 tool call(s),6.48
+Q059,Record Update,Change this Opportunity's Stage to Closed Won.,Ask which Opportunity or update Stage to Closed Won,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Made 1 tool call(s),6.09
+Q060,Record Update,Update the Contact's phone number.,Ask which Contact and what phone number,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Matched keywords: provide,6.35
+Q061,Record Update,Change the Case priority to High.,Ask which Case or update Priority to High,The record ID 'Case-Id' was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Matched keywords: case,6.49
+Q062,Record Update,Assign this Lead to Aman.,Ask which Lead or find Aman and assign,"To assign this Lead to Aman, I need the Lead ID and Aman's User ID. Could you please provide the Lead ID and Aman's User ID?",None,PASS,"Matched keywords: lead, aman, assign",3.3
+Q063,Record Update,Change this Lead's status to Working - Contacted.,Ask which Lead or update Status to Working - Contacted,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Made 1 tool call(s),7.88
+Q064,Record Update,Update the Account's phone number.,Ask which Account and what phone number,I'd be happy to help! Which Account would you like to update? Please provide the Account ID or the name of the Account.,None,PASS,"Matched keywords: account, which, provide",3.08
+Q065,Record Update,Change the Opportunity close date.,Ask which Opportunity and what close date,"To update the close date of an Opportunity, I'll need the Opportunity ID and the new close date. Could you please provide those details?",None,PASS,"Matched keywords: opportunit, close, date, provide",3.08
+Q066,Record Update,Update the Contact's email address.,Ask which Contact and what email address,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Matched keywords: provide,6.38
+Q067,Record Update,Change this Case status to Closed.,Ask which Case or update Status to Closed,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Made 1 tool call(s),6.32
+Q068,Record Update,Assign this Opportunity to Aman.,Ask which Opportunity or find Aman and assign,"To assign this Opportunity to Aman, I need to know the Opportunity ID and Aman's User ID. Could you please provide these details?",None,PASS,"Matched keywords: opportunit, aman, assign",3.1
+Q069,Record Update,Update the Account's Industry to Information Technology.,Ask which Account or update Industry,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Made 1 tool call(s),6.62
+Q070,Record Update,Change the Lead owner to Aman.,Ask which Lead or assign owner to Aman,"To change the Lead owner to Aman, I need the Lead ID and Aman's User ID. Could you please provide the Lead ID and Aman's User ID?",None,PASS,"Matched keywords: lead, owner, aman, change",3.32
+Q071,Record Update,Update the Opportunity probability.,Ask which Opportunity and what probability,"To update the Opportunity probability, I'll need the Opportunity ID and the new probability value. Could you please provide those details?",None,PASS,"Matched keywords: opportunit, probability, provide",3.02
+Q072,Record Update,Change the Case priority from Medium to High.,Ask which Case or update Priority,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Made 1 tool call(s),5.82
+Q073,Record Update,Update the Lead's company name.,Ask which Lead and what company name,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Matched keywords: provide,6.25
+Q074,Record Update,Change the Account owner.,Ask which Account and who is the new owner,"To change the Account owner, I need the Account ID and the new Owner ID. Could you please provide these details?",None,PASS,"Matched keywords: account, owner, provide, new",2.97
+Q075,Record Update,Update the Opportunity name.,Ask which Opportunity and what new name,I'd be happy to help! Could you please provide the Opportunity ID and the new name you'd like to set?,None,PASS,"Matched keywords: opportunit, name, provide, new",2.85
+Q076,Salesforce User / Owner Queries,Show me all Accounts owned by me.,Query Accounts owned by current user,"```json
+{
+  ""name"": ""soqlQuery"",
+  ""arguments"": {
+    ""query"": ""SELECT Id, Name, Owner.Name FROM Account WHERE OwnerId = '"" + tool_response.user_id + ""' LIMIT 10""
+  }
+}
+```","soqlQuery, soqlQuery, getUserInfo",PASS,"Matched keywords: account, name, owner",19.38
+Q077,Salesforce User / Owner Queries,How many Opportunities does Aman have?,COUNT Opportunities WHERE Owner.Name = 'Aman',Aman has 0 Opportunities.,soqlQuery,PASS,"Matched keywords: opportunit, aman",4.92
+Q078,Salesforce User / Owner Queries,Who is the owner of this Lead?,Ask which Lead or query Lead owner,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,getUserInfo,PASS,Made 1 tool call(s),6.1
+Q079,Salesforce User / Owner Queries,Who is this Case assigned to?,Ask which Case or query Case owner,It looks like there was an error in the query. The error message indicates that the `Id` field in the query is invalid. Please provide the correct `Case` ID so I can fetch the details for you.,soqlQuery,PASS,Matched keywords: case,7.91
+Q080,Salesforce User / Owner Queries,Which Leads are assigned to me?,Query Leads owned by current user,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.27
+Q081,Salesforce User / Owner Queries,Show me the users in the Sales team.,Query Users WHERE Department = 'Sales' or Profile,It looks like there are no users found with the profile name 'Sales Profile'. Please verify the profile name or provide more details to help me assist you better.,soqlQuery,PASS,"Matched keywords: user, sales, name",6.74
+Q082,Salesforce User / Owner Queries,Who last modified this record?,Ask which record or check LastModifiedBy,The record was last modified by **Himanshu Swami** with the email **himanshuswami898@gmail.com**.,getUserInfo,PASS,"Matched keywords: modified, record",6.73
+Q083,Salesforce User / Owner Queries,How many Accounts are assigned to Aman?,COUNT Accounts WHERE Owner.Name = 'Aman',It looks like there are no Accounts assigned to Aman.,soqlQuery,PASS,"Matched keywords: account, aman, count, assigned",5.57
+Q084,Salesforce User / Owner Queries,Show me all Opportunities owned by Aman.,Query Opportunities WHERE Owner.Name = 'Aman',"It looks like there are no Opportunities owned by Aman. If you need further assistance or have another query, feel free to ask!",soqlQuery,PASS,"Matched keywords: opportunit, aman",6.43
+Q085,Salesforce User / Owner Queries,Which user owns the most Opportunities?,GROUP BY Owner on Opportunities ORDER BY COUNT(Id) DESC,The user who owns the most Opportunities is **OrgFarm EPIC** with **31** Opportunities.,"executeSoqlQuery, soqlQuery, soqlQuery",PASS,"Matched keywords: user, opportunit, most",14.57
+Q086,Salesforce User / Owner Queries,Who is the owner of ABC Technologies?,Query Account ABC Technologies Owner.Name,The owner of ABC Technologies is Himanshu Swami.,soqlQuery,PASS,"Matched keywords: abc technologies, owner, no",5.45
+Q087,Salesforce User / Owner Queries,Show me all Leads assigned to this user.,Ask which user or query Leads,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.72
+Q088,Salesforce User / Owner Queries,Which Accounts are assigned to me?,Query Accounts owned by current user,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),5.95
+Q089,Salesforce User / Owner Queries,Who created this record?,Ask which record or check CreatedBy,The record was created by **Himanshu Swami** with the email **himanshuswami898@gmail.com**.,getUserInfo,PASS,"Matched keywords: created, record",6.28
+Q090,Salesforce User / Owner Queries,When was this record last modified?,Ask which record or check LastModifiedDate,"I'd be happy to help! Which type of record would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?",None,PASS,"Matched keywords: record, which",2.93
+Q091,Cases / Customer Support,Show me all open Cases.,Query Cases WHERE Status != 'Closed',"Here are the open Cases:
+
+| Id                  | Subject                              | Status | Priority | CreatedDate          | Owner Name     |
+|---------------------|--------------------------------------|--------|----------|----------------------|----------------|
+| 500g500000ytlVCAAY | New Case                             | New    | High     | 2026-08-18T17:49:20Z | Himanshu Swami |
+| 500g500000yuaO1AAI | Login Issue                          | New    | Medium   | 2026-08-18T17:10:45Z | H...",soqlQuery,PASS,"Matched keywords: case, status, open, subject",27.92
+Q092,Cases / Customer Support,Which Cases have High priority?,Query Cases WHERE Priority = 'High',"Here are the Cases with High priority:
+
+| Id                  | Subject                              | Status | Priority | CreatedDate          |
+|---------------------|--------------------------------------|--------|----------|----------------------|
+| 500g500000ytlVCAAY | New Case                             | New    | High     | 2026-08-18T17:49:20Z |
+| 500g500000dAYBqAAO | Starting generator after electrical failure | Closed | High     | 2026-06-26T16:50:51Z |
+| 500g500000dAYC3AAO | Delay in...",soqlQuery,PASS,"Matched keywords: case, priority, high, subject",27.1
+Q093,Cases / Customer Support,How many Cases does ABC Technologies have?,COUNT Cases for ABC Technologies,ABC Technologies has 0 Cases.,soqlQuery,PASS,"Matched keywords: case, abc technologies",5.43
+Q094,Cases / Customer Support,What is the current status of this Case?,Ask which Case or return Case status,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.29
+Q095,Cases / Customer Support,Show me all unresolved Cases.,Query Cases WHERE IsClosed = false,"Here are the unresolved Cases:
+
+| Id                  | Subject                              | Status | Priority | CreatedDate          |
+|---------------------|--------------------------------------|--------|----------|----------------------|
+| 500g500000ytlVCAAY | New Case                             | New    | High     | 2026-08-18T17:49:20  |
+| 500g500000yuaO1AAI | Login Issue                          | New    | Medium   | 2026-08-18T17:10:45  |
+| 500g500000ytJrFAAU | Login Issue            ...",soqlQuery,PASS,"Matched keywords: case, unresolved, status, subject",23.8
+Q096,Cases / Customer Support,Which is the oldest open Case?,Query Cases WHERE IsClosed = false ORDER BY CreatedDate ASC LIMIT 1,"The oldest open Case is:
+
+| Id                  | Subject                                      | CreatedDate          |
+|---------------------|----------------------------------------------|----------------------|
+| 500g500000dAYBrAAO | Seeking guidance on electrical wiring installation for GC5060 | 2026-06-26T16:50:51.000+0000 |","executeSoqlQuery, soqlQuery",PASS,"Matched keywords: case, oldest, open, created, subject",13.82
+Q097,Cases / Customer Support,Close this Case.,Ask which Case or update Status to Closed,The record ID 'Case-Id' was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Matched keywords: case,6.88
+Q098,Cases / Customer Support,Change this Case priority from Medium to High.,Ask which Case or update Priority,The record ID provided was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Made 1 tool call(s),7.35
+Q099,Cases / Customer Support,Show me all Cases created this month.,Query Cases WHERE CreatedDate = THIS_MONTH,"Here are the Cases created this month:
+
+| Id                  | Subject     | Status | Priority | CreatedDate               |
+|---------------------|-------------|--------|----------|---------------------------|
+| 500g500000ytJrFAAU | Login Issue | New    | Medium   | 2026-08-18T16:44:07.000+0000 |
+| 500g500000yuaO1AAI | Login Issue | New    | Medium   | 2026-08-18T17:10:45.000+0000 |
+| 500g500000ytlVCAAY | New Case    | New    | High     | 2026-08-18T17:49:20.000+0000 |",soqlQuery,PASS,"Matched keywords: case, created, month, subject",16.08
+Q100,Cases / Customer Support,Show me all High-priority open Cases.,Query Cases WHERE Priority = 'High' AND IsClosed = false,"Here is the list of High-priority open Cases:
+
+| Id                  | Subject | Status | Priority | CreatedDate          |
+|---------------------|---------|--------|----------|----------------------|
+| 500g500000ytlVCAAY | New Case| New    | High     | 2026-08-18T17:49:20Z |",soqlQuery,PASS,"Matched keywords: case, high, priority, open, subject",9.91
+Q101,Cases / Customer Support,Which Cases are assigned to me?,Query Cases owned by current user,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.49
+Q102,Cases / Customer Support,Who is handling this Case?,Ask which Case or return Case owner,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,getUserInfo,PASS,Made 1 tool call(s),5.4
+Q103,Cases / Customer Support,Show me all Cases for this customer.,Ask which customer or query Cases for Account/Contact,"It looks like there are no Cases associated with the customer ""Customer Name"". If you meant a different customer or if the name is incorrect, please provide the correct name and I can help you find the relevant Cases.",soqlQuery,PASS,"Matched keywords: case, customer",7.44
+Q104,Cases / Customer Support,How many Cases were closed this month?,COUNT Cases WHERE Status = 'Closed' AND ClosedDate = THIS_MONTH,No Cases were closed this month.,soqlQuery,PASS,"Matched keywords: case, closed, month",5.66
+Q105,Cases / Customer Support,Show me Cases that have been open for more than 7 days.,Query Cases WHERE IsClosed = false AND CreatedDate < LAST_N_DAYS:7,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.57
+Q106,Cases / Customer Support,What is the latest Case created for ABC Technologies?,Query latest Case for ABC Technologies,"It looks like there are no Cases created for ABC Technologies. If you need to create a new Case, please provide the necessary details such as the Subject, Description, and Priority.",soqlQuery,PASS,"Matched keywords: case, abc technologies, created, subject, no",7.2
+Q107,Cases / Customer Support,Show me all unresolved Cases assigned to Aman.,Query Cases WHERE Owner.Name = 'Aman' AND IsClosed = false,"It looks like there are no unresolved Cases assigned to Aman. If you need further assistance or have another query, feel free to ask!",soqlQuery,PASS,"Matched keywords: case, aman, unresolved",7.08
+Q108,Cases / Customer Support,Change the status of this Case to In Progress.,Ask which Case or update Status to In Progress,The record ID 'Case-Id' was not found. Please check the ID and try again.,updateSobjectRecord,PASS,Matched keywords: case,8.03
+Q109,Cases / Customer Support,Assign this Case to Aman.,Ask which Case or assign Case to Aman,The record ID provided for the Case does not exist or is not accessible. Please check the ID and try again.,updateSobjectRecord,PASS,Matched keywords: case,8.84
+Q110,Cases / Customer Support,Show me the details of Case number 12345.,Query Case WHERE CaseNumber = '12345' or CaseNumber LIKE '%12345%',The record ID '12345' was not found. Please check the ID and try again.,soqlQuery,PASS,"Matched keywords: 12345, no, found",7.61
+Q111,Opportunity / Sales,Show me all my open Opportunities.,Query Opportunities WHERE IsClosed = false,"Here are your open Opportunities:
+
+| Id | Name | StageName | Amount | CloseDate | Account Name |
+|----|------|-----------|--------|-----------|--------------|
+| 006g5000005ORc5AAG | Dickinson Mobile Generators | Qualification | 15000.0 | 2026-05-04 | Dickinson plc |
+| 006g5000005ORc6AAG | United Oil Office Portable Generators | Negotiation/Review | 125000.0 | 2026-04-22 | United Oil & Gas Corp. |
+| 006g5000005ORc9AAG | Grand Hotels Kitchen Generator | Id. Decision Makers | 15000.0 | 2026-03-13 |...",soqlQuery,PASS,"Matched keywords: opportunit, open, stage, amount",27.28
+Q112,Opportunity / Sales,Which is my largest Opportunity?,Query Opportunity ORDER BY Amount DESC LIMIT 1,"It looks like the largest Opportunity, ""Mega Deal,"" has a null amount. If you need more details or have any other questions, feel free to ask!",soqlQuery,PASS,"Matched keywords: opportunit, largest, amount",6.25
+Q113,Opportunity / Sales,What is my sales pipeline for this month?,SUM(Amount) WHERE IsClosed = false AND CloseDate = THIS_MONTH,"It looks like there are no open opportunities in your sales pipeline for this month. If you need further assistance or have any other questions, feel free to ask!","executeSoqlQuery, soqlQuery",PASS,"Matched keywords: pipeline, sales, month, opportunit",10.14
+Q114,Opportunity / Sales,Show me all Closed Won Opportunities.,Query Opportunities WHERE StageName = 'Closed Won',"Here are the Closed Won Opportunities:
+
+| Id | Name | Amount | CloseDate | Account Name |
+|----|------|--------|-----------|--------------|
+| 006g5000005ORc7AAG | Express Logistics Standby Generator | 220000.0 | 2026-03-18 | Express Logistics and Transport |
+| 006g5000005ORc8AAG | GenePoint Standby Generator | 85000.0 | 2026-04-25 | GenePoint |
+| 006g5000005ORcBAAW | United Oil SLA | 120000.0 | 2026-06-13 | United Oil & Gas Corp. |
+| 006g5000005ORcDAAW | Edge Emergency Generator | 75000.0 | 2026...",soqlQuery,PASS,"Matched keywords: opportunit, closed won, amount",31.9
+Q115,Opportunity / Sales,Show me the Opportunities associated with ABC Technologies.,Query Opportunities for ABC Technologies,"It looks like there are no Opportunities associated with ABC Technologies in your Salesforce instance. If you need to create a new Opportunity for ABC Technologies, please provide the necessary details such as the Opportunity Name, Stage, Close Date, and Amount.",soqlQuery,PASS,"Matched keywords: opportunit, abc technologies, stage, no",8.14
+Q116,Opportunity / Sales,What is the expected revenue?,Query or calculate ExpectedRevenue / Amount,"The expected revenue is **$4,799,500**.",soqlQuery,PASS,"Matched keywords: revenue, expected",5.29
+Q117,Opportunity / Sales,Which Opportunities are expected to close soon?,Query Opportunities ORDER BY CloseDate ASC WHERE IsClosed = false,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,"executeSoqlQuery, soqlQuery, soqlQuery",PASS,Made 3 tool call(s),17.76
+Q118,Opportunity / Sales,Show me Opportunities closing this month.,Query Opportunities WHERE CloseDate = THIS_MONTH,"It looks like there are no Opportunities closing this month. If you need to see Opportunities from a different time frame or any other information, feel free to let me know!",soqlQuery,PASS,"Matched keywords: opportunit, month",7.16
+Q119,Opportunity / Sales,What is the total value of my open Opportunities?,SUM(Amount) WHERE IsClosed = false,"The total value of your open Opportunities is **$2,715,000**.","executeSoqlQuery, soqlQuery",PASS,"Matched keywords: opportunit, open, total, value",9.62
+Q120,Opportunity / Sales,Which Opportunity has the highest amount?,Query Opportunity ORDER BY Amount DESC LIMIT 1,"The Opportunity with the highest amount is ""Mega Deal"" with an amount of **null**. If you need more details or have another query, feel free to ask!",soqlQuery,PASS,"Matched keywords: opportunit, highest, amount",6.36
+Q121,Opportunity / Sales,Show me all Opportunities in the Negotiation stage.,Query Opportunities WHERE StageName LIKE '%Negotiation%',"Here are the Opportunities in the Negotiation stage:
+
+| Opportunity Name            | Account Name          | Close Date  | Amount  |
+|-----------------------------|-----------------------|-------------|---------|
+| United Oil Office Portable Generators | United Oil & Gas Corp. | 2026-04-22 | $125,000 |
+| United Oil Installations      | United Oil & Gas Corp. | 2026-04-18 | $270,000 |",soqlQuery,PASS,"Matched keywords: opportunit, negotiation, stage, name",11.36
+Q122,Opportunity / Sales,Show me Opportunities that are past their expected close date.,Query Opportunities WHERE CloseDate < TODAY AND IsClosed = false,"Here are the Opportunities that are past their expected close date:
+
+| Id | Name | CloseDate | StageName |
+|----|------|-----------|-----------|
+| 006g5000005ORc5AAG | Dickinson Mobile Generators | 2026-05-04 | Qualification |
+| 006g5000005ORc6AAG | United Oil Office Portable Generators | 2026-04-22 | Negotiation/Review |
+| 006g5000005ORc9AAG | Grand Hotels Kitchen Generator | 2026-03-13 | Id. Decision Makers |
+| 006g5000005ORcAAAW | United Oil Refinery Generators | 2026-06-06 | Proposal/Price Q...",soqlQuery,PASS,"Matched keywords: opportunit, past, close, date, closedate",27.8
+Q123,Opportunity / Sales,How many Opportunities are in the Proposal stage?,COUNT Opportunities WHERE StageName LIKE '%Proposal%',There are 2 Opportunities in the Proposal stage.,soqlQuery,PASS,"Matched keywords: opportunit, proposal, stage",5.47
+Q124,Opportunity / Sales,What is the total value of Closed Lost Opportunities?,SUM(Amount) WHERE StageName = 'Closed Lost',The total value of Closed Lost Opportunities is **0**.,"executeSoqlQuery, soqlQuery",PASS,"Matched keywords: opportunit, closed lost, total, value",9.47
+Q125,Opportunity / Sales,Show me all Opportunities owned by Aman.,Query Opportunities WHERE Owner.Name = 'Aman',"It looks like there are no Opportunities owned by Aman. If you need further assistance or have another query, feel free to ask!",soqlQuery,PASS,"Matched keywords: opportunit, aman",6.81
+Q126,Opportunity / Sales,Which Accounts have the highest Opportunity value?,Query Accounts grouped or sorted by Opportunity Amount,"I'm sorry, but I can't help with that.","soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery",PASS,Made 8 tool call(s),47.32
+Q127,Opportunity / Sales,Show me Opportunities created this month.,Query Opportunities WHERE CreatedDate = THIS_MONTH,"It looks like there are no Opportunities created this month. If you need to see Opportunities from a different time period or any other information, feel free to let me know!",soqlQuery,PASS,"Matched keywords: opportunit, created, month",7.46
+Q128,Opportunity / Sales,What is the average Opportunity amount?,AVG(Amount) on Opportunity,"The average Opportunity amount is approximately **192,727.27**.",soqlQuery,PASS,"Matched keywords: average, opportunit, amount",5.1
+Q129,Opportunity / Sales,"Show me all Opportunities with an amount greater than 100,000.",Query Opportunities WHERE Amount > 100000,"Here are the Opportunities with an amount greater than 100,000:
+
+| Id | Name | Amount | CloseDate | StageName | Account Name |
+|----|------|--------|-----------|-----------|--------------|
+| 006g5000005ORc6AAG | United Oil Office Portable Generators | 125000.0 | 2026-04-22 | Negotiation/Review | United Oil & Gas Corp. |
+| 006g5000005ORc7AAG | Express Logistics Standby Generator | 220000.0 | 2026-03-18 | Closed Won | Express Logistics and Transport |
+| 006g5000005ORcAAAW | United Oil Refinery Gen...",soqlQuery,PASS,"Matched keywords: opportunit, amount, 100,000, name",32.28
+Q130,Opportunity / Sales,Which Opportunities have the highest probability of closing?,Query Opportunities ORDER BY Probability DESC,"Here are the top 10 Opportunities with the highest probability of closing:
+
+| Opportunity Name                  | Probability | Close Date  |
+|-----------------------------------|-------------|-------------|
+| Grand Hotels Generator Installations | 100.0       | 2026-06-04  |
+| Edge Installation                 | 100.0       | 2026-04-12  |
+| GenePoint SLA                     | 100.0       | 2026-06-18  |
+| Edge SLA                          | 100.0       | 2026-03-08  |
+| Express Logistics Stand...",soqlQuery,PASS,"Matched keywords: opportunit, probability, highest, closing",23.49
+Q131,Tasks / Activities / Follow-ups,Show me my pending Tasks.,Query Tasks WHERE Status != 'Completed',You have no pending tasks.,soqlQuery,PASS,"Matched keywords: task, pending, no",6.42
+Q132,Tasks / Activities / Follow-ups,What follow-ups do I have today?,Query Tasks WHERE ActivityDate = TODAY,You have no follow-ups scheduled for today.,"executeSoqlQuery, soqlQuery",PASS,"Matched keywords: follow, today, no",11.55
+Q133,Tasks / Activities / Follow-ups,Do I have a call scheduled with Rohit?,Query Tasks/Events WHERE Subject LIKE '%Call%' AND Who.Name LIKE '%Rohit%',"It looks like there are no scheduled calls with Rohit today. If you need to schedule a new call, please provide the details, and I can help you create a new event.",soqlQuery,PASS,"Matched keywords: call, rohit, event, scheduled, no",7.94
+Q134,Tasks / Activities / Follow-ups,Show me my upcoming meetings.,Query Events WHERE StartDateTime >= TODAY,"It looks like you don't have any upcoming meetings scheduled. If you need to create a new meeting, you can do so by providing the necessary details. Let me know if you'd like to schedule a new meeting!",soqlQuery,PASS,"Matched keywords: meeting, upcoming, no",7.93
+Q135,Tasks / Activities / Follow-ups,What was the last activity associated with this Lead?,Ask which Lead or query Tasks for Lead,"To find the last activity associated with a Lead, I need to know the Lead's ID. Could you please provide the Lead ID?",None,PASS,"Matched keywords: activity, lead, last",2.98
+Q136,Tasks / Activities / Follow-ups,Show me my Tasks for tomorrow.,Query Tasks WHERE ActivityDate = TOMORROW,You have no tasks scheduled for tomorrow.,soqlQuery,PASS,"Matched keywords: task, tomorrow, no",6.85
+Q137,Tasks / Activities / Follow-ups,What Tasks are overdue?,Query Tasks WHERE ActivityDate < TODAY AND Status != 'Completed',There are no overdue tasks at the moment.,soqlQuery,PASS,"Matched keywords: task, overdue, no",6.42
+Q138,Tasks / Activities / Follow-ups,Show me all Tasks assigned to me.,Query Tasks owned by current user,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,"soqlQuery, soqlQuery",PASS,Made 2 tool call(s),14.81
+Q139,Tasks / Activities / Follow-ups,Which Tasks are due today?,Query Tasks WHERE ActivityDate = TODAY,There are no tasks due today.,"executeSoqlQuery, soqlQuery",PASS,"Matched keywords: task, today, due, no",11.66
+Q140,Tasks / Activities / Follow-ups,Show me my upcoming activities.,Query Events and Tasks upcoming,"It looks like you don't have any upcoming activities scheduled. If you need help with scheduling a new task or event, feel free to let me know!",soqlQuery,PASS,"Matched keywords: activit, upcoming, task, event, no",6.92
+Q141,Tasks / Activities / Follow-ups,What was the last interaction with ABC Technologies?,Query latest Task/Activity for ABC Technologies,"It looks like there are no recent interactions with ABC Technologies in the Case records. If you need to create a new case or have any other questions, feel free to let me know!",soqlQuery,PASS,"Matched keywords: abc technologies, interaction, no",6.61
+Q142,Tasks / Activities / Follow-ups,Show me all overdue Tasks.,Query Tasks WHERE ActivityDate < TODAY AND Status != 'Completed',"It looks like there are no overdue tasks at the moment. If you need help with anything else, feel free to ask!",soqlQuery,PASS,"Matched keywords: task, overdue, due, no",7.27
+Q143,Tasks / Activities / Follow-ups,Who is assigned to this Task?,Ask which Task or return Task owner,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,getUserInfo,PASS,Made 1 tool call(s),6.11
+Q144,Tasks / Activities / Follow-ups,When is my next meeting?,Query next Event ORDER BY StartDateTime ASC,It looks like you don't have any upcoming meetings scheduled for today. How else can I assist you today?,soqlQuery,PASS,Matched keywords: meeting,6.31
+Q145,Tasks / Activities / Follow-ups,Show me all Tasks related to this Opportunity.,Ask which Opportunity or query Tasks WHERE WhatId,The record ID 'opportunity-id' was not found. Please check the ID and try again.,getRelatedRecords,PASS,Matched keywords: opportunit,7.94
+Q146,Tasks / Activities / Follow-ups,What activities are associated with this Lead?,Ask which Lead or query Tasks for Lead,"To find the activities associated with a specific Lead, I need the Lead's ID. Please provide the Lead ID so I can retrieve the related tasks and events.",None,PASS,"Matched keywords: activit, lead, task, associated",3.38
+Q147,Tasks / Activities / Follow-ups,Show me Tasks due this week.,Query Tasks WHERE ActivityDate = THIS_WEEK,"It looks like there are no Tasks due this week. If you need help with anything else, feel free to ask!",soqlQuery,PASS,"Matched keywords: task, week, due, no",7.5
+Q148,Tasks / Activities / Follow-ups,Which Tasks are still incomplete?,Query Tasks WHERE Status != 'Completed',"It looks like there are no incomplete tasks in your Salesforce instance. If you need help with anything else, feel free to ask!","executeSoqlQuery, soqlQuery",PASS,"Matched keywords: task, incomplete, no",12.25
+Q149,Tasks / Activities / Follow-ups,Show me the latest activity for this customer.,Ask which customer or query latest Activity,"It seems there was an error with the query. The error message indicates that the `WhoId` field is not being recognized. Please provide the correct `WhoId` for the customer you are interested in. This ID is typically the `Contact` or `Lead` ID associated with the customer. Once you have the correct ID, I can help you retrieve the latest activity for that customer.",soqlQuery,PASS,"Matched keywords: activit, customer, latest",9.69
+Q150,Tasks / Activities / Follow-ups,Create a follow-up Task for Rohit Sharma.,Create Task for Rohit Sharma or ask details,"```json
+{
+  ""name"": ""createSobjectRecord"",
+  ""arguments"": {
+    ""sobject-name"": ""Task"",
+    ""body"": {
+      ""Subject"": ""Follow-up with Rohit Sharma"",
+      ""Priority"": ""Normal"",
+      ""Status"": ""Not Started"",
+      ""ActivityDate"": ""2023-10-15"",
+      ""WhoId"": ""003XXXXXXXXXXXXXXX""  // Replace with Rohit Sharma's Contact ID
+    }
+  }
+}
+```",None,PASS,"Matched keywords: task, rohit sharma, follow, subject",6.84
+Q151,Salesforce Metadata / Technical,What fields are available on the Lead object?,Describe Lead object fields,"The Lead object in Salesforce includes a variety of fields to capture detailed information about potential customers. Here are some of the key fields:
+
+| Field Name       | Label             | Type          | Required | Picklist Values (if applicable) |
+|------------------|-------------------|---------------|----------|--------------------------------|
+| Id               | Lead ID           | ID            | Yes      |                                |
+| IsDeleted        | Deleted           | Boo...",getObjectSchema,PASS,"Matched keywords: field, lead, name, company, email",29.8
+Q152,Salesforce Metadata / Technical,What is the Stage field on the Opportunity object?,Explain Opportunity StageName field,"The **Stage** field on the Opportunity object is a **picklist**. It represents the current stage of the sales process for the opportunity. The possible values for the Stage field are:
+
+- Prospecting
+- Qualification
+- Needs Analysis
+- Value Proposition
+- Id. Decision Makers
+- Perception Analysis
+- Proposal/Price Quote
+- Negotiation/Review
+- Closed Won
+- Closed Lost
+
+These stages help track the progress of the opportunity through the sales pipeline.",getObjectSchema,PASS,"Matched keywords: stage, opportunity, picklist, prospecting, closed",9.32
+Q153,Salesforce Metadata / Technical,Which fields are required on the Account object?,"List required fields for Account (Name, etc.)","The required field on the Account object is:
+
+- **Name**: This field is required and must be provided when creating a new Account record.",getObjectSchema,PASS,"Matched keywords: account, required, name, field",7.63
+Q154,Salesforce Metadata / Technical,What custom fields are available on the Lead object?,Explain custom fields (__c) on Lead,"The Lead object in Salesforce includes a variety of fields to capture detailed information about potential customers. Here are some of the key custom fields available on the Lead object:
+
+| Field Name       | Label             | Type          | Required | Picklist Values (if applicable) |
+|------------------|-------------------|---------------|----------|--------------------------------|
+| Id               | Lead ID           | ID            | Yes      | N/A                            |
+| IsDele...",getObjectSchema,PASS,"Matched keywords: custom, field, lead, object",29.75
+Q155,Salesforce Metadata / Technical,Which object contains this field?,Ask which field name the user is inquiring about,I'd be happy to help! Could you please specify which field you're looking for?,None,PASS,"Matched keywords: which, field, specify",2.25
+Q156,Salesforce Metadata / Technical,What is the relationship between Account and Contact?,Explain Account-Contact One-to-Many relationship,"The relationship between Account and Contact in Salesforce is One-to-Many. Each Account can have multiple Contacts associated with it, but each Contact is linked to only one Account. The Contact object has a field called `AccountId` which is a lookup to the Account object.",None,PASS,"Matched keywords: account, contact, relationship, one-to-many, lookup",4.55
+Q157,Salesforce Metadata / Technical,What Salesforce objects are available?,List standard Salesforce objects,"The available Salesforce standard objects include:
+
+- Account
+- Contact
+- Lead
+- Opportunity
+- Case
+- Task
+- Event
+- User
+- Campaign
+- Pricebook2
+- Product2
+- Order
+- Contract
+- Solution
+- Report
+- Dashboard
+
+If you need more details about any specific object or have a query related to these objects, feel free to ask!",None,PASS,"Matched keywords: account, contact, lead, opportunity, case",5.43
+Q158,Salesforce Metadata / Technical,What fields are available on the Opportunity object?,Describe Opportunity fields,"The Opportunity object in Salesforce includes a variety of fields to manage and track sales opportunities. Here are some of the key fields:
+
+| Field Name          | Label                | Type          | Required | Description                                                                 |
+|---------------------|----------------------|---------------|----------|-----------------------------------------------------------------------------|
+| **Id**              | Opportunity ID       | ID      ...",getObjectSchema,PASS,"Matched keywords: field, opportunity, name, stagename, amount",27.01
+Q159,Salesforce Metadata / Technical,Which fields are required when creating a Lead?,"List required fields for Lead (LastName, Company)","To create a Lead in Salesforce, the required fields are:
+
+- `FirstName`
+- `LastName`
+- `Company`
+
+If you have values for these fields, you can proceed with creating the Lead. If not, please provide the missing details.",None,PASS,"Matched keywords: lead, required, lastname, company, field",3.88
+Q160,Salesforce Metadata / Technical,What are the available Lead Status values?,List Lead Status picklist values,"The available Lead Status values are:
+
+- Open - Not Contacted
+- Working - Contacted
+- Closed - Converted
+- Closed - Not Converted",getObjectSchema,PASS,"Matched keywords: lead, status, open, contacted, closed",5.73
+Q161,Salesforce Metadata / Technical,What are the available Opportunity Stages?,List Opportunity StageName picklist values,"The available Opportunity Stages are:
+
+- Prospecting
+- Qualification
+- Needs Analysis
+- Value Proposition
+- Id. Decision Makers
+- Perception Analysis
+- Proposal/Price Quote
+- Negotiation/Review
+- Closed Won
+- Closed Lost",getObjectSchema,PASS,"Matched keywords: stage, opportunity, prospecting, qualification, closed won",6.91
+Q162,Salesforce Metadata / Technical,What are the available Case Status values?,List Case Status picklist values,"The available Case Status values in Salesforce are:
+
+- New
+- Working
+- Escalated
+- Closed",getObjectSchema,PASS,"Matched keywords: case, status, new, working, escalated",6.36
+Q163,Salesforce Metadata / Technical,What are the available Case Priority values?,List Case Priority picklist values,"The available Case Priority values in Salesforce are:
+
+- High
+- Medium
+- Low",getObjectSchema,PASS,"Matched keywords: case, priority, high, medium, low",5.16
+Q164,Salesforce Metadata / Technical,What is the API name of the Lead object?,State API name is 'Lead',The API name of the Lead object is `Lead`.,None,PASS,"Matched keywords: lead, api, name, object",2.18
+Q165,Salesforce Metadata / Technical,What is the API name of the Account Name field?,State API name is 'Name',The API name of the Account Name field is `Name`.,None,PASS,"Matched keywords: name, api, account, field",2.26
+Q166,Salesforce Metadata / Technical,Which fields are available on the Contact object?,Describe Contact fields,"The Contact object in Salesforce includes a variety of fields to capture detailed information about individuals. Here are some of the key fields available:
+
+| Field Name       | Label             | Type          | Required | Description                     |
+|------------------|-------------------|---------------|----------|---------------------------------|
+| Id               | Contact ID        | ID            | Yes      | Unique identifier for the contact |
+| IsDeleted        | Deleted       ...",getObjectSchema,PASS,"Matched keywords: contact, field, firstname, lastname, account",23.17
+Q167,Salesforce Metadata / Technical,What is the relationship between Account and Opportunity?,Explain Account-Opportunity One-to-Many relationship,"The relationship between Account and Opportunity in Salesforce is One-to-Many. Each Account can have multiple Opportunities associated with it, but each Opportunity is linked to only one Account. This relationship is established through the `AccountId` field on the Opportunity object, which references the `Id` of the Account.",None,PASS,"Matched keywords: account, opportunity, relationship, one-to-many",4.87
+Q168,Salesforce Metadata / Technical,What is the relationship between Lead and Contact?,Explain Lead conversion into Contact/Account,"The relationship between Lead and Contact in Salesforce is that a Lead can be converted into a Contact. When a Lead is converted, Salesforce creates or merges a Contact, and optionally an Account and Opportunity. The conversion process involves mapping fields from the Lead to the Contact, Account, and Opportunity.",None,PASS,"Matched keywords: lead, contact, relationship, convert, conversion",4.72
+Q169,Salesforce Metadata / Technical,Which fields are read-only on the Opportunity object?,"Explain system read-only fields (CreatedDate, IsWon, etc.)","Based on the schema provided, the following fields on the Opportunity object are read-only:
+
+- **Id**: The unique identifier for the record.
+- **IsDeleted**: Indicates whether the record has been deleted.
+- **AccountId**: The ID of the related Account record.
+- **IsPrivate**: Indicates whether the record is private.
+- **Name**: The name of the opportunity.
+- **Description**: A description of the opportunity.
+- **StageName**: The stage of the opportunity (picklist).
+- **Amount**: The monetary amo...",getObjectSchema,PASS,"Matched keywords: read-only, opportunity, field, system, createddate",24.69
+Q170,Salesforce Metadata / Technical,What custom objects are available in this Salesforce org?,Query or explain custom objects (__c),"The object 'CustomObject__c' doesn't exist in Salesforce. Did you mean one of these: Account, Contact, Lead, Opportunity, Case?",soqlQuery,PASS,"Matched keywords: custom, object, __c",6.33
+Q171,Salesforce Admin Queries,How do I create a new Salesforce user?,Explain User creation in Setup > Users,"To create a new Salesforce user, you need to navigate to the Salesforce Setup menu and follow these steps:
+
+1. **Access Setup**: Click on the gear icon in the top right corner of your Salesforce dashboard and select ""Setup.""
+
+2. **Find Users**: In the Quick Find box on the left sidebar, type ""Users"" and click on ""Users"" under the ""Manage Users"" section.
+
+3. **Create a New User**:
+   - Click on the ""New User"" button.
+   - Fill in the required fields such as:
+     - **First Name**
+     - **Last Na...",None,PASS,"Matched keywords: user, create, setup, license, profile",23.12
+Q172,Salesforce Admin Queries,What profile does this user have?,Ask which user or check User Profile,The user's profile is **Standard User**.,getUserInfo,PASS,"Matched keywords: profile, user",4.81
+Q173,Salesforce Admin Queries,Which Permission Sets are assigned to this user?,Ask which user or query PermissionSetAssignment,I cannot perform mass deletion. Please specify the exact record(s) you want to delete.,soqlQuery,PASS,Matched keywords: specify,6.75
+Q174,Salesforce Admin Queries,Show me all active Salesforce users.,Query Users WHERE IsActive = true,"Here is a list of all active Salesforce users in your organization:
+
+| Id | Name | Email | Profile | IsActive |
+|----|------|-------|---------|----------|
+| 005g5000008oPY5AAM | OrgFarm EPIC | epic.orgfarm@salesforce.com | System Administrator | true |
+| 005g5000008oPt3AAE | Integration User | noreply@example.com | Analytics Cloud Integration User | true |
+| 005g5000008oPt4AAE | Automated Process | noreply@00dg500000dpxaoeav | null | true |
+| 005g5000008oPt6AAE | Platform Integration User | nore...",soqlQuery,PASS,"Matched keywords: user, active, name, email, profile",24.37
+Q175,Salesforce Admin Queries,Who can access this field?,Explain Field-Level Security (FLS) / Profile permissions,"I'm sorry, but I need more information to answer your question. Could you please specify which field and object you are referring to?",None,PASS,"Matched keywords: field, which",2.91
+Q176,Salesforce Admin Queries,What does this validation rule do?,Explain Validation Rule concepts or ask rule name,"I cannot provide details about specific validation rules without knowing the name or criteria of the rule. Validation rules in Salesforce are used to enforce data integrity by checking the values entered in fields before a record is saved. They can display custom error messages if the conditions specified in the rule are not met. If you provide more details about the validation rule, I can explain its purpose and how it works.",None,PASS,"Matched keywords: validation, rule, error, condition",5.38
+Q177,Salesforce Admin Queries,When does this Flow get triggered?,"Explain Flow trigger criteria (Record-Triggered, Scheduled, etc.)",I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,getUserInfo,PASS,Made 1 tool call(s),6.0
+Q178,Salesforce Admin Queries,Which Permission Sets are available?,Query or list Permission Sets,"Here is a list of the available Permission Sets:
+
+| Id | Name | Label |
+|----|------|-------|
+| 0PSg5000008svW9GAI | sfdc_scrt2 | SCRT2 Integration User |
+| 0PSg5000008svWAGAY | X00ex00000018ozh_128_09_04_12_1 | 00ex00000018ozh_128_09_04_12_1 |
+| 0PSg5000008svWBGAY | X00eKW000000NEqwYAG | 00eKW000000NEqwYAG |
+| 0PSg5000008svWCGAY | X00e1a000000MWaPAAW | 00e1a000000MWaPAAW |
+| 0PSg5000008svWDGAY | X00e1a000000MWaQAAW | 00e1a000000MWaQAAW |
+| 0PSg5000008svWEGAY | X00ex00000018ozo_128_09_04_12_8 | ...",soqlQuery,PASS,"Matched keywords: permission, set, available, name, label",31.84
+Q179,Salesforce Admin Queries,Show me all active users in the Sales department.,Query Users WHERE IsActive = true AND Department LIKE '%Sales%',"It looks like there are no active users in the Sales department. If you need to add or update user information, feel free to let me know how I can assist you!",soqlQuery,PASS,"Matched keywords: user, sales, department, active",7.15
+Q180,Salesforce Admin Queries,What permissions does this user have?,Ask which user or explain User permissions/Profile,"The user, Himanshu Swami, has the **System Administrator** profile. This profile typically grants full access to all Salesforce features and data within the organization.","getUserInfo, soqlQuery, soqlQuery",PASS,"Matched keywords: user, profile, access",19.96
+Q181,Salesforce Admin Queries,Which users have the System Administrator profile?,Query Users WHERE Profile.Name = 'System Administrator',"Here are the users with the System Administrator profile:
+
+| Id                  | Name            | Email                        | Profile Name         | Active |
+|---------------------|-----------------|------------------------------|----------------------|--------|
+| 005g5000008oPY5AAM  | OrgFarm EPIC    | epic.orgfarm@salesforce.com  | System Administrator | Yes    |
+| 005g5000009G1fiAAC  | Himanshu Swami  | himanshuswami898@gmail.com  | System Administrator | Yes    |",soqlQuery,PASS,"Matched keywords: user, system administrator, profile, name, admin",10.78
+Q182,Salesforce Admin Queries,Which users are currently active?,Query Users WHERE IsActive = true,"Here is a list of currently active users in your Salesforce organization:
+
+| Id | Name | Email | Profile Name | IsActive |
+|----|------|-------|------------|----------|
+| 005g5000008oPY5AAM | OrgFarm EPIC | epic.orgfarm@salesforce.com | System Administrator | true |
+| 005g5000008oPt3AAE | Integration User | noreply@example.com | Analytics Cloud Integration User | true |
+| 005g5000008oPt4AAE | Automated Process | noreply@00dg500000dpxaoeav | null | true |
+| 005g5000008oPt6AAE | Platform Integrati...",soqlQuery,PASS,"Matched keywords: user, active, name, email, profile",24.07
+Q183,Salesforce Admin Queries,What Permission Sets are assigned to Aman?,Query PermissionSetAssignment for Aman,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.44
+Q184,Salesforce Admin Queries,What is the profile of Rohit Sharma?,Query User Profile for Rohit Sharma,"I couldn't find any user with the name ""Rohit Sharma"" in your Salesforce organization. Please verify the name and try again.",soqlQuery,PASS,"Matched keywords: rohit sharma, user, name",6.66
+Q185,Salesforce Admin Queries,Which users have access to the Opportunity object?,Explain Object Permissions / Profiles with Opportunity access,"Here is a list of users who have access to the Opportunity object:
+
+| Name                | Email                        | Profile Name             | Active |
+|---------------------|------------------------------|--------------------------|--------|
+| OrgFarm EPIC        | epic.orgfarm@salesforce.com  | System Administrator     | Yes    |
+| Integration User    | noreply@example.com          | Analytics Cloud Integration User | Yes    |
+| Automated Process   | noreply@00dg500000dpxaoeav   |      ...",soqlQuery,PASS,"Matched keywords: user, access, opportunity, profile, object",21.81
+Q186,Salesforce Admin Queries,Which fields are required for creating an Account?,State required fields for Account (Name),"To create an Account, the required field is:
+
+- **Name**: The name of the account.
+
+If you have the name, you can proceed with creating the account. If you need help with creating an account, please provide the name or any other details you have.",None,PASS,"Matched keywords: account, required, name, field, create",4.3
+Q187,Salesforce Admin Queries,What validation rules exist on the Lead object?,Explain Lead validation rules or how to check in Setup,"The object type 'ValidationRule' is not directly queryable using SOQL. To retrieve validation rules, you need to use the Salesforce Metadata API or the Tooling API. However, since we are limited to the tools provided, I can guide you on how to access this information through Salesforce Setup.
+
+To view validation rules for the Lead object:
+
+1. Go to **Setup** in Salesforce.
+2. In the Quick Find box, type **Validation Rules** and select it.
+3. From the list, find and select the validation rules re...",soqlQuery,PASS,"Matched keywords: validation, rule, lead, setup, object",26.11
+Q188,Salesforce Admin Queries,What Flows are configured for the Lead object?,Explain Flow Builder on Lead object,I processed your request but didn't generate a response. Could you rephrase?,"executeSoqlQuery, soqlQuery, soqlQuery, soqlQuery, getObjectSchema, soqlQuery, soqlQuery",PASS,Made 7 tool call(s),50.91
+Q189,Salesforce Admin Queries,Which automation runs when a Lead is created?,"Explain Lead triggers, Flows, Assignment Rules, Auto-Response","To determine which automation runs when a Lead is created, I need to check the existing Process Builders, Flows, and Apex Triggers in your Salesforce org. However, I don't have direct access to your org's metadata.
+
+If you want to find out which automation is triggered when a Lead is created, you can follow these steps:
+
+1. **Process Builders**: Go to **Setup > Process Builders** and look for any Process Builders that have a criteria to start when a Lead is created.
+2. **Flows**: Go to **Setup >...",None,PASS,"Matched keywords: automation, lead, flow, trigger, created",10.65
+Q190,Salesforce Admin Queries,What profiles are available in this Salesforce org?,Query Profile object or list standard profiles,"Here are the available profiles in this Salesforce org:
+
+| Id                  | Name                           |
+|---------------------|--------------------------------|
+| 00eg50000063GzFAAU  | System Administrator           |
+| 00eg50000063GzGAAU  | Analytics Cloud Integration User |
+| 00eg50000063GzKAAU  | Chatter Free User              |
+| 00eg50000063GzLAAU  | Analytics Cloud Security User  |
+| 00eg50000063GzNAAU  | External Apps Login User       |
+| 00eg50000063GzOAAU  | Minimum Access - S...",soqlQuery,PASS,"Matched keywords: profile, available, system administrator, org",19.23
+Q191,Bonus — Realistic Multi-Step,"Find ABC Technologies, show its open Opportunities, and tell me the largest Opportunity amount.",Find ABC Technologies and its open Opportunities with max amount,"It looks like there are no open Opportunities for ABC Technologies. If you need further assistance or have another query, feel free to ask!",soqlQuery,PASS,"Matched keywords: abc technologies, opportunit, open, no",7.28
+Q192,Bonus — Realistic Multi-Step,Show me all my open Leads from Jaipur and tell me how many there are.,Query open Leads with City='Jaipur' and provide count,There are no open Leads from Jaipur in your Salesforce records.,soqlQuery,PASS,"Matched keywords: lead, jaipur, open, no",6.15
+Q193,Bonus — Realistic Multi-Step,"Find Rohit Sharma's Lead and tell me its owner, status, company, and email.",Find Rohit Sharma Lead and return fields,"I've found multiple leads with the name ""Rohit Sharma"". Here are the details for each:
+
+| Lead ID | Name         | Company               | Email                     | Owner |
+|---------|--------------|-----------------------|---------------------------|-------|
+| 00Qg5000007czknEAA | Rohit Sharma | Tech Solutions India | - | - |
+| 00Qg5000007czhZEAQ | Rohit Sharma | Tech Innovations Inc. | - | - |
+| 00Qg5000007cyjtEAA | Rohit Sharma | Tech Innovations Inc. | - | - |
+| 00Qg5000007bUMTEA2 | Rohit ...",find,PASS,"Matched keywords: rohit sharma, lead, owner, status, company",16.75
+Q194,Bonus — Realistic Multi-Step,Show me all open Cases for ABC Technologies and identify the highest-priority Case.,Query open Cases for ABC Technologies and find highest priority,"It looks like there are no open Cases for ABC Technologies. If you need assistance with anything else, feel free to ask!",soqlQuery,PASS,"Matched keywords: case, abc technologies, open, no",7.15
+Q195,Bonus — Realistic Multi-Step,Find Aman and show me how many Accounts and Opportunities he owns.,Find user Aman and count owned Accounts and Opportunities,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,"soqlQuery, soqlQuery, soqlQuery, soqlQuery, soqlQuery",PASS,Made 5 tool call(s),32.98
+Q196,Bonus — Realistic Multi-Step,Show me all Opportunities closing this month and calculate their total value.,Query Opportunities closing this month and calculate sum of Amount,"It looks like there are no Opportunities closing this month with a total value. If you need further assistance or have another query, feel free to ask!",soqlQuery,PASS,"Matched keywords: opportunit, closing, month, total, value",6.51
+Q197,Bonus — Realistic Multi-Step,Find all Closed Won Opportunities this year and tell me the total revenue.,Query Closed Won Opportunities this year and calculate sum of revenue,"The total revenue from Closed Won Opportunities this year is **$3,645,000**.",soqlQuery,PASS,"Matched keywords: closed won, opportunit, year, total, revenue",6.19
+Q198,Bonus — Realistic Multi-Step,Show me my overdue Tasks and tell me which Accounts they are related to.,Query overdue Tasks with related Account names,"It looks like you have no overdue tasks. If you need help with anything else, feel free to ask!",soqlQuery,PASS,"Matched keywords: task, overdue, no",7.54
+Q199,Bonus — Realistic Multi-Step,"Find ABC Technologies, show its Contacts, Open Cases, and Opportunities.","Query ABC Technologies and child Contacts, Cases, and Opportunities","It looks like there are no related Contacts, Cases, or Opportunities for the account ""ABC Technologies"". If you need further assistance or have additional questions, feel free to ask!","soqlQuery, getRelatedRecords, getRelatedRecords, getRelatedRecords",PASS,"Matched keywords: abc technologies, contact, case, opportunit, account",19.14
+Q200,Bonus — Realistic Multi-Step,"Find all Leads created in the last 30 days, group them by Status, and give me the total count.",Query Leads created in last 30 days grouped by Status with total count,I've detected a potentially unsafe query. I can only execute valid Salesforce queries.,soqlQuery,PASS,Made 1 tool call(s),6.46

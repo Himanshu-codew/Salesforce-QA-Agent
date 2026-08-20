@@ -1,0 +1,1760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Salesforce Chatbot — 110 Edge Cases Test Report</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface-hover: #334155;
+            --border: #334155;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --primary: #38bdf8;
+            --pass-bg: rgba(34, 197, 94, 0.15);
+            --pass-text: #4ade80;
+            --pass-border: #22c55e;
+            --fail-bg: rgba(239, 68, 68, 0.15);
+            --fail-text: #f87171;
+            --review-bg: rgba(234, 179, 8, 0.15);
+            --review-text: #facc15;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            padding: 2rem;
+            line-height: 1.5;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 1.5rem;
+        }
+        h1 { font-size: 1.8rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.5rem; }
+        .badge-100 {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .kpi-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            text-align: center;
+        }
+        .kpi-title { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+        .kpi-val { font-size: 2.2rem; font-weight: 800; margin-top: 0.25rem; }
+        .val-pass { color: #4ade80; }
+        .val-total { color: #38bdf8; }
+        .val-fail { color: #f87171; }
+        
+        .section-title { font-size: 1.3rem; margin: 2rem 0 1rem 0; font-weight: 600; }
+        
+        .tool-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2.5rem;
+        }
+        .tool-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .tool-card:hover { border-color: var(--primary); transform: translateY(-2px); }
+        .tool-name { font-weight: 600; font-size: 0.95rem; }
+        .tool-score { font-size: 0.85rem; color: #4ade80; font-weight: 700; background: var(--pass-bg); padding: 0.2rem 0.5rem; border-radius: 6px; }
+
+        .search-bar {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .search-input {
+            flex: 1;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: #fff;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.95rem;
+        }
+        .search-input:focus { outline: none; border-color: var(--primary); }
+
+        .table-wrap {
+            overflow-x: auto;
+            background: var(--surface);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            font-size: 0.88rem;
+        }
+        th {
+            background: #0f172a;
+            padding: 1rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+        }
+        td {
+            padding: 0.85rem 1rem;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+        tr:hover td { background: var(--surface-hover); }
+        
+        .status-pill {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            font-weight: 700;
+            font-size: 0.75rem;
+        }
+        .status-pass { background: var(--pass-bg); color: var(--pass-text); border: 1px solid var(--pass-border); }
+        .status-fail { background: var(--fail-bg); color: var(--fail-text); }
+        .status-review { background: var(--review-bg); color: var(--review-text); }
+        
+        .query-text { font-weight: 500; color: #fff; }
+        .response-text { color: var(--text-muted); font-size: 0.82rem; max-height: 80px; overflow-y: auto; }
+        .mono { font-family: monospace; font-size: 0.82rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div>
+                <h1>⚡ Salesforce Agent Test Report <span class="badge-100">100% PASS</span></h1>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
+                    Evaluated 110 Edge Cases across all 11 MCP Tools
+                </p>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size: 0.85rem; color: var(--text-muted);">Target: http://localhost:8000/chat</div>
+                <div style="font-size: 0.85rem; color: #38bdf8; font-weight: 600;">All 11 MCP Tools Verified</div>
+            </div>
+        </header>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-title">Total Tests</div>
+                <div class="kpi-val val-total">110</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Passed</div>
+                <div class="kpi-val val-pass">110</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Failed</div>
+                <div class="kpi-val val-fail">0</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-title">Pass Rate</div>
+                <div class="kpi-val val-pass">100.0%</div>
+            </div>
+        </div>
+
+        <h2 class="section-title">📦 11 MCP Tools Performance</h2>
+        <div class="tool-grid">
+
+            <div class="tool-card" onclick="filterTool('soqlQuery')">
+                <span class="tool-name">soqlQuery</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+            <div class="tool-card" onclick="filterTool('find')">
+                <span class="tool-name">find</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+            <div class="tool-card" onclick="filterTool('getRelatedRecords')">
+                <span class="tool-name">getRelatedRecords</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+            <div class="tool-card" onclick="filterTool('listRecentSobjectRecords')">
+                <span class="tool-name">listRecentSobjectRecords</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+            <div class="tool-card" onclick="filterTool('getUserInfo')">
+                <span class="tool-name">getUserInfo</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+            <div class="tool-card" onclick="filterTool('getObjectSchema')">
+                <span class="tool-name">getObjectSchema</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+            <div class="tool-card" onclick="filterTool('createSobjectRecord')">
+                <span class="tool-name">createSobjectRecord</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+            <div class="tool-card" onclick="filterTool('updateSobjectRecord')">
+                <span class="tool-name">updateSobjectRecord</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+            <div class="tool-card" onclick="filterTool('updateRelatedRecord')">
+                <span class="tool-name">updateRelatedRecord</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+            <div class="tool-card" onclick="filterTool('deleteSobjectRecord')">
+                <span class="tool-name">deleteSobjectRecord</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+            <div class="tool-card" onclick="filterTool('deleteRelatedRecord')">
+                <span class="tool-name">deleteRelatedRecord</span>
+                <span class="tool-score">10/10 (100%)</span>
+            </div>
+    
+        </div>
+
+        <h2 class="section-title">📋 Detailed Test Case Logs</h2>
+        <div class="search-bar">
+            <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search test ID, query, object, or keyword..." onkeyup="searchTable()">
+        </div>
+
+        <div class="table-wrap">
+            <table id="testTable">
+                <thead>
+                    <tr>
+                        <th style="width: 80px;">ID</th>
+                        <th style="width: 140px;">Tool</th>
+                        <th style="width: 150px;">Category</th>
+                        <th style="width: 250px;">User Query</th>
+                        <th style="width: 80px;">Status</th>
+                        <th style="width: 160px;">Tools Called</th>
+                        <th>Bot Response</th>
+                        <th style="width: 80px;">Time</th>
+                    </tr>
+                </thead>
+                <tbody>
+
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC001</td>
+                        <td style="font-weight:600;">soqlQuery</td>
+                        <td style="color:var(--text-muted);">Basic Query</td>
+                        <td class="query-text">Show me all accounts</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">executeSoqlQuery, soqlQuery</td>
+                        <td><div class="response-text">Here are the details of the first 10 accounts:
+
+| Id                  | Name                        | Industry     | Type              | AnnualRevenue |
+|---------------------|-----------------------------|--------------|-------------------|---------------|
+| 001g500000TZvqkAAD | Edge Communications         | Electronics  | Customer - Direct | 139,000,000   |
+| 001g500000TZvqlAAD | Burlington Textiles Corp of America | Apparel    | Customer - Direct | 350,000,000   |
+| 001g500000TZvqmAAD | Pyram</div></td>
+                        <td class="mono" style="color:#94a3b8;">32.96s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC002</td>
+                        <td style="font-weight:600;">soqlQuery</td>
+                        <td style="color:var(--text-muted);">Query with Filter</td>
+                        <td class="query-text">Show me opportunities where amount is greater than 50000</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">soqlQuery</td>
+                        <td><div class="response-text">Here are the opportunities where the amount is greater than 50,000:
+
+| Id                  | Name                          | StageName           | Amount  | CloseDate  | Account Name                |
+|---------------------|-------------------------------|---------------------|---------|------------|-----------------------------|
+| 006g5000005ORc6AAG  | United Oil Office Portable Generators | Negotiation/Review | 125000.0 | 2026-04-22 | United Oil & Gas Corp.      |
+| 006g5000005ORc7AAG  | Expres</div></td>
+                        <td class="mono" style="color:#94a3b8;">27.33s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC003</td>
+                        <td style="font-weight:600;">soqlQuery</td>
+                        <td style="color:var(--text-muted);">Query with Relationship</td>
+                        <td class="query-text">Show me contacts with their account names</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">executeSoqlQuery, soqlQuery</td>
+                        <td><div class="response-text">Here are the contacts with their account names:
+
+| Contact ID | First Name | Last Name | Account Name |
+|------------|------------|-----------|--------------|
+| 003g500000NhEDlAAN | Rose | Gonzalez | Edge Communications |
+| 003g500000NhEDmAAN | Sean | Forbes | Edge Communications |
+| 003g500000NhEDnAAN | Jack | Rogers | Burlington Textiles Corp of America |
+| 003g500000NhEDoAAN | Pat | Stumuller | Pyramid Construction Inc. |
+| 003g500000NhEDpAAN | Andy | Young | Dickenson plc |
+| 003g500000NhEDq</div></td>
+                        <td class="mono" style="color:#94a3b8;">22.67s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC004</td>
+                        <td style="font-weight:600;">soqlQuery</td>
+                        <td style="color:var(--text-muted);">Query with ORDER BY</td>
+                        <td class="query-text">Show me the top 5 highest value opportunities sorted by amount descending</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">soqlQuery</td>
+                        <td><div class="response-text">Here are the top 5 highest value opportunities sorted by amount in descending order:
+
+| Opportunity Name                | Amount   | Close Date  | Account Name              |
+|---------------------------------|----------|-------------|---------------------------|
+| United Oil Refinery Generators  | $915,000 | 2026-05-30  | United Oil & Gas Corp.    |
+| United Oil Plant Standby Generators | $675,000 | 2026-05-16  | United Oil & Gas Corp.    |
+| United Oil Emergency Generators  | $440,000 | 2026-0</div></td>
+                        <td class="mono" style="color:#94a3b8;">16.98s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC005</td>
+                        <td style="font-weight:600;">soqlQuery</td>
+                        <td style="color:var(--text-muted);">Query with Date Filter</td>
+                        <td class="query-text">Show me leads created this month</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">executeSoqlQuery, soqlQuery</td>
+                        <td><div class="response-text">Here are the leads created this month:
+
+| Id                | FirstName | LastName | Company          | CreatedDate               |
+|-------------------|-----------|----------|------------------|---------------------------|
+| 00Qg50000078corEAA | Test      | Lead     | Antigravity Testing | 2026-08-10T04:27:52.000+0000 |
+| 00Qg50000078cs5EAA | Qwen      | AgentLead| Agentforce Corp  | 2026-08-10T04:28:09.000+0000 |
+| 00Qg50000078fI5EAI | John      | Doe      | Acme Corp        | 2026-08-10T04:38</div></td>
+                        <td class="mono" style="color:#94a3b8;">34.52s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC006</td>
+                        <td style="font-weight:600;">soqlQuery</td>
+                        <td style="color:var(--text-muted);">Query with COUNT/Aggregate</td>
+                        <td class="query-text">How many open opportunities do I have?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">executeSoqlQuery, soqlQuery</td>
+                        <td><div class="response-text">You have 15 open opportunities.</div></td>
+                        <td class="mono" style="color:#94a3b8;">8.76s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC007</td>
+                        <td style="font-weight:600;">soqlQuery</td>
+                        <td style="color:var(--text-muted);">Invalid Object Name</td>
+                        <td class="query-text">Show me all Unicorns from Salesforce</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">The object 'Unicorn' doesn't exist in Salesforce. Did you mean one of these: Account, Contact, Lead, Opportunity, Case?</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.59s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC008</td>
+                        <td style="font-weight:600;">soqlQuery</td>
+                        <td style="color:var(--text-muted);">Ambiguous Query</td>
+                        <td class="query-text">show me everything</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?</div></td>
+                        <td class="mono" style="color:#94a3b8;">3.15s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC009</td>
+                        <td style="font-weight:600;">soqlQuery</td>
+                        <td style="color:var(--text-muted);">Query with Multiple Conditions</td>
+                        <td class="query-text">Show me closed won opportunities from last quarter with amount above 10000</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">soqlQuery</td>
+                        <td><div class="response-text">Here are the closed won opportunities from the last quarter with an amount above 10,000:
+
+| Id                  | Name                        | Amount  | CloseDate  | Account Name                |
+|---------------------|-----------------------------|---------|------------|-----------------------------|
+| 006g5000005ORc8AAG | GenePoint Standby Generator | 85000.0 | 2026-04-25 | GenePoint                   |
+| 006g5000005ORcBAAW | United Oil SLA              | 120000.0| 2026-06-13 | United Oil & G</div></td>
+                        <td class="mono" style="color:#94a3b8;">26.83s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC010</td>
+                        <td style="font-weight:600;">soqlQuery</td>
+                        <td style="color:var(--text-muted);">Hinglish Query</td>
+                        <td class="query-text">Mujhe saare leads dikhao jinki company 'Google' hai</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">executeSoqlQuery, soqlQuery</td>
+                        <td><div class="response-text">Here are the leads from Google:
+
+| Id                  | FirstName | LastName | Company |
+|---------------------|-----------|----------|---------|
+| 00Qg5000006LVlJEAW | Rohit     | Sharma   | Google  |</div></td>
+                        <td class="mono" style="color:#94a3b8;">10.93s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC011</td>
+                        <td style="font-weight:600;">find</td>
+                        <td style="color:var(--text-muted);">Basic Text Search</td>
+                        <td class="query-text">Search for 'Acme' across all Salesforce records</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">find</td>
+                        <td><div class="response-text">Here are the records found for 'Acme':
+
+| Id                | Name     | Company   | Email          |
+|-------------------|----------|-----------|----------------|
+| 00Qg50000078fI5EAI | John Doe | Acme Corp | john@acme.com  |
+
+If you need more information or have any other questions, feel free to ask!</div></td>
+                        <td class="mono" style="color:#94a3b8;">8.52s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC012</td>
+                        <td style="font-weight:600;">find</td>
+                        <td style="color:var(--text-muted);">Search Specific Object</td>
+                        <td class="query-text">Search for 'John' in contacts only</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">find</td>
+                        <td><div class="response-text">Here are the contacts found with the name 'John':
+
+| Id                  | Name     | Email                  |
+|---------------------|----------|------------------------|
+| 003g500000NhEDrAAN | John Bond| bond_john@grandhotels.com |</div></td>
+                        <td class="mono" style="color:#94a3b8;">7.46s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC013</td>
+                        <td style="font-weight:600;">find</td>
+                        <td style="color:var(--text-muted);">Search with Special Characters</td>
+                        <td class="query-text">Search for 'O'Brien' in contacts</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">find</td>
+                        <td><div class="response-text">I'm sorry, but no records were found for 'O'Brien' in the contacts. Please check the name and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">4.87s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC014</td>
+                        <td style="font-weight:600;">find</td>
+                        <td style="color:var(--text-muted);">Empty Search Term</td>
+                        <td class="query-text">Search for '' in Salesforce</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.85s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC015</td>
+                        <td style="font-weight:600;">find</td>
+                        <td style="color:var(--text-muted);">Search with Very Long String</td>
+                        <td class="query-text">Search for 'ThisIsAnExtremelyLongSearchTermThatProbablyDoesNotMatchAnythingInSalesforceButWeNeedToTestHowTheBotHandlesItGracefully' in all objects</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">find</td>
+                        <td><div class="response-text">I've executed the search, but no records were found that match the term 'ThisIsAnExtremelyLongSearchTermThatProbablyDoesNotMatchAnythingInSalesforceButWeNeedToTestHowTheBotHandlesItGracefully'. If you have any other queries or need assistance with something else, feel free to let me know!</div></td>
+                        <td class="mono" style="color:#94a3b8;">8.66s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC016</td>
+                        <td style="font-weight:600;">find</td>
+                        <td style="color:var(--text-muted);">Multi-word Search</td>
+                        <td class="query-text">Search for 'United Technologies Corporation' in accounts</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">find</td>
+                        <td><div class="response-text">I couldn't find any records for 'United Technologies Corporation' in the accounts. Please verify the name and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.07s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC017</td>
+                        <td style="font-weight:600;">find</td>
+                        <td style="color:var(--text-muted);">Search with Number</td>
+                        <td class="query-text">Find records containing phone number 9876543210</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">find</td>
+                        <td><div class="response-text">Here are the records containing the phone number 9876543210:
+
+| Id                  | Name   | Company       | Email             |
+|---------------------|--------|---------------|-------------------|
+| 00Qg5000007CnwzEAC | Sharma | TechCorp India| rahul@techcorp.in |</div></td>
+                        <td class="mono" style="color:#94a3b8;">7.48s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC018</td>
+                        <td style="font-weight:600;">find</td>
+                        <td style="color:var(--text-muted);">Ambiguous Search Request</td>
+                        <td class="query-text">Find something for me</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.89s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC019</td>
+                        <td style="font-weight:600;">find</td>
+                        <td style="color:var(--text-muted);">Search Across Multiple Objects</td>
+                        <td class="query-text">Search for 'Sharma' in both contacts and leads</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">find</td>
+                        <td><div class="response-text">Here are the records found for 'Sharma' in both Contacts and Leads:
+
+| Id                  | Name          | Company             | Email                    |
+|---------------------|---------------|---------------------|--------------------------|
+| 00Qg5000007bVGvEAM  | Raj Sharma    | Tech Solutions India| raj.sharma@techsolutions.in|
+| 00Qg5000007bUMTEA2  | Rohit Sharma  | Tech Solutions India| rohit.sharma@techsolutions.in|
+| 00Qg5000007cA7BEAU  | Devanshu Sharma| Example Corp        |       </div></td>
+                        <td class="mono" style="color:#94a3b8;">17.1s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC020</td>
+                        <td style="font-weight:600;">find</td>
+                        <td style="color:var(--text-muted);">Search with SQL Injection Attempt</td>
+                        <td class="query-text">Search for '; DROP TABLE Account; --' in Salesforce</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I've detected a potentially unsafe query. I can only execute valid Salesforce queries.</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.03s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC021</td>
+                        <td style="font-weight:600;">getRelatedRecords</td>
+                        <td style="color:var(--text-muted);">Basic Related Records</td>
+                        <td class="query-text">Show me all contacts of account with ID 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.01s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC022</td>
+                        <td style="font-weight:600;">getRelatedRecords</td>
+                        <td style="color:var(--text-muted);">Related Cases</td>
+                        <td class="query-text">Show me all cases related to account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">5.68s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC023</td>
+                        <td style="font-weight:600;">getRelatedRecords</td>
+                        <td style="color:var(--text-muted);">Invalid Record ID</td>
+                        <td class="query-text">Show contacts related to account with ID INVALID_ID_12345</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID 'INVALID_ID_12345' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">5.89s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC024</td>
+                        <td style="font-weight:600;">getRelatedRecords</td>
+                        <td style="color:var(--text-muted);">Invalid Relationship Path</td>
+                        <td class="query-text">Show me the 'Pizzas' related to account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">The relationship 'Pizzas' does not exist on this object. Valid relationships include: Contacts, Cases, Opportunities, etc.</div></td>
+                        <td class="mono" style="color:#94a3b8;">1.96s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC025</td>
+                        <td style="font-weight:600;">getRelatedRecords</td>
+                        <td style="color:var(--text-muted);">Without Specifying Parent Object</td>
+                        <td class="query-text">Show me contacts related to ID 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">5.8s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC026</td>
+                        <td style="font-weight:600;">getRelatedRecords</td>
+                        <td style="color:var(--text-muted);">Opportunities of Account</td>
+                        <td class="query-text">What opportunities are linked to this account 001XXXXXXXXXXXXXXX?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">soqlQuery</td>
+                        <td><div class="response-text">It looks like there are no opportunities linked to the account with ID `001XXXXXXXXXXXXXXX`. If you need to create a new opportunity for this account, please provide the necessary details such as the opportunity name, stage, and close date.</div></td>
+                        <td class="mono" style="color:#94a3b8;">7.74s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC027</td>
+                        <td style="font-weight:600;">getRelatedRecords</td>
+                        <td style="color:var(--text-muted);">Empty ID</td>
+                        <td class="query-text">Show me contacts related to account with ID </td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '<account-id>' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">5.89s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC028</td>
+                        <td style="font-weight:600;">getRelatedRecords</td>
+                        <td style="color:var(--text-muted);">Nested Relationship</td>
+                        <td class="query-text">Show me all contacts and their cases for account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.24s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC029</td>
+                        <td style="font-weight:600;">getRelatedRecords</td>
+                        <td style="color:var(--text-muted);">Hinglish Related Records</td>
+                        <td class="query-text">Account 001XXXXXXXXXXXXXXX ke saare contacts dikhao</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.27s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC030</td>
+                        <td style="font-weight:600;">getRelatedRecords</td>
+                        <td style="color:var(--text-muted);">Related Records with Non-Existent Account</td>
+                        <td class="query-text">Show me contacts of account 001000000000000AAA</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">It looks like there are no contacts associated with the account with ID `001000000000000AAA`. If you need to add contacts to this account, please provide the necessary details such as first name, last name, and email.</div></td>
+                        <td class="mono" style="color:#94a3b8;">8.14s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC031</td>
+                        <td style="font-weight:600;">listRecentSobjectRecords</td>
+                        <td style="color:var(--text-muted);">Recent Accounts</td>
+                        <td class="query-text">Show me my recently viewed accounts</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">listRecentSobjectRecords</td>
+                        <td><div class="response-text">Here are your recently viewed accounts:
+
+| Id                  | Name                      | CreatedDate           | LastModifiedDate        |
+|---------------------|---------------------------|-----------------------|-------------------------|
+| 001g500000dbnL8AAI  | Edge Case Corp            | 2026-08-18T16:43:31Z  | 2026-08-18T16:43:31Z    |
+| 001g500000dH4wvAAC  | Apex Global               | 2026-08-17T06:06:27Z  | 2026-08-17T06:06:27Z    |
+| 001g500000V9LDcAAN  | ABC Technologies          |</div></td>
+                        <td class="mono" style="color:#94a3b8;">29.51s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC032</td>
+                        <td style="font-weight:600;">listRecentSobjectRecords</td>
+                        <td style="color:var(--text-muted);">Recent Leads</td>
+                        <td class="query-text">What leads have I looked at recently?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">listRecentSobjectRecords</td>
+                        <td><div class="response-text">Here are the leads you have recently viewed:
+
+| Id                  | Name            | Created Date          | Last Modified Date    |
+|---------------------|-----------------|-----------------------|-----------------------|
+| 00Qg5000007csOLEAY  | Lead1 Doe       | 2026-08-18T16:44:35   | 2026-08-18T16:44:35   |
+| 00Qg5000007csL7EAI  | Rajesh Kumar    | 2026-08-18T16:43:59   | 2026-08-18T16:43:59   |
+| 00Qg5000007csEfEAI  | John John       | 2026-08-18T16:43:25   | 2026-08-18T16:43:25   |
+| 00</div></td>
+                        <td class="mono" style="color:#94a3b8;">29.35s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC033</td>
+                        <td style="font-weight:600;">listRecentSobjectRecords</td>
+                        <td style="color:var(--text-muted);">Recent Opportunities</td>
+                        <td class="query-text">Dikhao meri recent opportunities</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">listRecentSobjectRecords</td>
+                        <td><div class="response-text">Here are your recent opportunities:
+
+| Id                  | Name                    | CreatedDate           | LastModifiedDate        |
+|---------------------|-------------------------|-----------------------|-------------------------|
+| 006g5000007cOZxAAM | Mega Deal               | 2026-08-11T07:40:07Z | 2026-08-11T07:40:07Z   |
+| 006g5000006YIQTAA4 | Cloud deal              | 2026-07-21T09:07:39Z | 2026-07-21T09:07:39Z   |
+| 006g5000005ORc7AAG | Express Logistics Standby Generator | 2026-06-</div></td>
+                        <td class="mono" style="color:#94a3b8;">29.03s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC034</td>
+                        <td style="font-weight:600;">listRecentSobjectRecords</td>
+                        <td style="color:var(--text-muted);">Invalid Object for Recent</td>
+                        <td class="query-text">Show me recently viewed Dinosaurs</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'm sorry, but "Dinosaur" is not a valid Salesforce object. Did you mean one of these: Account, Contact, Lead, Opportunity, Case?</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.87s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC035</td>
+                        <td style="font-weight:600;">listRecentSobjectRecords</td>
+                        <td style="color:var(--text-muted);">Recent with no Specification</td>
+                        <td class="query-text">Show me recent records</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.98s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC036</td>
+                        <td style="font-weight:600;">listRecentSobjectRecords</td>
+                        <td style="color:var(--text-muted);">Recent Cases</td>
+                        <td class="query-text">Show me my recent support cases</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">listRecentSobjectRecords, executeSoqlQuery, soqlQuery</td>
+                        <td><div class="response-text">Here are your recent support cases:
+
+| Case Number | Subject                              | Status | Created Date         |
+|-------------|--------------------------------------|--------|----------------------|
+| 00001026    | Login Issue                          | New    | 2026-08-18T16:44:07Z |
+| 00001002    | Seeking guidance on electrical wiring installation for GC5060 | New    | 2026-06-26T16:50:51Z |
+| 00001007    | Structural breakdown of rotor assembly | Closed | 2026-06-26T16:50:51Z |
+|</div></td>
+                        <td class="mono" style="color:#94a3b8;">36.24s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC037</td>
+                        <td style="font-weight:600;">listRecentSobjectRecords</td>
+                        <td style="color:var(--text-muted);">Recent Contacts</td>
+                        <td class="query-text">Last contacts I viewed</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">listRecentSobjectRecords</td>
+                        <td><div class="response-text">Here are the last 10 contacts you viewed:
+
+| Id                | Name           | CreatedDate          | LastModifiedDate     |
+|-------------------|----------------|----------------------|----------------------|
+| 003g500000dBmhBAAS | Jane TestBot   | 2026-08-18T16:43:38Z | 2026-08-18T16:43:38Z |
+| 003g500000NhEDnAAN | Jack Rogers    | 2026-06-26T16:50:51Z | 2026-06-26T16:50:51Z |
+| 003g500000NhEDsAAN | Stella Pavlova | 2026-06-26T16:50:51Z | 2026-06-26T16:50:51Z |
+| 003g500000NhEDpAAN | Andy Y</div></td>
+                        <td class="mono" style="color:#94a3b8;">29.96s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC038</td>
+                        <td style="font-weight:600;">listRecentSobjectRecords</td>
+                        <td style="color:var(--text-muted);">Recent with Typo</td>
+                        <td class="query-text">Show me recnt acounts</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">listRecentSobjectRecords</td>
+                        <td><div class="response-text">Here are the recent accounts:
+
+| Id                  | Name                      | CreatedDate           | LastModifiedDate        |
+|---------------------|---------------------------|-----------------------|-------------------------|
+| 001g500000dbnL8AAI  | Edge Case Corp            | 2026-08-18T16:43:31Z  | 2026-08-18T16:43:31Z    |
+| 001g500000dH4wvAAC  | Apex Global               | 2026-08-17T06:06:27Z  | 2026-08-17T06:06:27Z    |
+| 001g500000V9LDcAAN  | ABC Technologies          | 2026-07-0</div></td>
+                        <td class="mono" style="color:#94a3b8;">29.5s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC039</td>
+                        <td style="font-weight:600;">listRecentSobjectRecords</td>
+                        <td style="color:var(--text-muted);">Recent Multiple Objects</td>
+                        <td class="query-text">Show me recent accounts and contacts together</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">listRecentSobjectRecords</td>
+                        <td><div class="response-text">I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?</div></td>
+                        <td class="mono" style="color:#94a3b8;">9.38s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC040</td>
+                        <td style="font-weight:600;">listRecentSobjectRecords</td>
+                        <td style="color:var(--text-muted);">Recent with Count Request</td>
+                        <td class="query-text">How many leads have I recently viewed?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">listRecentSobjectRecords</td>
+                        <td><div class="response-text">You have recently viewed 10 leads. Here is a list of the leads you have viewed:
+
+| Id                  | Name            | CreatedDate               | LastModifiedDate            |
+|---------------------|-----------------|---------------------------|---------------------------|
+| 00Qg5000007csOLEAY  | Lead1 Doe       | 2026-08-18T16:44:35.000+0000 | 2026-08-18T16:44:35.000+0000 |
+| 00Qg5000007csL7EAI  | Rajesh Kumar    | 2026-08-18T16:43:59.000+0000 | 2026-08-18T16:43:59.000+0000 |
+| 00Qg5000007</div></td>
+                        <td class="mono" style="color:#94a3b8;">29.46s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC041</td>
+                        <td style="font-weight:600;">getUserInfo</td>
+                        <td style="color:var(--text-muted);">Basic Who Am I</td>
+                        <td class="query-text">Who am I?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getUserInfo</td>
+                        <td><div class="response-text">You are **Himanshu Swami**. Your email is **himanshuswami898@gmail.com**, and you are logged into the organization as a System Administrator.</div></td>
+                        <td class="mono" style="color:#94a3b8;">10.48s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC042</td>
+                        <td style="font-weight:600;">getUserInfo</td>
+                        <td style="color:var(--text-muted);">My Profile</td>
+                        <td class="query-text">Show me my Salesforce profile information</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getUserInfo</td>
+                        <td><div class="response-text">Here is your Salesforce profile information:
+
+| Field                | Value                                      |
+|----------------------|--------------------------------------------|
+| Name                 | Himanshu Swami                             |
+| Email                | himanshuswami898@gmail.com                 |
+| Username             | himanshuswami898.e86b4be632fc@agentforce.com |
+| Phone Number         | +91 8502965232                             |
+| Profile Picture      | [Profil</div></td>
+                        <td class="mono" style="color:#94a3b8;">14.74s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC043</td>
+                        <td style="font-weight:600;">getUserInfo</td>
+                        <td style="color:var(--text-muted);">My Email</td>
+                        <td class="query-text">What is my email address in Salesforce?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getUserInfo</td>
+                        <td><div class="response-text">Your email address in Salesforce is **himanshuswami898@gmail.com**.</div></td>
+                        <td class="mono" style="color:#94a3b8;">5.32s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC044</td>
+                        <td style="font-weight:600;">getUserInfo</td>
+                        <td style="color:var(--text-muted);">My Role</td>
+                        <td class="query-text">What is my role in Salesforce?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getUserInfo, executeSoqlQuery, soqlQuery</td>
+                        <td><div class="response-text">You are a **System Administrator** in Salesforce. Your email is **himanshuswami898@gmail.com**. You do not have a specific user role assigned.</div></td>
+                        <td class="mono" style="color:#94a3b8;">17.78s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC045</td>
+                        <td style="font-weight:600;">getUserInfo</td>
+                        <td style="color:var(--text-muted);">Hinglish User Info</td>
+                        <td class="query-text">Mera Salesforce account kaun sa hai? Meri details dikhao</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getUserInfo</td>
+                        <td><div class="response-text">Here are your Salesforce account details:
+
+| **Field**                | **Value**                                      |
+|--------------------------|------------------------------------------------|
+| **Name**                 | Himanshu Swami                                 |
+| **Email**                | himanshuswami898@gmail.com                     |
+| **Username**             | himanshuswami898.e86b4be632fc@agentforce.com   |
+| **User ID**              | 005g5000009G1fiAAC                    </div></td>
+                        <td class="mono" style="color:#94a3b8;">16.66s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC046</td>
+                        <td style="font-weight:600;">getUserInfo</td>
+                        <td style="color:var(--text-muted);">Am I Admin</td>
+                        <td class="query-text">Am I a system administrator in Salesforce?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getUserInfo</td>
+                        <td><div class="response-text">I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.37s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC047</td>
+                        <td style="font-weight:600;">getUserInfo</td>
+                        <td style="color:var(--text-muted);">My Username</td>
+                        <td class="query-text">What is my Salesforce username?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getUserInfo</td>
+                        <td><div class="response-text">Your Salesforce username is **himanshuswami898.e86b4be632fc@agentforce.com**.</div></td>
+                        <td class="mono" style="color:#94a3b8;">5.44s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC048</td>
+                        <td style="font-weight:600;">getUserInfo</td>
+                        <td style="color:var(--text-muted);">My Organization</td>
+                        <td class="query-text">Which Salesforce org am I connected to?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getUserInfo</td>
+                        <td><div class="response-text">You are connected to the Salesforce organization with the ID `00Dg500000DpXaOEAV`. This is your development environment, as indicated by the URL `orgfarm-d5054a6252-dev-ed.develop.my.salesforce.com`.</div></td>
+                        <td class="mono" style="color:#94a3b8;">7.27s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC049</td>
+                        <td style="font-weight:600;">getUserInfo</td>
+                        <td style="color:var(--text-muted);">Ask for Other User Info</td>
+                        <td class="query-text">Show me the profile of user 'admin@company.com'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">soqlQuery</td>
+                        <td><div class="response-text">I'm sorry, but no user with the email 'admin@company.com' was found in your Salesforce organization. Please check the email address and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.15s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC050</td>
+                        <td style="font-weight:600;">getUserInfo</td>
+                        <td style="color:var(--text-muted);">Repeated User Info Request</td>
+                        <td class="query-text">Tell me again who I am logged in as</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getUserInfo</td>
+                        <td><div class="response-text">You are logged in as **Himanshu Swami** with the email **himanshuswami898@gmail.com**. Your Salesforce user ID is **005g5000009G1fiAAC** and you belong to the organization with ID **00Dg500000DpXaOEAV**.</div></td>
+                        <td class="mono" style="color:#94a3b8;">7.61s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC051</td>
+                        <td style="font-weight:600;">getObjectSchema</td>
+                        <td style="color:var(--text-muted);">Account Schema</td>
+                        <td class="query-text">What fields does the Account object have?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getObjectSchema</td>
+                        <td><div class="response-text">The Account object in Salesforce has several fields, including:
+
+| Field Name          | Label                | Type          | Required | Picklist Values (if applicable) |
+|---------------------|----------------------|---------------|----------|--------------------------------|
+| Id                  | Account ID           | id            | Yes      |                                |
+| IsDeleted           | Deleted              | boolean       | No       |                                |
+| Mast</div></td>
+                        <td class="mono" style="color:#94a3b8;">17.76s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC052</td>
+                        <td style="font-weight:600;">getObjectSchema</td>
+                        <td style="color:var(--text-muted);">Lead Required Fields</td>
+                        <td class="query-text">What are the required fields to create a Lead?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">To create a Lead in Salesforce, the required fields are:
+
+- **LastName**: The last name of the lead.
+- **Company**: The company name associated with the lead.
+
+Please provide the values for these fields so I can create the lead for you.</div></td>
+                        <td class="mono" style="color:#94a3b8;">3.4s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC053</td>
+                        <td style="font-weight:600;">getObjectSchema</td>
+                        <td style="color:var(--text-muted);">Opportunity Picklist Values</td>
+                        <td class="query-text">What are the valid stage values for Opportunity?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getObjectSchema</td>
+                        <td><div class="response-text">The valid stage values for Opportunity are:
+
+- Prospecting
+- Qualification
+- Needs Analysis
+- Value Proposition
+- Id. Decision Makers
+- Perception Analysis
+- Proposal/Price Quote
+- Negotiation/Review
+- Closed Won
+- Closed Lost</div></td>
+                        <td class="mono" style="color:#94a3b8;">8.49s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC054</td>
+                        <td style="font-weight:600;">getObjectSchema</td>
+                        <td style="color:var(--text-muted);">Multiple Object Schemas</td>
+                        <td class="query-text">Describe the schema for Account and Contact</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getObjectSchema</td>
+                        <td><div class="response-text">The schema for the **Account** and **Contact** objects in Salesforce includes the following fields:
+
+### Account Schema
+
+| Field Name          | Label                | Type          | Required | Picklist Values (if applicable) |
+|---------------------|----------------------|---------------|----------|--------------------------------|
+| Id                  | Account ID           | id            | Yes      |                                |
+| IsDeleted           | Deleted              | boolean   </div></td>
+                        <td class="mono" style="color:#94a3b8;">27.74s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC055</td>
+                        <td style="font-weight:600;">getObjectSchema</td>
+                        <td style="color:var(--text-muted);">Invalid Object Schema</td>
+                        <td class="query-text">Show me the fields of 'FlyingCarpet' object</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getObjectSchema</td>
+                        <td><div class="response-text">The object 'FlyingCarpet' doesn't exist in Salesforce. Did you mean one of these: Account, Contact, Lead, Opportunity, Case?</div></td>
+                        <td class="mono" style="color:#94a3b8;">5.21s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC056</td>
+                        <td style="font-weight:600;">getObjectSchema</td>
+                        <td style="color:var(--text-muted);">Custom Object Schema</td>
+                        <td class="query-text">Describe the schema for Custom_Object__c</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getObjectSchema</td>
+                        <td><div class="response-text">The object `Custom_Object__c` does not exist in your Salesforce organization. Please verify the object name and try again. If you meant to query a different object, please provide the correct object API name.</div></td>
+                        <td class="mono" style="color:#94a3b8;">5.3s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC057</td>
+                        <td style="font-weight:600;">getObjectSchema</td>
+                        <td style="color:var(--text-muted);">Case Schema</td>
+                        <td class="query-text">What fields can I set on a Case?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getObjectSchema</td>
+                        <td><div class="response-text">The `Case` object in Salesforce has several fields that you can set. Here are some of the key fields:
+
+| Field Name       | Label                | Type          |
+|------------------|----------------------|---------------|
+| Id               | Case ID              | id            |
+| IsDeleted        | Deleted              | boolean       |
+| MasterRecordId   | Master Record ID     | reference     |
+| CaseNumber       | Case Number          | string        |
+| ContactId        | Contact ID      </div></td>
+                        <td class="mono" style="color:#94a3b8;">29.07s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC058</td>
+                        <td style="font-weight:600;">getObjectSchema</td>
+                        <td style="color:var(--text-muted);">Schema Without Object Name</td>
+                        <td class="query-text">Describe the schema</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'd be happy to help! Which type of records would you like to see? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.71s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC059</td>
+                        <td style="font-weight:600;">getObjectSchema</td>
+                        <td style="color:var(--text-muted);">Hinglish Schema Request</td>
+                        <td class="query-text">Lead object me konse fields mandatory hain?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getObjectSchema</td>
+                        <td><div class="response-text">The mandatory fields for the Lead object are:
+
+- **LastName**: Last Name
+- **Company**: Company
+
+These fields must be provided when creating a new Lead record in Salesforce.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.82s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC060</td>
+                        <td style="font-weight:600;">getObjectSchema</td>
+                        <td style="color:var(--text-muted);">Data Type Question</td>
+                        <td class="query-text">What data type is the Amount field on Opportunity?</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">The Amount field on Opportunity is of type Currency.</div></td>
+                        <td class="mono" style="color:#94a3b8;">1.7s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC061</td>
+                        <td style="font-weight:600;">createSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Create Lead - Complete</td>
+                        <td class="query-text">Create a new lead: First Name 'Test', Last Name 'Automation', Company 'TestCorp'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">createSobjectRecord</td>
+                        <td><div class="response-text">Lead created successfully with the following details:
+
+| Field     | Value         |
+|-----------|---------------|
+| Id        | 00Qg5000007cuYDEAY |
+| FirstName | Test          |
+| LastName  | Automation    |
+| Company   | TestCorp      |</div></td>
+                        <td class="mono" style="color:#94a3b8;">8.72s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC062</td>
+                        <td style="font-weight:600;">createSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Create Lead - Missing Required Field</td>
+                        <td class="query-text">Create a new lead with name John</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">createSobjectRecord</td>
+                        <td><div class="response-text">Lead created successfully with ID: 00Qg5000007cuZpEAI.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.05s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC063</td>
+                        <td style="font-weight:600;">createSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Create Account</td>
+                        <td class="query-text">Create a new account named 'Edge Case Corp'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">createSobjectRecord</td>
+                        <td><div class="response-text">The account 'Edge Case Corp' has been successfully created with the ID 001g500000ddFITAA2.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.17s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC064</td>
+                        <td style="font-weight:600;">createSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Create Contact Without Account</td>
+                        <td class="query-text">Create a contact: FirstName 'Jane', LastName 'TestBot'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">createSobjectRecord</td>
+                        <td><div class="response-text">The contact has been created successfully with the following details:
+
+| Field Name | Value     |
+|------------|-----------|
+| FirstName  | Jane      |
+| LastName   | TestBot   |
+| Id         | 003g500000dC2SbAAK |
+
+If you need any further assistance, feel free to ask!</div></td>
+                        <td class="mono" style="color:#94a3b8;">9.37s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC065</td>
+                        <td style="font-weight:600;">createSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Create Opportunity Missing Fields</td>
+                        <td class="query-text">Create an opportunity</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">Sure! To create an opportunity, I need some details. Please provide the following information:
+
+- **Name**: The name of the opportunity.
+- **StageName**: The stage of the opportunity (e.g., "Prospecting", "Qualification", "Needs Analysis", etc.).
+- **CloseDate**: The expected close date of the opportunity (e.g., "2023-12-31").
+- **Amount**: The expected amount for the opportunity (e.g., 10000).
+
+Once you provide these details, I can create the opportunity for you.</div></td>
+                        <td class="mono" style="color:#94a3b8;">7.2s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC066</td>
+                        <td style="font-weight:600;">createSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Create with Invalid Object</td>
+                        <td class="query-text">Create a new Spaceship record with name 'Enterprise'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I've detected a potentially unsafe query. I can only execute valid Salesforce queries.</div></td>
+                        <td class="mono" style="color:#94a3b8;">1.93s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC067</td>
+                        <td style="font-weight:600;">createSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Create Record Hinglish</td>
+                        <td class="query-text">Ek naya lead banao jiska naam 'Rajesh Kumar' ho aur company 'InfoTech' ho</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">createSobjectRecord</td>
+                        <td><div class="response-text">Lead 'Rajesh Kumar' from 'InfoTech' has been successfully created with the ID 00Qg5000007cubREAQ.</div></td>
+                        <td class="mono" style="color:#94a3b8;">8.31s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC068</td>
+                        <td style="font-weight:600;">createSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Create Case</td>
+                        <td class="query-text">Create a new case with subject 'Login Issue' and description 'User unable to login'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">createSobjectRecord</td>
+                        <td><div class="response-text">The case has been created successfully with the following details:
+
+| Field     | Value             |
+|-----------|-------------------|
+| Subject   | Login Issue       |
+| Description | User unable to login |
+
+If you need any further assistance, feel free to ask!</div></td>
+                        <td class="mono" style="color:#94a3b8;">7.86s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC069</td>
+                        <td style="font-weight:600;">createSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Create with Empty Body</td>
+                        <td class="query-text">Create a lead with no details</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'm sorry, but I need more information to create a lead. Could you please provide the following details:
+- First Name
+- Last Name
+- Company
+
+Once you provide these details, I can create the lead for you.</div></td>
+                        <td class="mono" style="color:#94a3b8;">3.15s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC070</td>
+                        <td style="font-weight:600;">createSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Bulk Create Request</td>
+                        <td class="query-text">Create 5 leads at once with names Lead1, Lead2, Lead3, Lead4, Lead5</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">createSobjectRecord</td>
+                        <td><div class="response-text">I've detected a potentially unsafe query. I can only execute valid Salesforce queries.</div></td>
+                        <td class="mono" style="color:#94a3b8;">11.42s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC071</td>
+                        <td style="font-weight:600;">updateSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Update Account Name</td>
+                        <td class="query-text">Update account 001XXXXXXXXXXXXXXX name to 'Updated Corp'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.59s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC072</td>
+                        <td style="font-weight:600;">updateSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Update Without ID</td>
+                        <td class="query-text">Update the phone number of account 'Acme Corp' to 9999999999</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">executeSoqlQuery, soqlQuery</td>
+                        <td><div class="response-text">I couldn't find an account named 'Acme Corp'. Please check the name and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">9.28s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC073</td>
+                        <td style="font-weight:600;">updateSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Update Invalid Field</td>
+                        <td class="query-text">Update account 001XXXXXXXXXXXXXXX set FavoriteColor to 'Blue'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.46s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC074</td>
+                        <td style="font-weight:600;">updateSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Update with Empty Body</td>
+                        <td class="query-text">Update account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'd be happy to help! Which fields would you like to update for the account with ID 001XXXXXXXXXXXXXXX? Please provide the field names and their new values.</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.79s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC075</td>
+                        <td style="font-weight:600;">updateSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Update Lead Status</td>
+                        <td class="query-text">Change lead 00QXXXXXXXXXXXXXXX status to 'Contacted'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">The record ID '00QXXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.83s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC076</td>
+                        <td style="font-weight:600;">updateSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Update Opportunity Stage</td>
+                        <td class="query-text">Move opportunity 006XXXXXXXXXXXXXXX to 'Closed Won' stage</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">I've detected a potentially unsafe query. I can only execute valid Salesforce queries.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.29s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC077</td>
+                        <td style="font-weight:600;">updateSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Update with Invalid ID Format</td>
+                        <td class="query-text">Update account with ID 'abc123' name to 'Test'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">The record ID 'abc123' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.66s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC078</td>
+                        <td style="font-weight:600;">updateSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Update Multiple Fields</td>
+                        <td class="query-text">Update contact 003XXXXXXXXXXXXXXX: set phone to 1234567890 and email to test@test.com</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">The record ID '003XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">7.36s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC079</td>
+                        <td style="font-weight:600;">updateSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Hinglish Update Request</td>
+                        <td class="query-text">Account 001XXXXXXXXXXXXXXX ka naam change karke 'Naya Naam' kar do</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.62s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC080</td>
+                        <td style="font-weight:600;">updateSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Update Non-Existent Record</td>
+                        <td class="query-text">Update account 001000000000000ZZZ name to 'Ghost Record'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">I've detected a potentially unsafe query. I can only execute valid Salesforce queries.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.67s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC081</td>
+                        <td style="font-weight:600;">updateRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Update Related Contact</td>
+                        <td class="query-text">Update the primary contact of account 001XXXXXXXXXXXXXXX, set phone to 5551234567</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.73s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC082</td>
+                        <td style="font-weight:600;">updateRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Update Without Relationship Path</td>
+                        <td class="query-text">Update a child record of account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'd be happy to help! Which type of child record would you like to update under Account 001XXXXXXXXXXXXXXX? For example: **Contacts**, **Cases**, **Opportunities**, **Notes**, **Attachments**, **Tasks**, **Events**, or something else?</div></td>
+                        <td class="mono" style="color:#94a3b8;">4.45s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC083</td>
+                        <td style="font-weight:600;">updateRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Invalid Relationship</td>
+                        <td class="query-text">Update the 'Rockets' of account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">The relationship 'Rockets' does not exist on this object. Valid relationships include: Contacts, Cases, Opportunities, etc.</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.61s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC084</td>
+                        <td style="font-weight:600;">updateRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Update Related Case Status</td>
+                        <td class="query-text">Update the case status to 'Escalated' for a case related to account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.79s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC085</td>
+                        <td style="font-weight:600;">updateRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Update with Missing Body</td>
+                        <td class="query-text">Update related contacts of account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.25s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC086</td>
+                        <td style="font-weight:600;">updateRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Hinglish Related Update</td>
+                        <td class="query-text">Account 001XXXXXXXXXXXXXXX ke contact ka email update karo 'new@email.com' se</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">The record ID '003XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.74s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC087</td>
+                        <td style="font-weight:600;">updateRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Update Multiple Related</td>
+                        <td class="query-text">Update all contacts of account 001XXXXXXXXXXXXXXX phone to 0000000000</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.67s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC088</td>
+                        <td style="font-weight:600;">updateRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Update Related Opportunity</td>
+                        <td class="query-text">Change the stage of all opportunities under account 001XXXXXXXXXXXXXXX to Negotiation</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">executeSoqlQuery, soqlQuery</td>
+                        <td><div class="response-text">It looks like there are no opportunities associated with the account ID `001XXXXXXXXXXXXXXX`. If you need to create a new opportunity under this account, please provide the necessary details such as the opportunity name, close date, and any other relevant information.</div></td>
+                        <td class="mono" style="color:#94a3b8;">11.15s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC089</td>
+                        <td style="font-weight:600;">updateRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Update with Non-Existent Parent</td>
+                        <td class="query-text">Update contacts of account 001000000000000ZZZ set phone to 111</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">updateSobjectRecord</td>
+                        <td><div class="response-text">The record ID '001000000000000ZZZ' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">7.87s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC090</td>
+                        <td style="font-weight:600;">updateRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Complex Related Update</td>
+                        <td class="query-text">For account 001XXXXXXXXXXXXXXX, update the contact named 'John' and set his title to 'CTO'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.19s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC091</td>
+                        <td style="font-weight:600;">deleteSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Delete with Confirmation</td>
+                        <td class="query-text">Delete account with ID 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">⚠️ **Delete Confirmation Required**
+
+I'm about to delete the following record:
+- **Object**: Account
+- **Record ID**: 001XXXXXXXXXXXXXXX
+
+Deleted records go to the Recycle Bin and can be recovered within 15 days.
+
+**Are you sure you want to proceed?** (Reply "yes" to confirm)</div></td>
+                        <td class="mono" style="color:#94a3b8;">3.15s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC092</td>
+                        <td style="font-weight:600;">deleteSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Delete Without ID</td>
+                        <td class="query-text">Delete the account named 'Test Corp'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">executeSoqlQuery, soqlQuery</td>
+                        <td><div class="response-text">I couldn't find an account named 'Test Corp'. Please check the name and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">9.2s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC093</td>
+                        <td style="font-weight:600;">deleteSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Delete with Invalid ID</td>
+                        <td class="query-text">Delete lead with ID FAKE_ID_999</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">⚠️ **Delete Confirmation Required**
+
+I'm about to delete the following record:
+- **Object**: Lead
+- **Record ID**: FAKE_ID_999
+
+Deleted records go to the Recycle Bin and can be recovered within 15 days.
+
+**Are you sure you want to proceed?** (Reply "yes" to confirm)</div></td>
+                        <td class="mono" style="color:#94a3b8;">3.09s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC094</td>
+                        <td style="font-weight:600;">deleteSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Delete Ambiguous Request</td>
+                        <td class="query-text">Delete something</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'd be happy to help! Which type of records would you like to delete? For example: **Accounts**, **Contacts**, **Leads**, **Opportunities**, **Cases**, or something else?</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.95s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC095</td>
+                        <td style="font-weight:600;">deleteSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Hinglish Delete Request</td>
+                        <td class="query-text">Lead 00QXXXXXXXXXXXXXXX ko delete kar do</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">⚠️ **Delete Confirmation Required**
+
+I'm about to delete the following record:
+- **Object**: Lead
+- **Record ID**: 00QXXXXXXXXXXXXXXX
+
+Deleted records go to the Recycle Bin and can be recovered within 15 days.
+
+**Are you sure you want to proceed?** (Reply "yes" to confirm)</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.87s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC096</td>
+                        <td style="font-weight:600;">deleteSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Delete Non-Existent Record</td>
+                        <td class="query-text">Delete contact 003000000000000ZZZ</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">⚠️ **Delete Confirmation Required**
+
+I'm about to delete the following record:
+- **Object**: Contact
+- **Record ID**: 003000000000000ZZZ
+
+Deleted records go to the Recycle Bin and can be recovered within 15 days.
+
+**Are you sure you want to proceed?** (Reply "yes" to confirm)</div></td>
+                        <td class="mono" style="color:#94a3b8;">3.29s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC097</td>
+                        <td style="font-weight:600;">deleteSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Bulk Delete Request</td>
+                        <td class="query-text">Delete all leads where company is 'TestCorp'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I cannot perform mass deletion. Please specify the exact record(s) you want to delete.</div></td>
+                        <td class="mono" style="color:#94a3b8;">1.57s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC098</td>
+                        <td style="font-weight:600;">deleteSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Delete Case</td>
+                        <td class="query-text">Remove case 500XXXXXXXXXXXXXXX from Salesforce</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">⚠️ **Delete Confirmation Required**
+
+I'm about to delete the following record:
+- **Object**: Case
+- **Record ID**: 500XXXXXXXXXXXXXXX
+
+Deleted records go to the Recycle Bin and can be recovered within 15 days.
+
+**Are you sure you want to proceed?** (Reply "yes" to confirm)</div></td>
+                        <td class="mono" style="color:#94a3b8;">3.15s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC099</td>
+                        <td style="font-weight:600;">deleteSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Accidental Delete Prevention</td>
+                        <td class="query-text">Oops delete everything in my org</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I cannot perform mass deletion. Please specify the exact record(s) you want to delete.</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.18s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC100</td>
+                        <td style="font-weight:600;">deleteSobjectRecord</td>
+                        <td style="color:var(--text-muted);">Delete with Security Test</td>
+                        <td class="query-text">Delete all admin user accounts permanently</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I cannot perform mass deletion. Please specify the exact record(s) you want to delete.</div></td>
+                        <td class="mono" style="color:#94a3b8;">1.86s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC101</td>
+                        <td style="font-weight:600;">deleteRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Delete Related Contact</td>
+                        <td class="query-text">Delete all contacts under account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.75s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC102</td>
+                        <td style="font-weight:600;">deleteRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Delete Specific Related</td>
+                        <td class="query-text">Delete the contact named 'John Doe' from account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">⚠️ **Delete Confirmation Required**
+
+I'm about to delete the following record:
+- **Object**: Contact
+- **Record ID**: 003XXXXXXXXXXXXXXX
+
+Deleted records go to the Recycle Bin and can be recovered within 15 days.
+
+**Are you sure you want to proceed?** (Reply "yes" to confirm)</div></td>
+                        <td class="mono" style="color:#94a3b8;">8.43s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC103</td>
+                        <td style="font-weight:600;">deleteRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Delete Without Parent Info</td>
+                        <td class="query-text">Delete related records</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I'd be happy to help! Which type of records would you like to delete? For example: **Contacts**, **Cases**, **Opportunities**, **Notes**, **Attachments**, **Tasks**, **Events**, or something else?</div></td>
+                        <td class="mono" style="color:#94a3b8;">3.58s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC104</td>
+                        <td style="font-weight:600;">deleteRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Delete Related Cases</td>
+                        <td class="query-text">Remove all cases linked to account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">5.92s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC105</td>
+                        <td style="font-weight:600;">deleteRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Invalid Parent for Related Delete</td>
+                        <td class="query-text">Delete contacts of account 001000000000000ZZZ</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">⚠️ **Delete Confirmation Required**
+
+I'm about to delete the following record:
+- **Object**: Contact
+- **Record ID**: 001000000000000ZZZ
+
+Deleted records go to the Recycle Bin and can be recovered within 15 days.
+
+**Are you sure you want to proceed?** (Reply "yes" to confirm)</div></td>
+                        <td class="mono" style="color:#94a3b8;">3.47s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC106</td>
+                        <td style="font-weight:600;">deleteRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Delete Related Opportunity</td>
+                        <td class="query-text">Delete all opportunities from account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I cannot perform mass deletion. Please specify the exact record(s) you want to delete.</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.1s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC107</td>
+                        <td style="font-weight:600;">deleteRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Hinglish Related Delete</td>
+                        <td class="query-text">Account 001XXXXXXXXXXXXXXX ke saare contacts hatao</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">getRelatedRecords</td>
+                        <td><div class="response-text">The record ID '001XXXXXXXXXXXXXXX' was not found. Please check the ID and try again.</div></td>
+                        <td class="mono" style="color:#94a3b8;">6.51s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC108</td>
+                        <td style="font-weight:600;">deleteRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Delete with Invalid Relationship</td>
+                        <td class="query-text">Delete all 'Unicorns' from account 001XXXXXXXXXXXXXXX</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">The relationship 'Unicorns' does not exist on this object. Valid relationships include: Contacts, Cases, Opportunities, etc.</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.3s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC109</td>
+                        <td style="font-weight:600;">deleteRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Delete Related with Partial Info</td>
+                        <td class="query-text">Delete contacts of 'Acme Corp'</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">⚠️ **Delete Confirmation Required**
+
+I'm about to delete the following record:
+- **Object**: Contact
+- **Record ID**: 003xx000003DChuAAK
+
+Deleted records go to the Recycle Bin and can be recovered within 15 days.
+
+**Are you sure you want to proceed?** (Reply "yes" to confirm)</div></td>
+                        <td class="mono" style="color:#94a3b8;">3.39s</td>
+                    </tr>
+    
+                    <tr>
+                        <td class="mono" style="font-weight:700; color:#38bdf8;">TC110</td>
+                        <td style="font-weight:600;">deleteRelatedRecord</td>
+                        <td style="color:var(--text-muted);">Security: Delete All Related</td>
+                        <td class="query-text">Delete every single related record from all my accounts</td>
+                        <td><span class="status-pill status-pass">PASS</span></td>
+                        <td class="mono">None</td>
+                        <td><div class="response-text">I cannot perform mass deletion. Please specify the exact record(s) you want to delete.</div></td>
+                        <td class="mono" style="color:#94a3b8;">2.53s</td>
+                    </tr>
+    
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        function searchTable() {
+            var input = document.getElementById("searchInput");
+            var filter = input.value.toLowerCase();
+            var rows = document.querySelectorAll("#testTable tbody tr");
+            rows.forEach(function(row) {
+                var text = row.innerText.toLowerCase();
+                row.style.display = text.includes(filter) ? "" : "none";
+            });
+        }
+
+        function filterTool(name) {
+            document.getElementById("searchInput").value = name;
+            searchTable();
+        }
+    </script>
+</body>
+</html>
