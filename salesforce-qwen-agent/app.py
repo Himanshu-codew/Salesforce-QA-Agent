@@ -223,24 +223,17 @@ def _prune_expired_states() -> None:
         _oauth_pending_flows.pop(s, None)
 
 
-def _server_default_auth_host() -> str:
-    """Host of the org that owns the server-side Connected App (SALESFORCE_INSTANCE_URL)."""
-    instance_env = os.getenv("SALESFORCE_INSTANCE_URL", "").strip()
-    if instance_env:
-        parsed = urllib.parse.urlparse(instance_env)
-        if parsed.netloc:
-            return parsed.netloc
-    return "login.salesforce.com"
-
-
 def _resolve_auth_host(domain: str | None) -> str:
     """
-    Map a user-selected environment to its Salesforce auth host.
-    Uses SALESFORCE_INSTANCE_URL host if available to match External Client App registration.
+    Map a user-selected environment to its Salesforce OAuth authorize host.
+
+    "login" / default ALWAYS resolves to the canonical login.salesforce.com so
+    external users never see (or depend on) the server's own org domain in the
+    popup URL. Custom My-Domain hosts pass through untouched.
     """
     d = (domain or "").strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
     if d in ("", "login", "production", "prod", "developer", "dev"):
-        return _server_default_auth_host()
+        return "login.salesforce.com"
     if d == "test":
         return "test.salesforce.com"
     return d
@@ -296,7 +289,7 @@ async def _validate_connected_app() -> None:
         client_id = _DEFAULT_APP_KEY
 
     verifier, challenge = _generate_pkce_pair()
-    auth_host = _server_default_auth_host()
+    auth_host = "login.salesforce.com"  # universal authorize host used by oauth_login
     probe_url = (
         f"https://{auth_host}/services/oauth2/authorize?"
         + urllib.parse.urlencode(
@@ -393,10 +386,13 @@ async def oauth_login(
         effective_client_id = env_client_id
         effective_client_secret = env_client_secret
     else:
-        # No usable server-side app. The hardcoded fallback key is org-local to
-        # SALESFORCE_INSTANCE_URL's org; redirecting any OTHER org there is a
-        # guaranteed invalid_client_id, so fail fast with actionable guidance.
-        if auth_host != _server_default_auth_host():
+        # No usable server-side app. The built-in fallback key is org-local, so
+        # a user-supplied CUSTOM My-Domain without BYO credentials is a
+        # guaranteed invalid_client_id — fail fast with actionable guidance.
+        # Canonical hosts (login/test.salesforce.com) still proceed with the
+        # built-in key so members of the default org keep 1-Click access.
+        _canonical_hosts = ("login.salesforce.com", "test.salesforce.com")
+        if auth_host not in _canonical_hosts:
             return HTMLResponse(
                 content=_popup_html(
                     "Your Own Connected App Is Required",
