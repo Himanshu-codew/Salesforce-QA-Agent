@@ -246,6 +246,20 @@ def _resolve_auth_host(domain: str | None) -> str:
     return d
 
 
+def _resolve_login_host(domain: str | None) -> str:
+    """
+    Host for CREDENTIAL logins (SOAP login / password grant).
+    Salesforce only accepts username+password logins on the canonical
+    login/test hosts (or a login-enabled My Domain) — never on an instance URL.
+    """
+    d = (domain or "").strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
+    if d in ("", "login", "production", "prod", "developer", "dev"):
+        return "login.salesforce.com"
+    if d == "test":
+        return "test.salesforce.com"
+    return d
+
+
 def _default_redirect_uri() -> str:
     port = os.getenv("APP_PORT", "8000")
     return os.getenv("SALESFORCE_REDIRECT_URI", f"http://localhost:{port}/api/auth/callback")
@@ -459,17 +473,32 @@ async def oauth_callback(request: Request):
     if oauth_error:
         error_desc = params.get("error_description", "")
         callback_hint = xml_escape(flow["redirect_uri"]) if flow and flow.get("redirect_uri") else xml_escape(_default_redirect_uri())
+
+        def _mask_key(key: str) -> str:
+            key = (key or "").strip()
+            return f"{key[:12]}…{key[-6:]}" if len(key) > 24 else "unknown"
+
+        used_host = xml_escape(flow["auth_host"]) if flow and flow.get("auth_host") else "unknown"
+        used_key = _mask_key(flow.get("client_id", "")) if flow else "unknown (state expired)"
         hint = ""
         if oauth_error == "invalid_client_id":
             hint = (
                 "<p><b>Why does this happen?</b> Salesforce Connected Apps are org-local — a Consumer Key created in "
                 "one org is not recognized by any other org.</p>"
+                f"<p><b>This attempt sent</b> Consumer Key <code>{xml_escape(used_key)}</code> to "
+                f"<code>{used_host}</code>. Salesforce found no Connected App with that key in that org — "
+                "either the app was deleted, its org expired/was refreshed, or the Render env vars "
+                "(SALESFORCE_CLIENT_ID / SALESFORCE_INSTANCE_URL) point at two different orgs.</p>"
                 "<p><b>Fix:</b> In YOUR org go to <b>Setup → App Manager → New Connected App</b>, enable OAuth with "
                 f"callback <code>{callback_hint}</code> and scopes "
                 "<code>api, refresh_token, id</code>, then paste that app's Consumer Key &amp; Secret under "
-                "<b>“Use my own Connected App”</b> in the Connect dialog and retry.</p>"
+                "<b>“Connect your own org”</b> in the Connect dialog and retry. For the server-default org, "
+                "update SALESFORCE_CLIENT_ID/SECRET and SALESFORCE_INSTANCE_URL together on Render.</p>"
             )
-        logger.error(f"OAuth error returned by Salesforce: {oauth_error} — {error_desc}")
+        logger.error(
+            f"OAuth error returned by Salesforce: {oauth_error} — {error_desc} "
+            f"(host={flow.get('auth_host') if flow else '?'}, client_id={_mask_key(flow.get('client_id', '')) if flow else 'state-expired'})"
+        )
         return HTMLResponse(
             content=_popup_html(
                 "Salesforce Authorization Failed",
@@ -657,7 +686,7 @@ async def connect_direct_endpoint(req: DirectConnectRequest):
             if not req.username or not req.password:
                 return JSONResponse(status_code=400, content={"error": "Username and Password are required."})
 
-            auth_host = _resolve_auth_host(req.domain)
+            auth_host = _resolve_login_host(req.domain)
             sec_token = (req.security_token or "").strip()
             full_password = req.password + sec_token
 
@@ -756,6 +785,10 @@ async def connect_direct_endpoint(req: DirectConnectRequest):
                                         ).strip(": ")
                                     except Exception:
                                         rest_error = rest_res.text[:200]
+                                    logger.warning(
+                                        "Password-grant token exchange failed (%s) via %s: %s",
+                                        rest_res.status_code, auth_host, rest_error,
+                                    )
                             except httpx.RequestError as rest_req_err:
                                 rest_error = str(rest_req_err)
             except Exception as net_exc:
