@@ -13,10 +13,42 @@ An AI-powered Salesforce assistant that lets you interact with your Salesforce o
 - **Natural Language Interface** — Ask questions, create records, run queries in plain English
 - **11 Salesforce Tools** — Full CRUD, SOQL/SOSL queries, schema exploration, and more
 - **Real-time Chat UI** — Premium dark-themed interface with live tool execution visualization
+- **Multi-Tenant Auth** — Connect ANY Salesforce Org via 1-Click OAuth or direct credentials
 - **Safety Guardrails** — Destructive operations require explicit user confirmation
 - **Multi-step Reasoning** — Agent can chain multiple tool calls to answer complex questions
 - **Conversation Memory** — Maintains context across messages within a session
 - **REST API Fallback** — Gracefully falls back to direct Salesforce REST API if MCP is unavailable
+
+---
+
+## 🔐 Authentication — Multi-Tenant & Zero-Token
+
+Connect any Salesforce Org from the sidebar (**Connect Salesforce Org**):
+
+| Method | How it works | Security Token needed? |
+|--------|--------------|------------------------|
+| **1-Click OAuth** | Popup authenticates on Salesforce's official consent screen (OAuth 2.0 Authorization Code + PKCE, SHA-256 S256) against the org's own My-Domain host | ❌ No |
+| **Direct Credentials** | Username + Password (+ Security Token) via SOAP Partner API on `login.salesforce.com` | ✅ Yes (from untrusted IPs such as Render) |
+
+> ℹ️ 1-Click OAuth never touches security tokens. Direct Login does require one when the server's IP isn't trusted by the target org.
+
+### Bring Your Own Org
+
+Salesforce Connected Apps are **org-local** — the server's built-in Consumer Key only works inside its own org. To 1-Click connect *your own* org:
+
+1. In **your** org: `Setup → App Manager → New Connected App` → enable **OAuth Settings**
+2. Callback URL: `https://<this-app-host>/api/auth/callback` · Scopes: `api`, `refresh_token`, `id`
+3. Expand **“Connect your own org”** in the dialog and paste that app's Consumer Key + Secret
+
+Connecting a foreign org without these credentials now **fails fast** with step-by-step instructions instead of a cryptic `invalid_client_id`.
+
+### Session Isolation Guarantee
+
+Every browser session gets an isolated in-memory `UserSessionManager` entry (access token, refresh token, instance URL, identity). When User A and User B are connected simultaneously, each SOQL query / CRUD call executes strictly against that user's own org instance with that user's own token — cross-org data leakage is impossible by construction.
+
+### Production Deployment
+
+Live at **https://salesforce-qa-agent.onrender.com** — verified via `GET /health` → `"connected_app": { "valid": true }`.
 
 ---
 
@@ -63,7 +95,8 @@ salesforce-qwen-agent/
 ├── mcp/
 │   ├── client.py         # Salesforce MCP/REST client
 │   ├── registry.py       # Tool registry & format conversion
-│   └── executor.py       # Tool execution & error handling
+│   ├── executor.py       # Tool execution & error handling
+│   └── session_manager.py # Per-user OAuth session isolation
 ├── tools/
 │   └── salesforce.py     # 11 tool definitions
 ├── static/
@@ -165,6 +198,12 @@ Navigate to **http://localhost:8000** in your browser.
 python -m pytest tests/ -v
 ```
 
+| Suite | What it covers | Needs live credentials? |
+|-------|----------------|--------------------------|
+| `tests/test_multi_user_session.py` | Per-session auth isolation & registration (10 tests total across suites) | No |
+| `tests/test_7_benchmark_queries.py` | End-to-end agent queries against a real org | Yes |
+| `tests/test_agent.py`, `tests/test_110_edge_cases.py`, `tests/test_200_queries.py`, `tests/test_additional_queries.py` | Agent behavior, edge cases, query corpora | Varies |
+
 ---
 
 ## 📡 API Endpoints
@@ -174,7 +213,12 @@ python -m pytest tests/ -v
 | `/` | GET | Chat UI |
 | `/chat` | POST | HTTP chat (JSON request/response) |
 | `/ws/{session_id}` | WebSocket | Real-time streaming chat |
-| `/health` | GET | Health check |
+| `/health` | GET | Health check + Connected App status |
+| `/api/auth/login` | GET | Start 1-Click OAuth popup flow (supports BYO `client_id`/`client_secret` + `domain`) |
+| `/api/auth/callback` | GET | OAuth redirect handler with PKCE token exchange |
+| `/api/auth/connect_direct` | POST | Direct login: username/password/token or access-token mode |
+| `/api/auth/me` | GET | Current connection profile for session |
+| `/api/auth/logout` | POST | Disconnect the session's Salesforce user |
 
 ---
 
@@ -184,6 +228,9 @@ python -m pytest tests/ -v
 |----------|---------|-------------|
 | `QWEN_API_KEY` | — | DashScope API key (required) |
 | `QWEN_MODEL` | `qwen3-235b-a22b` | Qwen3 model name |
+| `SALESFORCE_INSTANCE_URL` | — | Host of the org owning the server-side Connected App (default 1-Click target) |
+| `SALESFORCE_CLIENT_ID` / `SALESFORCE_CLIENT_SECRET` | built-in fallback | Server-default Connected App credentials |
+| `SALESFORCE_REDIRECT_URI` | request origin | Explicit OAuth callback override (must be whitelisted in the Connected App) |
 | `APP_PORT` | `8000` | Server port |
 | `MAX_CONVERSATION_HISTORY` | `20` | Messages to keep in memory |
 | `MAX_TOOL_CALLS_PER_TURN` | `10` | Max tool calls per user message |
