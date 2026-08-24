@@ -843,6 +843,20 @@ function initiateSfOAuth() {
     const clientIdInput = document.getElementById('oauthClientId');
     const clientSecretInput = document.getElementById('oauthClientSecret');
 
+    // Salesforce Consumer Keys are org-local: a custom org can only be
+    // authorized with a Connected App created inside THAT org. Catch it here
+    // instead of letting Salesforce return invalid_client_id.
+    if (customDomainInput && customDomainInput.value.trim() && !(clientIdInput && clientIdInput.value.trim())) {
+        showModalMsg(
+            'Your own org needs its own Connected App. In YOUR org: Setup → App Manager → ' +
+            'New Connected App → enable OAuth (callback: this site + /api/auth/callback, scopes api, refresh_token, id), ' +
+            'then paste its Consumer Key & Secret below and retry. Or use Direct Login with username/password.',
+            'error'
+        );
+        if (clientIdInput) clientIdInput.focus();
+        return;
+    }
+
     const params = new URLSearchParams({ session_id: sessionId, domain });
 
     // Custom My Domain overrides the standard login/test endpoints

@@ -266,6 +266,22 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                         <span>1-Click Login via Salesforce Page (No Token)</span>
                     </button>
+                    <details class="advanced-oauth" id="byoAppSection">
+                        <summary>Connect your own org (My Domain + Connected App)</summary>
+                        <div class="form-group">
+                            <label for="oauthCustomDomain">My Domain <span class="opt-tag">(your org's host)</span></label>
+                            <input type="text" id="oauthCustomDomain" class="form-control" placeholder="e.g. mycompany.my.salesforce.com" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="oauthClientId">Consumer Key <span class="opt-tag">(required for your own org)</span></label>
+                            <input type="text" id="oauthClientId" class="form-control" placeholder="3MVG9... Consumer Key from YOUR org" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="oauthClientSecret">Consumer Secret</label>
+                            <input type="password" id="oauthClientSecret" class="form-control" placeholder="Consumer Secret from the same Connected App" autocomplete="off">
+                            <span class="field-helper-text">💡 Salesforce keys are org-local. In <b>your</b> org: Setup → App Manager → New Connected App → enable OAuth, callback = this site's URL + /api/auth/callback, scopes api / refresh_token / id — then paste its key &amp; secret here.</span>
+                        </div>
+                    </details>
                 </div>
 
                 <div class="modal-divider">
@@ -332,6 +348,6 @@
         </div>
     </div>
 
-    <script src="/static/script.js?v=1.0.1"></script>
+    <script src="/static/script.js?v=1.0.2"></script>
 </body>
 </html>

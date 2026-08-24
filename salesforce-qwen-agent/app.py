@@ -223,6 +223,16 @@ def _prune_expired_states() -> None:
         _oauth_pending_flows.pop(s, None)
 
 
+def _server_default_auth_host() -> str:
+    """Host of the org that owns the server-side Connected App (SALESFORCE_INSTANCE_URL)."""
+    instance_env = os.getenv("SALESFORCE_INSTANCE_URL", "").strip()
+    if instance_env:
+        parsed = urllib.parse.urlparse(instance_env)
+        if parsed.netloc:
+            return parsed.netloc
+    return "login.salesforce.com"
+
+
 def _resolve_auth_host(domain: str | None) -> str:
     """
     Map a user-selected environment to its Salesforce auth host.
@@ -230,12 +240,7 @@ def _resolve_auth_host(domain: str | None) -> str:
     """
     d = (domain or "").strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
     if d in ("", "login", "production", "prod", "developer", "dev"):
-        instance_env = os.getenv("SALESFORCE_INSTANCE_URL", "https://orgfarm-d5054a6252-dev-ed.develop.my.salesforce.com")
-        if instance_env:
-            parsed = urllib.parse.urlparse(instance_env)
-            if parsed.netloc:
-                return parsed.netloc
-        return "login.salesforce.com"
+        return _server_default_auth_host()
     if d == "test":
         return "test.salesforce.com"
     return d
@@ -275,8 +280,9 @@ async def _validate_connected_app() -> None:
         return
 
     verifier, challenge = _generate_pkce_pair()
+    auth_host = _server_default_auth_host()
     probe_url = (
-        "https://login.salesforce.com/services/oauth2/authorize?"
+        f"https://{auth_host}/services/oauth2/authorize?"
         + urllib.parse.urlencode(
             {
                 "response_type": "code",
@@ -351,15 +357,50 @@ async def oauth_login(
     env_client_id = os.getenv("SALESFORCE_CLIENT_ID", "").strip()
     env_client_secret = os.getenv("SALESFORCE_CLIENT_SECRET", "").strip()
 
-    if not env_client_id or "3MVG97L7PwbPq6UzTSO02Q0YxGf7HtzS" in env_client_id:
-        effective_client_id = (client_id or _DEFAULT_APP_KEY).strip()
-    else:
-        effective_client_id = (client_id or env_client_id).strip()
+    # The old consumer key prefix marks a dead/rotated app — treat as unconfigured.
+    _DEAD_KEY_PREFIX = "3MVG97L7PwbPq6UzTSO02Q0YxGf7HtzS"
+    env_app_usable = bool(env_client_id) and _DEAD_KEY_PREFIX not in env_client_id
 
-    if not env_client_secret or "FE135F287654AB8C" in env_client_secret:
-        effective_client_secret = (client_secret or _DEFAULT_APP_SECRET).strip()
+    if client_id and client_id.strip():
+        # User supplied their own Connected App credentials (required for orgs
+        # other than the server's default) — always take precedence.
+        effective_client_id = client_id.strip()
+        effective_client_secret = (client_secret or "").strip()
+        if not effective_client_secret:
+            effective_client_secret = env_client_secret if env_app_usable else _DEFAULT_APP_SECRET
+    elif env_app_usable:
+        effective_client_id = env_client_id
+        effective_client_secret = env_client_secret
     else:
-        effective_client_secret = (client_secret or env_client_secret).strip()
+        # No usable server-side app. The hardcoded fallback key is org-local to
+        # SALESFORCE_INSTANCE_URL's org; redirecting any OTHER org there is a
+        # guaranteed invalid_client_id, so fail fast with actionable guidance.
+        if auth_host != _server_default_auth_host():
+            return HTMLResponse(
+                content=_popup_html(
+                    "Your Own Connected App Is Required",
+                    "<p><b>Why?</b> Salesforce Connected Apps are org-local — the server's "
+                    "built-in Consumer Key only works inside its own org, so Salesforce rejects "
+                    f"it on <code>{xml_escape(auth_host)}</code> with "
+                    "<code>invalid_client_id</code>.</p>"
+                    "<p><b>Fix (2 minutes) — in YOUR org:</b>"
+                    "<ol style='text-align:left;display:inline-block;'>"
+                    "<li><b>Setup → App Manager → New Connected App</b> (any name).</li>"
+                    "<li>Enable <b>OAuth Settings</b>. Callback URL: "
+                    f"<code>{xml_escape(redirect_uri)}</code></li>"
+                    "<li>Scopes: <code>api</code>, <code>refresh_token</code>, <code>id</code>.</li>"
+                    "<li>Save, copy the <b>Consumer Key &amp; Consumer Secret</b>.</li>"
+                    "</ol>"
+                    "Then expand <b>“Connect your own org”</b> in the Connect dialog, paste them "
+                    "(plus your My-Domain host), and retry.</p>",
+                    success=False,
+                ),
+                status_code=400,
+            )
+        effective_client_id = _DEFAULT_APP_KEY
+        effective_client_secret = (
+            client_secret.strip() if client_secret and client_secret.strip() else _DEFAULT_APP_SECRET
+        )
 
     if not effective_client_id:
         return HTMLResponse(
