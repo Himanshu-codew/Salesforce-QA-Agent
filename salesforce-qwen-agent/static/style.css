@@ -1431,14 +1431,15 @@ textarea::placeholder { color: var(--text-muted); }
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(8, 6, 16, 0.82);
+    background: rgba(8, 6, 16, 0.85);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     z-index: 1000;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 20px;
+    padding: 16px;
+    overflow-y: auto;
 }
 
 .modal-overlay.hidden {
@@ -1451,10 +1452,14 @@ textarea::placeholder { color: var(--text-muted); }
     border-radius: var(--radius-lg);
     width: 100%;
     max-width: 440px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 30px rgba(0, 161, 224, 0.15);
+    max-height: min(640px, calc(100vh - 32px));
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 30px rgba(0, 161, 224, 0.2);
     overflow: hidden;
     animation: modalPop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
     position: relative;
+    margin: auto;
 }
 
 .modal-card.shake {
@@ -1462,7 +1467,7 @@ textarea::placeholder { color: var(--text-muted); }
 }
 
 @keyframes modalPop {
-    from { opacity: 0; transform: scale(0.92) translateY(10px); }
+    from { opacity: 0; transform: scale(0.94) translateY(8px); }
     to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
@@ -1477,38 +1482,39 @@ textarea::placeholder { color: var(--text-muted); }
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 24px;
+    padding: 14px 20px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     background: rgba(255, 255, 255, 0.02);
+    flex-shrink: 0;
 }
 
 .modal-title {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
 }
 
 .sf-icon-badge {
-    width: 38px;
-    height: 38px;
+    width: 34px;
+    height: 34px;
     border-radius: var(--radius-sm);
     background: rgba(0, 161, 224, 0.12);
     border: 1px solid rgba(0, 161, 224, 0.3);
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 0 12px rgba(0, 161, 224, 0.2);
+    box-shadow: 0 0 10px rgba(0, 161, 224, 0.2);
 }
 
 .sf-modal-logo {
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
     object-fit: contain;
 }
 
 .modal-title h3 {
     margin: 0;
-    font-size: var(--font-size-md);
+    font-size: 0.9375rem;
     font-weight: 700;
     color: var(--text-primary);
     letter-spacing: -0.01em;
@@ -1516,7 +1522,7 @@ textarea::placeholder { color: var(--text-muted); }
 
 .modal-subtitle {
     display: block;
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     font-weight: 500;
     color: var(--text-muted);
     margin-top: 1px;
@@ -1526,10 +1532,10 @@ textarea::placeholder { color: var(--text-muted); }
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.08);
     color: var(--text-muted);
-    width: 30px;
-    height: 30px;
+    width: 28px;
+    height: 28px;
     border-radius: 50%;
-    font-size: 1.25rem;
+    font-size: 1.15rem;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1545,11 +1551,26 @@ textarea::placeholder { color: var(--text-muted); }
 }
 
 .modal-body {
-    padding: 24px;
+    padding: 18px 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.modal-body::-webkit-scrollbar {
+    width: 5px;
+}
+
+.modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.modal-body::-webkit-scrollbar-thumb {
+    background: rgba(0, 161, 224, 0.3);
+    border-radius: 4px;
 }
 
 .oauth-quick-connect {
-    margin-bottom: 16px;
+    margin-bottom: 12px;
 }
 
 .oauth-launch-btn {
@@ -1557,12 +1578,12 @@ textarea::placeholder { color: var(--text-muted); }
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: 8px;
     background: rgba(0, 161, 224, 0.12);
     border: 1px solid rgba(0, 161, 224, 0.35);
     color: #38bdf8;
-    padding: 11px 16px;
-    font-size: 0.8125rem;
+    padding: 9px 14px;
+    font-size: 0.8rem;
     font-weight: 600;
     border-radius: var(--radius-sm);
     cursor: pointer;
