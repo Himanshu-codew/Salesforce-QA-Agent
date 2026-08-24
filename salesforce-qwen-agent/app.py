@@ -392,8 +392,6 @@ async def oauth_login(
                 "client_id": effective_client_id,
                 "redirect_uri": redirect_uri,
                 "state": state,
-                "scope": os.getenv("SALESFORCE_OAUTH_SCOPE", "api refresh_token id"),
-                "prompt": "consent",
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
             }
