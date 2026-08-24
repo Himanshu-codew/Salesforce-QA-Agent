@@ -205,6 +205,14 @@ _OAUTH_STATE_TTL_SECONDS = 600
 SOAP_API_VERSION = "58.0"
 
 
+def _generate_pkce_pair() -> tuple[str, str]:
+    """Generate (code_verifier, code_challenge) tuple for OAuth 2.0 PKCE."""
+    verifier = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(verifier.encode("utf-8")).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")
+    return verifier, challenge
+
+
 def _prune_expired_states() -> None:
     """Evict stale pending OAuth states to bound memory usage."""
     cutoff = time.time() - _OAUTH_STATE_TTL_SECONDS
@@ -263,6 +271,7 @@ async def _validate_connected_app() -> None:
         )
         return
 
+    verifier, challenge = _generate_pkce_pair()
     probe_url = (
         "https://login.salesforce.com/services/oauth2/authorize?"
         + urllib.parse.urlencode(
@@ -270,6 +279,8 @@ async def _validate_connected_app() -> None:
                 "response_type": "code",
                 "client_id": client_id,
                 "redirect_uri": "http://localhost/probe",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
             }
         )
     )
@@ -325,17 +336,7 @@ async def oauth_login(
     client_secret: str | None = Query(None),
 ):
     """
-    Redirect user to Salesforce OAuth 2.0 authorization URL.
-
-    Multi-tenant aware:
-      - The authorize host follows the caller-selected environment
-        (login.salesforce.com, test.salesforce.com, or a custom My Domain).
-      - Callers may supply their own org's Connected App consumer key/secret
-        (BYO credentials); otherwise the server-wide app from .env is used.
-        Salesforce Connected Apps are org-local, so external users from other
-        orgs MUST authorize with a consumer key registered in THEIR org.
-      - The callback URI mirrors the address the caller used (unless
-        SALESFORCE_REDIRECT_URI is set), so remote users work too.
+    Redirect user to Salesforce OAuth 2.0 authorization URL with PKCE.
     """
     auth_host = _resolve_auth_host(domain)
     redirect_uri = _resolve_redirect_uri(request)
@@ -355,8 +356,7 @@ async def oauth_login(
             status_code=400,
         )
 
-    # Bind this flow's parameters to an opaque state value so the callback
-    # exchanges the code against the SAME host & credentials.
+    verifier, challenge = _generate_pkce_pair()
     state = secrets.token_urlsafe(24)
     _oauth_pending_flows[state] = {
         "session_id": session_id,
@@ -364,6 +364,7 @@ async def oauth_login(
         "client_id": effective_client_id,
         "client_secret": effective_client_secret,
         "redirect_uri": redirect_uri,
+        "code_verifier": verifier,
         "created_at": time.time(),
     }
     _prune_expired_states()
@@ -378,6 +379,8 @@ async def oauth_login(
                 "state": state,
                 "scope": os.getenv("SALESFORCE_OAUTH_SCOPE", "api refresh_token id"),
                 "prompt": "consent",
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
             }
         )
     )
@@ -389,11 +392,6 @@ async def oauth_login(
 async def oauth_callback(request: Request):
     """
     Callback endpoint for the Salesforce OAuth redirect.
-
-    Exchanges the authorization code for access tokens using the same auth host
-    and Connected App credentials recorded at flow start (via the state param).
-    Also gracefully renders Salesforce's ?error=... redirects (e.g.
-    error=invalid_client_id) instead of failing with a validation error.
     """
     params = dict(request.query_params)
     state = params.get("state", "")
@@ -443,6 +441,7 @@ async def oauth_callback(request: Request):
         "client_secret": flow["client_secret"],
         "redirect_uri": flow["redirect_uri"],
         "code": code,
+        "code_verifier": flow.get("code_verifier", ""),
     }
 
     try:
