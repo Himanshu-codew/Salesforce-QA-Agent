@@ -260,44 +260,8 @@
             </div>
 
             <div class="modal-body">
-                <!-- Option A: Salesforce Official Web Popup -->
-                <div class="oauth-quick-connect">
-                    <button type="button" class="oauth-launch-btn" id="startOAuthBtn">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                        <span>Login via Salesforce Official Page (No Token Needed)</span>
-                    </button>
-
-                    <details class="advanced-oauth">
-                        <summary>Advanced: Custom Domain / My Own Connected App</summary>
-                        <div class="form-group">
-                            <label for="oauthCustomDomain">Custom My Domain <span class="opt-tag">(optional)</span></label>
-                            <div class="input-icon-wrapper">
-                                <svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <circle cx="12" cy="12" r="10"/>
-                                    <line x1="2" y1="12" x2="22" y2="12"/>
-                                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-                                </svg>
-                                <input type="text" id="oauthCustomDomain" class="form-control with-icon" placeholder="e.g. mycompany.my.salesforce.com" autocomplete="off">
-                            </div>
-                            <span class="field-helper-text">Leave empty to use the Environment Domain selected below.</span>
-                        </div>
-                        <div class="form-group">
-                            <label for="oauthClientId">Consumer Key <span class="opt-tag">(your org's Connected App)</span></label>
-                            <input type="text" id="oauthClientId" class="form-control" placeholder="3MV..." autocomplete="off">
-                        </div>
-                        <div class="form-group">
-                            <label for="oauthClientSecret">Consumer Secret <span class="opt-tag">(optional)</span></label>
-                            <input type="password" id="oauthClientSecret" class="form-control" placeholder="Connected App Consumer Secret" autocomplete="off">
-                        </div>
-                        <span class="field-helper-text">Connected Apps are org-local in Salesforce. If the popup fails with <code>invalid_client_id</code>, create a Connected App in YOUR org (Setup → App Manager → New Connected App, Enable OAuth, callback: <code id="oauthCallbackHint">http://localhost:8000/api/auth/callback</code>, scopes: api + refresh_token + id) and paste its Consumer Key here.</span>
-                    </details>
-                </div>
-
-                <div class="modal-divider">
-                    <span>OR Direct Login Below</span>
-                </div>
-
-                <!-- Option B: Direct Credentials -->
+                <p class="tab-desc">Log into any Salesforce Org directly using your Username, Password &amp; Security Token.</p>
+                
                 <div class="form-group">
                     <label for="directUsername">Salesforce Username *</label>
                     <div class="input-icon-wrapper">
