@@ -249,15 +249,13 @@ def _default_redirect_uri() -> str:
 def _resolve_redirect_uri(request: Request) -> str:
     """
     Callback URI for this login attempt.
-    An explicit SALESFORCE_REDIRECT_URI always wins; otherwise the callback
-    mirrors the address the caller actually used (localhost, LAN IP, tunnel),
-    so remote users aren't redirected back to their own machine's localhost.
-    NOTE: every address variant must be whitelisted in the Connected App.
     """
     explicit = os.getenv("SALESFORCE_REDIRECT_URI", "").strip()
     if explicit:
         return explicit
     base = str(request.base_url).rstrip("/")
+    if base.startswith("http://") and "onrender.com" in base:
+        base = base.replace("http://", "https://")
     return f"{base}/api/auth/callback"
 
 
