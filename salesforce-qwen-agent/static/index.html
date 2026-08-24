@@ -253,71 +253,35 @@
                 </div>
                 <button type="button" class="modal-close-btn" id="closeModalBtn">&times;</button>
             </div>
-            
-            <div class="modal-tabs">
-                <button type="button" class="tab-btn active" data-tab="oauth">⚡ Salesforce OAuth</button>
-                <button type="button" class="tab-btn" data-tab="password">🔑 Direct Login</button>
-                <button type="button" class="tab-btn" data-tab="token">🎟️ Access Token</button>
-            </div>
 
             <div class="modal-body">
-                <!-- Tab 1: OAuth Redirect -->
-                <div class="tab-content" id="tab-oauth">
-                    <p class="tab-desc">Log into your Salesforce account using standard OAuth 2.0 Web Authorization.</p>
-                    <div class="form-group">
-                        <label for="oauthDomainSelect">Salesforce Environment</label>
-                        <select id="oauthDomainSelect" class="form-control">
-                            <option value="login">Production / Developer Org (login.salesforce.com)</option>
-                            <option value="test">Sandbox Org (test.salesforce.com)</option>
-                        </select>
-                    </div>
-                    <button type="button" class="modal-submit-btn" id="startOAuthBtn">Launch Salesforce Login Popup</button>
+                <p class="tab-desc">Log into any Salesforce Org directly using your Username &amp; Password.</p>
+                
+                <div class="form-group">
+                    <label for="directUsername">Salesforce Username *</label>
+                    <input type="text" id="directUsername" class="form-control" placeholder="user@company.com" autocomplete="username">
                 </div>
-
-                <!-- Tab 2: Direct Username/Password -->
-                <div class="tab-content hidden" id="tab-password">
-                    <p class="tab-desc">Connect any Salesforce Org directly using your Username, Password, and Security Token.</p>
-                    <div class="form-group">
-                        <label for="directUsername">Salesforce Username *</label>
-                        <input type="text" id="directUsername" class="form-control" placeholder="user@company.com">
-                    </div>
-                    <div class="form-group">
-                        <label for="directPassword">Password *</label>
-                        <input type="password" id="directPassword" class="form-control" placeholder="Your Salesforce Password">
-                    </div>
-                    <div class="form-group">
-                        <label for="directSecToken">Security Token (Optional if IP is trusted)</label>
-                        <input type="password" id="directSecToken" class="form-control" placeholder="Salesforce Security Token">
-                    </div>
-                    <div class="form-group">
-                        <label for="directDomainSelect">Environment Domain</label>
-                        <select id="directDomainSelect" class="form-control">
-                            <option value="login">Production / Developer Org (login.salesforce.com)</option>
-                            <option value="test">Sandbox (test.salesforce.com)</option>
-                        </select>
-                    </div>
-                    <button type="button" class="modal-submit-btn" id="submitDirectPassBtn">Connect Salesforce Account</button>
+                
+                <div class="form-group">
+                    <label for="directPassword">Password *</label>
+                    <input type="password" id="directPassword" class="form-control" placeholder="Your Salesforce Password" autocomplete="current-password">
                 </div>
-
-                <!-- Tab 3: Access Token & Instance URL -->
-                <div class="tab-content hidden" id="tab-token">
-                    <p class="tab-desc">Connect using an existing OAuth Access Token and Instance URL.</p>
-                    <div class="form-group">
-                        <label for="tokenInstanceUrl">Instance URL *</label>
-                        <input type="text" id="tokenInstanceUrl" class="form-control" placeholder="https://your-domain.my.salesforce.com">
-                    </div>
-                    <div class="form-group">
-                        <label for="tokenAccessToken">Access Token (Bearer Token) *</label>
-                        <textarea id="tokenAccessToken" class="form-control" rows="3" placeholder="00D..."></textarea>
-                    </div>
-                    <button type="button" class="modal-submit-btn" id="submitTokenBtn">Connect with Access Token</button>
+                
+                <div class="form-group">
+                    <label for="directDomainSelect">Environment / Org Type</label>
+                    <select id="directDomainSelect" class="form-control">
+                        <option value="login">Production / Developer Org (login.salesforce.com)</option>
+                        <option value="test">Sandbox (test.salesforce.com)</option>
+                    </select>
                 </div>
-
+                
+                <button type="button" class="modal-submit-btn" id="submitDirectPassBtn">Connect Salesforce Account</button>
+                
                 <div class="modal-status-msg hidden" id="modalStatusMsg"></div>
             </div>
         </div>
     </div>
 
-    <script src="/static/script.js?v=9.0"></script>
+    <script src="/static/script.js"></script>
 </body>
 </html>
