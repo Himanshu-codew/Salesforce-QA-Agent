@@ -692,11 +692,51 @@ function buildTable(rows) {
     return html;
 }
 
-// ─── OAuth 2.0 User Auth Logic ───
+// ─── OAuth 2.0 & Salesforce Connection Modal Logic ───
 const connectSfBtn = document.getElementById('connectSfBtn');
 const userProfileBadge = document.getElementById('userProfileBadge');
 const userDisplayName = document.getElementById('userDisplayName');
 const logoutBtn = document.getElementById('logoutBtn');
+const sfConnectModal = document.getElementById('sfConnectModal');
+const closeModalBtn = document.getElementById('closeModalBtn');
+const startOAuthBtn = document.getElementById('startOAuthBtn');
+const submitDirectPassBtn = document.getElementById('submitDirectPassBtn');
+const submitTokenBtn = document.getElementById('submitTokenBtn');
+const modalStatusMsg = document.getElementById('modalStatusMsg');
+
+function showModalMsg(text, type = 'error') {
+    if (!modalStatusMsg) return;
+    modalStatusMsg.textContent = text;
+    modalStatusMsg.className = `modal-status-msg ${type}`;
+    modalStatusMsg.classList.remove('hidden');
+}
+
+function hideModalMsg() {
+    if (modalStatusMsg) modalStatusMsg.classList.add('hidden');
+}
+
+function openConnectModal() {
+    hideModalMsg();
+    if (sfConnectModal) sfConnectModal.classList.remove('hidden');
+}
+
+function closeConnectModal() {
+    if (sfConnectModal) sfConnectModal.classList.add('hidden');
+}
+
+// Tab Switching
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const targetTab = btn.getAttribute('data-tab');
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+
+        btn.classList.add('active');
+        const content = document.getElementById(`tab-${targetTab}`);
+        if (content) content.classList.remove('hidden');
+        hideModalMsg();
+    });
+});
 
 async function checkUserAuthStatus() {
     try {
@@ -721,12 +761,102 @@ async function checkUserAuthStatus() {
 }
 
 function initiateSfOAuth() {
+    const domainSelect = document.getElementById('oauthDomainSelect');
+    const domain = domainSelect ? domainSelect.value : 'login';
     const width = 600;
     const height = 700;
     const left = (window.innerWidth - width) / 2;
     const top = (window.innerHeight - height) / 2;
-    const loginUrl = `/api/auth/login?session_id=${sessionId}`;
+    const loginUrl = `/api/auth/login?session_id=${sessionId}&domain=${domain}`;
     window.open(loginUrl, 'SalesforceOAuth', `width=${width},height=${height},top=${top},left=${left}`);
+}
+
+async function handleDirectPasswordConnect() {
+    hideModalMsg();
+    const username = document.getElementById('directUsername').value.trim();
+    const password = document.getElementById('directPassword').value.trim();
+    const security_token = document.getElementById('directSecToken').value.trim();
+    const domain = document.getElementById('directDomainSelect').value;
+
+    if (!username || !password) {
+        showModalMsg('Please enter your Salesforce Username and Password.', 'error');
+        return;
+    }
+
+    if (submitDirectPassBtn) submitDirectPassBtn.disabled = true;
+    showModalMsg('Authenticating with Salesforce...', 'success');
+
+    try {
+        const res = await fetch('/api/auth/connect_direct', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: sessionId,
+                mode: 'password',
+                username,
+                password,
+                security_token,
+                domain
+            })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showModalMsg('✅ Connected successfully!', 'success');
+            await checkUserAuthStatus();
+            setTimeout(() => {
+                closeConnectModal();
+            }, 1000);
+        } else {
+            showModalMsg(data.error || 'Authentication failed. Check your credentials.', 'error');
+        }
+    } catch (err) {
+        showModalMsg(`Connection error: ${err.message}`, 'error');
+    } finally {
+        if (submitDirectPassBtn) submitDirectPassBtn.disabled = false;
+    }
+}
+
+async function handleTokenConnect() {
+    hideModalMsg();
+    const instance_url = document.getElementById('tokenInstanceUrl').value.trim();
+    const access_token = document.getElementById('tokenAccessToken').value.trim();
+
+    if (!instance_url || !access_token) {
+        showModalMsg('Please enter Instance URL and Access Token.', 'error');
+        return;
+    }
+
+    if (submitTokenBtn) submitTokenBtn.disabled = true;
+    showModalMsg('Connecting with Access Token...', 'success');
+
+    try {
+        const res = await fetch('/api/auth/connect_direct', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: sessionId,
+                mode: 'token',
+                instance_url,
+                access_token
+            })
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showModalMsg('✅ Connected successfully!', 'success');
+            await checkUserAuthStatus();
+            setTimeout(() => {
+                closeConnectModal();
+            }, 1000);
+        } else {
+            showModalMsg(data.error || 'Failed to connect with Access Token.', 'error');
+        }
+    } catch (err) {
+        showModalMsg(`Connection error: ${err.message}`, 'error');
+    } finally {
+        if (submitTokenBtn) submitTokenBtn.disabled = false;
+    }
 }
 
 async function logoutSfUser() {
@@ -741,21 +871,22 @@ async function logoutSfUser() {
     }
 }
 
-// Event Listeners for Auth
-if (connectSfBtn) {
-    connectSfBtn.addEventListener('click', initiateSfOAuth);
-}
-
-if (logoutBtn) {
-    logoutBtn.addEventListener('click', logoutSfUser);
-}
+// Event Listeners
+if (connectSfBtn) connectSfBtn.addEventListener('click', openConnectModal);
+if (closeModalBtn) closeModalBtn.addEventListener('click', closeConnectModal);
+if (startOAuthBtn) startOAuthBtn.addEventListener('click', initiateSfOAuth);
+if (submitDirectPassBtn) submitDirectPassBtn.addEventListener('click', handleDirectPasswordConnect);
+if (submitTokenBtn) submitTokenBtn.addEventListener('click', handleTokenConnect);
+if (logoutBtn) logoutBtn.addEventListener('click', logoutSfUser);
 
 window.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'oauth_success') {
         checkUserAuthStatus();
+        closeConnectModal();
     }
 });
 
 // Run auth check on initialization
 document.addEventListener('DOMContentLoaded', checkUserAuthStatus);
+
 

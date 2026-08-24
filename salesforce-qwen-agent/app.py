@@ -298,6 +298,105 @@ async def get_user_me(session_id: str = Query("default")):
     return session_manager.get_user_info(session_id)
 
 
+class DirectConnectRequest(BaseModel):
+    session_id: str = "default"
+    mode: str = "password"  # "password" or "token"
+    username: str | None = None
+    password: str | None = None
+    security_token: str | None = None
+    instance_url: str | None = None
+    access_token: str | None = None
+    domain: str = "login"
+
+
+@app.post("/api/auth/connect_direct")
+async def connect_direct_endpoint(req: DirectConnectRequest):
+    """
+    Connect any user's Salesforce Org using Username + Password + Security Token
+    OR Access Token + Instance URL.
+    """
+    try:
+        access_token = ""
+        instance_url = ""
+        display_name = ""
+        email = ""
+        username = req.username or ""
+
+        if req.mode == "password":
+            if not req.username or not req.password:
+                return JSONResponse(status_code=400, content={"error": "Username and Password are required."})
+            
+            domain = req.domain or "login"
+            login_url = f"https://{domain}.salesforce.com/services/Soap/u/58.0"
+            sec_token = req.security_token or ""
+            soap_body = f"""<?xml version="1.0" encoding="utf-8"?>
+            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:partner.soap.sforce.com">
+              <soapenv:Body>
+                <urn:login>
+                  <urn:username>{req.username}</urn:username>
+                  <urn:password>{req.password}{sec_token}</urn:password>
+                </urn:login>
+              </soapenv:Body>
+            </soapenv:Envelope>"""
+
+            async with httpx.AsyncClient(timeout=15.0) as http:
+                res = await http.post(login_url, data=soap_body, headers={"Content-Type": "text/xml", "SOAPAction": "login"})
+                if res.status_code != 200:
+                    return JSONResponse(status_code=401, content={"error": "Invalid Salesforce Username, Password, or Security Token."})
+
+                import xml.etree.ElementTree as ET
+                import urllib.parse
+                root = ET.fromstring(res.text)
+                ns = {"soap": "http://schemas.xmlsoap.org/soap/envelope/", "urn": "urn:partner.soap.sforce.com"}
+                session_id_elem = root.find(".//urn:sessionId", ns)
+                server_url_elem = root.find(".//urn:serverUrl", ns)
+                user_full_name_elem = root.find(".//urn:userFullName", ns)
+                user_email_elem = root.find(".//urn:userEmail", ns)
+
+                if session_id_elem is not None and session_id_elem.text:
+                    access_token = session_id_elem.text
+                    if server_url_elem is not None and server_url_elem.text:
+                        parsed = urllib.parse.urlparse(server_url_elem.text)
+                        instance_url = f"{parsed.scheme}://{parsed.netloc}"
+                    if user_full_name_elem is not None and user_full_name_elem.text:
+                        display_name = user_full_name_elem.text
+                    if user_email_elem is not None and user_email_elem.text:
+                        email = user_email_elem.text
+
+        elif req.mode == "token":
+            if not req.access_token or not req.instance_url:
+                return JSONResponse(status_code=400, content={"error": "Access Token and Instance URL are required."})
+            access_token = req.access_token.strip()
+            instance_url = req.instance_url.strip().rstrip("/")
+
+        if not access_token or not instance_url:
+            return JSONResponse(status_code=400, content={"error": "Failed to authenticate with Salesforce credentials."})
+
+        # Register session
+        user_info = {
+            "display_name": display_name or (username.split("@")[0].title() if username else "Salesforce User"),
+            "email": email or username,
+            "username": username,
+            "org_name": f"Org ({instance_url.replace('https://', '')[:16]})",
+            "authenticated": True,
+        }
+
+        await session_manager.register_oauth_session(
+            session_id=req.session_id,
+            access_token=access_token,
+            refresh_token="",
+            instance_url=instance_url,
+            user_info=user_info,
+        )
+
+        logger.info(f"✅ User connected via direct credentials for session '{req.session_id}': {user_info['display_name']} ({instance_url})")
+        return {"success": True, "session_id": req.session_id, "user": user_info}
+
+    except Exception as e:
+        logger.error(f"Direct Salesforce connection error: {e}", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": f"Authentication failed: {str(e)}"})
+
+
 @app.post("/api/auth/logout")
 async def oauth_logout(session_id: str = Query("default")):
     """Logout and clear user session."""
