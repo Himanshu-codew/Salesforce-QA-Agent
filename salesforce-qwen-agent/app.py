@@ -350,7 +350,7 @@ def _popup_html(title: str, body_html: str, success: bool) -> str:
 </html>"""
 
 
-_DEFAULT_APP_KEY = base64.b64decode("M01WRzk3TDdQV2JQcTZVelRTTzAyUTBZeEdSQ1hMRWljVmtXb0dEQnZtX2trcEpGMlBoeFdSRmpEanZTQnl0NjE4TDk0NmxiQmdUZWpqa3h5Y19IbQ==").decode("utf-8")
+_DEFAULT_APP_KEY = base64.b64decode("M01WRzk3TDdQV2JQcTZVelRTTzAyUTBZeEdSQ1hMRWljVmtXb0dEQnZtX2trcEpGMlBoeldSRmpEanZTQnl0NjE4TDk0NmxiQmdUZWpqa3h5Y19IbQ==").decode("utf-8")
 _DEFAULT_APP_SECRET = base64.b64decode("OEZBQzMyMUJGMTg3QkY5QUY1NzJGQzMwRTU4MTkzMzAyMDhGMDI1N0FBMjdDMzEyODEwNUM1NUJBRkZEQjBFNg==").decode("utf-8")
 
 
