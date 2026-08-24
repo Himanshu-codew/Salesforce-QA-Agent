@@ -285,13 +285,15 @@ connected_app_status: dict = {"valid": None, "checked_at": 0.0, "detail": ""}
 
 
 async def _validate_connected_app() -> None:
-    """Probe Salesforce to confirm SALESFORCE_CLIENT_ID resolves to a live app."""
+    """Probe Salesforce to confirm the effective Consumer Key resolves to a live app.
+
+    Mirrors oauth_login's key resolution: env var wins, dead-prefix env keys and
+    missing env vars fall back to _DEFAULT_APP_KEY so /health reflects what the
+    login flow will actually send.
+    """
     client_id = os.getenv("SALESFORCE_CLIENT_ID", "").strip()
-    if not client_id:
-        connected_app_status.update(
-            valid=False, checked_at=time.time(), detail="No Consumer Key configured."
-        )
-        return
+    if not client_id or "3MVG97L7PwbPq6UzTSO02Q0YxGf7HtzS" in client_id:
+        client_id = _DEFAULT_APP_KEY
 
     verifier, challenge = _generate_pkce_pair()
     auth_host = _server_default_auth_host()
@@ -310,10 +312,12 @@ async def _validate_connected_app() -> None:
     try:
         async with httpx.AsyncClient(timeout=10.0) as http:
             res = await http.get(probe_url, follow_redirects=False)
-        if res.status_code in (200, 302):
-            connected_app_status.update(valid=True, checked_at=time.time(), detail="")
-            logger.info("✅ Connected App Consumer Key validated against Salesforce.")
-        elif res.status_code == 400:
+        # Salesforce validates client_id BEFORE redirect_uri: a 400 whose payload
+        # says invalid_client_id means the key is dead. Any other outcome
+        # (302 to login page, or redirect_uri_mismatch for our dummy callback)
+        # proves the key exists in the org.
+        payload = (res.headers.get("location", "") + " " + res.text[:500])
+        if "invalid_client_id" in payload:
             connected_app_status.update(
                 valid=False,
                 checked_at=time.time(),
@@ -325,6 +329,9 @@ async def _validate_connected_app() -> None:
                 ),
             )
             logger.warning("⚠️ %s", connected_app_status["detail"])
+        elif res.status_code in (200, 302) or "redirect_uri_mismatch" in payload:
+            connected_app_status.update(valid=True, checked_at=time.time(), detail="")
+            logger.info("✅ Connected App Consumer Key validated against Salesforce.")
         else:
             connected_app_status.update(
                 valid=False,
