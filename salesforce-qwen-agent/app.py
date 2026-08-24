@@ -329,9 +329,11 @@ async def connect_direct_endpoint(req: DirectConnectRequest):
             domain = req.domain or "login"
             if "." in domain or "http" in domain:
                 domain_clean = domain.replace("https://", "").replace("http://", "").rstrip("/")
-                login_url = f"https://{domain_clean}/services/Soap/u/58.0"
+                soap_url = f"https://{domain_clean}/services/Soap/u/58.0"
+                domain_prefix = domain_clean
             else:
-                login_url = f"https://{domain}.salesforce.com/services/Soap/u/58.0"
+                soap_url = f"https://{domain}.salesforce.com/services/Soap/u/58.0"
+                domain_prefix = f"{domain}.salesforce.com"
 
             sec_token = req.security_token or ""
             soap_body = f"""<?xml version="1.0" encoding="utf-8"?>
@@ -345,42 +347,64 @@ async def connect_direct_endpoint(req: DirectConnectRequest):
             </soapenv:Envelope>"""
 
             async with httpx.AsyncClient(timeout=15.0) as http:
-                res = await http.post(login_url, data=soap_body, headers={"Content-Type": "text/xml", "SOAPAction": "login"})
+                # Attempt 1: SOAP Partner Login
+                res = await http.post(soap_url, data=soap_body, headers={"Content-Type": "text/xml", "SOAPAction": "login"})
                 
                 import xml.etree.ElementTree as ET
                 import urllib.parse
                 
-                if res.status_code != 200:
-                    error_msg = "Invalid Salesforce Username, Password, or Security Token."
+                if res.status_code == 200:
                     try:
                         root = ET.fromstring(res.text)
-                        fault_string = root.find(".//faultstring")
-                        if fault_string is not None and fault_string.text:
-                            clean_fault = fault_string.text.split(":")[-1].strip()
-                            if "INVALID_LOGIN" in fault_string.text:
-                                error_msg = "Invalid Username, Password, or missing Security Token. (If logging in from a new network/IP, enter your Salesforce Security Token)."
-                            else:
-                                error_msg = clean_fault or fault_string.text
+                        ns = {"soap": "http://schemas.xmlsoap.org/soap/envelope/", "urn": "urn:partner.soap.sforce.com"}
+                        session_id_elem = root.find(".//urn:sessionId", ns)
+                        server_url_elem = root.find(".//urn:serverUrl", ns)
+                        user_full_name_elem = root.find(".//urn:userFullName", ns)
+                        user_email_elem = root.find(".//urn:userEmail", ns)
+
+                        if session_id_elem is not None and session_id_elem.text:
+                            access_token = session_id_elem.text
+                            if server_url_elem is not None and server_url_elem.text:
+                                parsed = urllib.parse.urlparse(server_url_elem.text)
+                                instance_url = f"{parsed.scheme}://{parsed.netloc}"
+                            if user_full_name_elem is not None and user_full_name_elem.text:
+                                display_name = user_full_name_elem.text
+                            if user_email_elem is not None and user_email_elem.text:
+                                email = user_email_elem.text
                     except Exception:
                         pass
-                    return JSONResponse(status_code=401, content={"error": error_msg})
 
-                root = ET.fromstring(res.text)
-                ns = {"soap": "http://schemas.xmlsoap.org/soap/envelope/", "urn": "urn:partner.soap.sforce.com"}
-                session_id_elem = root.find(".//urn:sessionId", ns)
-                server_url_elem = root.find(".//urn:serverUrl", ns)
-                user_full_name_elem = root.find(".//urn:userFullName", ns)
-                user_email_elem = root.find(".//urn:userEmail", ns)
+                # Attempt 2: REST OAuth Password Grant Fallback
+                if not access_token:
+                    client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
+                    client_secret = os.getenv("SALESFORCE_CLIENT_SECRET", "")
+                    if client_id and client_secret:
+                        token_url = f"https://{domain_prefix}/services/oauth2/token"
+                        token_data = {
+                            "grant_type": "password",
+                            "client_id": client_id,
+                            "client_secret": client_secret,
+                            "username": req.username,
+                            "password": f"{req.password}{sec_token}",
+                        }
+                        try:
+                            rest_res = await http.post(token_url, data=token_data)
+                            if rest_res.status_code == 200:
+                                rest_json = rest_res.json()
+                                access_token = rest_json.get("access_token", "")
+                                instance_url = rest_json.get("instance_url", "")
+                                id_url = rest_json.get("id", "")
+                                if id_url:
+                                    id_res = await http.get(id_url, headers={"Authorization": f"Bearer {access_token}"})
+                                    if id_res.status_code == 200:
+                                        id_data = id_res.json()
+                                        display_name = id_data.get("display_name") or id_data.get("username", "")
+                                        email = id_data.get("email", "")
+                        except Exception:
+                            pass
 
-                if session_id_elem is not None and session_id_elem.text:
-                    access_token = session_id_elem.text
-                    if server_url_elem is not None and server_url_elem.text:
-                        parsed = urllib.parse.urlparse(server_url_elem.text)
-                        instance_url = f"{parsed.scheme}://{parsed.netloc}"
-                    if user_full_name_elem is not None and user_full_name_elem.text:
-                        display_name = user_full_name_elem.text
-                    if user_email_elem is not None and user_email_elem.text:
-                        email = user_email_elem.text
+                if not access_token:
+                    return JSONResponse(status_code=401, content={"error": "Invalid Salesforce Username or Password. Please check your credentials."})
 
         elif req.mode == "token":
             if not req.access_token or not req.instance_url:
