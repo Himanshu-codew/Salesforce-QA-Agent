@@ -86,6 +86,7 @@ class SalesforceAgent:
 
                 tool_name = pending["tool_name"]
                 arguments = pending["arguments"]
+                action_id = f"confirmed_{pending['tool_name']}"
 
                 yield {
                     "type": "tool_call",
@@ -99,22 +100,16 @@ class SalesforceAgent:
                     "data": {"name": tool_name, "result": result},
                 }
 
-                # Add to memory and get LLM summary
+                # Add to memory and continue turn execution so LLM can proceed with remaining steps (e.g. create account)
                 memory.add_user_message(user_message)
                 memory.add_assistant_tool_calls([{
-                    "id": "confirmed_action",
+                    "id": action_id,
                     "name": tool_name,
                     "arguments": arguments,
                 }])
-                memory.add_tool_result("confirmed_action", tool_name, result)
+                memory.add_tool_result(action_id, tool_name, result)
 
-                # Get LLM to summarize the result
-                messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
-                llm_response = await self.llm.chat(messages)
-                memory.add_assistant_message(llm_response)
-
-                yield {"type": "response", "data": llm_response}
-                return
+                # Continue turn loop naturally below
             else:
                 # User declined
                 memory.add_user_message(user_message)
@@ -122,11 +117,11 @@ class SalesforceAgent:
                 memory.add_assistant_message(decline_msg)
                 yield {"type": "response", "data": decline_msg}
                 return
-
-        # ── Normal message processing ──
-        logger.info(f"📩 [USER MESSAGE] ({session_id}): {user_message}")
-        memory.add_user_message(user_message)
-        yield {"type": "thinking", "data": "Analyzing your request..."}
+        else:
+            # ── Normal message processing ──
+            logger.info(f"📩 [USER MESSAGE] ({session_id}): {user_message}")
+            memory.add_user_message(user_message)
+            yield {"type": "thinking", "data": "Analyzing your request..."}
 
         iteration = 0
         while iteration < self.max_iterations:
@@ -151,54 +146,62 @@ class SalesforceAgent:
                 tool_calls = llm_result["tool_calls"]
                 logger.info(f"🛠️ [LLM REQUESTED TOOL CALLS]: {[tc['name'] for tc in tool_calls]}")
 
-                # Check safety for each tool call
+                # Separate tool calls into safe (non-destructive) and destructive
+                safe_calls = []
+                destructive_calls = []
+
                 for tc in tool_calls:
                     safety = self.planner.check_tool_safety(
                         tc["name"], tc["arguments"], session_id
                     )
-
                     if safety["requires_confirmation"]:
-                        # Block execution and ask for confirmation
-                        logger.warning(f"⚠️ [SAFETY BLOCK] Confirmation required for '{tc['name']}'")
-                        memory.add_assistant_message(safety["confirmation_message"])
+                        destructive_calls.append((tc, safety))
+                    else:
+                        safe_calls.append(tc)
+
+                # Execute all safe calls first
+                if safe_calls:
+                    memory.add_assistant_tool_calls(safe_calls)
+                    for tc in safe_calls:
+                        logger.info(f"🚀 [EXECUTING TOOL]: {tc['name']} with args: {tc['arguments']}")
                         yield {
-                            "type": "confirmation",
-                            "data": safety["confirmation_message"],
+                            "type": "tool_call",
+                            "data": {"name": tc["name"], "arguments": tc["arguments"]},
                         }
-                        return
 
-                # All tool calls are safe — execute them
-                memory.add_assistant_tool_calls(tool_calls)
+                        try:
+                            result = await self.executor.execute(
+                                tc["name"], tc["arguments"]
+                            )
+                            logger.info(f"✅ [TOOL FINISHED]: {tc['name']} (Result len: {len(result)} chars)")
+                        except Exception as e:
+                            result = json.dumps({
+                                "error": str(e),
+                                "tool": tc["name"],
+                            })
+                            logger.error(f"❌ Tool execution error ({tc['name']}): {e}")
 
-                for tc in tool_calls:
-                    logger.info(f"🚀 [EXECUTING TOOL]: {tc['name']} with args: {tc['arguments']}")
+                        # Truncate very large results to avoid context overflow
+                        if len(result) > 15000:
+                            result = result[:15000] + "\n... [truncated, showing first 15000 chars]"
+
+                        memory.add_tool_result(tc["id"], tc["name"], result)
+
+                        yield {
+                            "type": "tool_result",
+                            "data": {"name": tc["name"], "result": result},
+                        }
+
+                # If there are destructive tool calls, block execution of the first one and ask for confirmation
+                if destructive_calls:
+                    tc, safety = destructive_calls[0]
+                    logger.warning(f"⚠️ [SAFETY BLOCK] Confirmation required for '{tc['name']}'")
+                    memory.add_assistant_message(safety["confirmation_message"])
                     yield {
-                        "type": "tool_call",
-                        "data": {"name": tc["name"], "arguments": tc["arguments"]},
+                        "type": "confirmation",
+                        "data": safety["confirmation_message"],
                     }
-
-                    try:
-                        result = await self.executor.execute(
-                            tc["name"], tc["arguments"]
-                        )
-                        logger.info(f"✅ [TOOL FINISHED]: {tc['name']} (Result len: {len(result)} chars)")
-                    except Exception as e:
-                        result = json.dumps({
-                            "error": str(e),
-                            "tool": tc["name"],
-                        })
-                        logger.error(f"❌ Tool execution error ({tc['name']}): {e}")
-
-                    # Truncate very large results to avoid context overflow
-                    if len(result) > 15000:
-                        result = result[:15000] + "\n... [truncated, showing first 15000 chars]"
-
-                    memory.add_tool_result(tc["id"], tc["name"], result)
-
-                    yield {
-                        "type": "tool_result",
-                        "data": {"name": tc["name"], "result": result},
-                    }
+                    return
 
                 # Continue the loop — LLM will see tool results and decide next step
 

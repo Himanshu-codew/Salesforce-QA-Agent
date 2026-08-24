@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 
 TOOL_SYNONYMS = {
     "createSobjectRecord": "create add insert new make generate lead account contact opportunity case task record banao daalo naya new record",
-    "updateSobjectRecord": "update edit change modify patch save record badlo change karo set status stage",
-    "deleteSobjectRecord": "delete remove erase drop destroy record hatao delete karo mitao discard purge",
+    "updateSobjectRecord": "update edit change modify patch save record badlo change karo set status stage phone email",
+    "deleteSobjectRecord": "delete remove erase drop destroy record hatao delete karo mitao discard purge oldest newest",
     "listRecentSobjectRecords": "recent recently viewed accounts leads contacts opportunities cases show my list last meri aakhri pichle",
-    "soqlQuery": "select query find search get list show records soql count how many kitne dikhao top highest lowest order group filter where closed won all saare naye",
+    "soqlQuery": "select query find search get list show records soql count how many kitne dikhao top highest lowest order group filter where closed won all saare naye task tasks event events account accounts lead leads contact contacts opportunity opportunities",
     "getObjectSchema": "schema fields describe metadata mandatory required picklist type datatype structure konse fields column columns",
     "getRelatedRecords": "related child parent relationships contacts cases opportunities notes tasks under of ke saare linked associated",
     "find": "find search text lookup sosl dhundo khojo across everywhere all objects phrase term",

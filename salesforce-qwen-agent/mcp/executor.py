@@ -108,8 +108,8 @@ class ToolExecutor:
         """
         Clean up Salesforce API response by removing internal metadata
         fields and providing readable timezone conversions for timestamps.
+        Injects explicit 'total_count' for aggregate/count queries.
         """
-        # Remove 'attributes' keys from records (internal SF metadata)
         if isinstance(data, dict):
             cleaned = {}
             for key, value in data.items():
@@ -125,6 +125,15 @@ class ToolExecutor:
                     ]
                 else:
                     cleaned[key] = ToolExecutor._format_datetime_value(value)
+
+            # Clean aggregate count results so LLM sees explicit total_count
+            if "totalSize" in cleaned:
+                records = cleaned.get("records", [])
+                if len(records) == 1 and isinstance(records[0], dict) and "expr0" in records[0]:
+                    cleaned["total_count"] = records[0]["expr0"]
+                elif "totalSize" in cleaned:
+                    cleaned["total_count"] = cleaned["totalSize"]
+
             return cleaned
         return data
 
@@ -133,7 +142,11 @@ class ToolExecutor:
         """Provide helpful suggestions based on common errors."""
         error_lower = error.lower()
 
-        if "group by" in error_lower and ("subquery" in error_lower or "semi" in error_lower or "not supported" in error_lower or "malformed" in error_lower):
+        if "$" in error or "currency" in error_lower or ("unexpected token" in error_lower and "50" in error_lower):
+            return "Do not include dollar signs ($) or commas (,) in SOQL numeric literals. Use raw numbers: Amount > 50000 instead of Amount > $50,000."
+        elif "relationship" in error_lower and ("didn't understand" in error_lower or "subquery" in error_lower):
+            return "When writing parent-to-child subqueries on Account, use PLURAL relationship names (e.g., (SELECT Id, Name FROM Opportunities), (SELECT Id, Name FROM Contacts))."
+        elif "group by" in error_lower and ("subquery" in error_lower or "semi" in error_lower or "not supported" in error_lower or "malformed" in error_lower):
             return (
                 "SOQL does not allow GROUP BY inside a subquery (WHERE Id IN (...)). "
                 "Query the child object directly and group by parent (e.g., SELECT Account.Id, Account.Name, COUNT(Id) FROM Contact WHERE AccountId != null GROUP BY Account.Id, Account.Name HAVING COUNT(Id) > N)."

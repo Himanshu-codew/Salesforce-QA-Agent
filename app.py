@@ -35,5 +35,6 @@ if __name__ == "__main__":
         host=host,
         port=port,
         reload=True,
+        reload_excludes=["uploads/*", "*.csv", "*.html", "*.xlsx", "*.log", ".pytest_cache/*", "__pycache__/*"],
         log_level="info",
     )
