@@ -830,11 +830,31 @@ async function logoutSfUser() {
     }
 }
 
+function initiateSfOAuth() {
+    const domainSelect = document.getElementById('directDomainSelect');
+    const domain = domainSelect ? domainSelect.value : 'login';
+    const width = 600;
+    const height = 700;
+    const left = (window.innerWidth - width) / 2;
+    const top = (window.innerHeight - height) / 2;
+    const loginUrl = `/api/auth/login?session_id=${sessionId}&domain=${domain}`;
+    window.open(loginUrl, 'SalesforceOAuth', `width=${width},height=${height},top=${top},left=${left}`);
+}
+
 // Event Listeners
+const startOAuthBtn = document.getElementById('startOAuthBtn');
 if (connectSfBtn) connectSfBtn.addEventListener('click', openConnectModal);
 if (closeModalBtn) closeModalBtn.addEventListener('click', closeConnectModal);
+if (startOAuthBtn) startOAuthBtn.addEventListener('click', initiateSfOAuth);
 if (submitDirectPassBtn) submitDirectPassBtn.addEventListener('click', handleDirectPasswordConnect);
 if (logoutBtn) logoutBtn.addEventListener('click', logoutSfUser);
+
+window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'oauth_success') {
+        checkUserAuthStatus();
+        closeConnectModal();
+    }
+});
 
 // Allow Enter key submission in password field
 const directPasswordElem = document.getElementById('directPassword');
@@ -849,6 +869,7 @@ if (directPasswordElem) {
 
 // Run auth check on initialization
 document.addEventListener('DOMContentLoaded', checkUserAuthStatus);
+
 
 
 

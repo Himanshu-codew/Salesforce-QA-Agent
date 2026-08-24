@@ -191,13 +191,23 @@ async def oauth_login(
 ):
     """
     Redirect user to Salesforce OAuth 2.0 authorization URL.
-    Supports login.salesforce.com (production/dev) or test.salesforce.com (sandbox).
+    Supports login.salesforce.com, test.salesforce.com, or My Domain URL.
     """
     client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
     redirect_uri = os.getenv("SALESFORCE_REDIRECT_URI", "http://localhost:8000/api/auth/callback")
-    
+    instance_url_env = os.getenv("SALESFORCE_INSTANCE_URL", "")
+
+    if domain == "login" and instance_url_env:
+        import urllib.parse
+        parsed = urllib.parse.urlparse(instance_url_env)
+        auth_domain = parsed.netloc
+    elif "." in domain:
+        auth_domain = domain.replace("https://", "").replace("http://", "").rstrip("/")
+    else:
+        auth_domain = f"{domain}.salesforce.com"
+
     oauth_url = (
-        f"https://{domain}.salesforce.com/services/oauth2/authorize"
+        f"https://{auth_domain}/services/oauth2/authorize"
         f"?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&state={session_id}"
     )
     logger.info(f"🔗 Initiating Salesforce OAuth login for session '{session_id}' -> {oauth_url}")
@@ -217,9 +227,16 @@ async def oauth_callback(
     client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
     client_secret = os.getenv("SALESFORCE_CLIENT_SECRET", "")
     redirect_uri = os.getenv("SALESFORCE_REDIRECT_URI", "http://localhost:8000/api/auth/callback")
-    domain = os.getenv("SALESFORCE_DOMAIN", "login")
+    instance_url_env = os.getenv("SALESFORCE_INSTANCE_URL", "")
 
-    token_url = f"https://{domain}.salesforce.com/services/oauth2/token"
+    if instance_url_env:
+        import urllib.parse
+        parsed = urllib.parse.urlparse(instance_url_env)
+        auth_domain = parsed.netloc
+    else:
+        auth_domain = "login.salesforce.com"
+
+    token_url = f"https://{auth_domain}/services/oauth2/token"
     token_params = {
         "grant_type": "authorization_code",
         "client_id": client_id,
