@@ -704,9 +704,21 @@ const modalStatusMsg = document.getElementById('modalStatusMsg');
 
 function showModalMsg(text, type = 'error') {
     if (!modalStatusMsg) return;
-    modalStatusMsg.textContent = text;
+    modalStatusMsg.innerHTML = type === 'error'
+        ? `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> ${text}`
+        : `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> ${text}`;
     modalStatusMsg.className = `modal-status-msg ${type}`;
     modalStatusMsg.classList.remove('hidden');
+
+    if (type === 'error' && sfConnectModal) {
+        const card = sfConnectModal.querySelector('.modal-card');
+        if (card) {
+            card.classList.remove('shake');
+            void card.offsetWidth; // Trigger reflow
+            card.classList.add('shake');
+            setTimeout(() => card.classList.remove('shake'), 450);
+        }
+    }
 }
 
 function hideModalMsg() {
@@ -716,6 +728,8 @@ function hideModalMsg() {
 function openConnectModal() {
     hideModalMsg();
     if (sfConnectModal) sfConnectModal.classList.remove('hidden');
+    const userField = document.getElementById('directUsername');
+    if (userField) userField.focus();
 }
 
 function closeConnectModal() {
@@ -759,8 +773,16 @@ async function handleDirectPasswordConnect() {
         return;
     }
 
-    if (submitDirectPassBtn) submitDirectPassBtn.disabled = true;
-    showModalMsg('Authenticating with Salesforce...', 'success');
+    const origBtnContent = submitDirectPassBtn ? submitDirectPassBtn.innerHTML : '';
+    if (submitDirectPassBtn) {
+        submitDirectPassBtn.disabled = true;
+        submitDirectPassBtn.innerHTML = `
+            <svg class="spin-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 0.8s linear infinite;">
+                <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"/>
+            </svg>
+            <span>Authenticating...</span>
+        `;
+    }
 
     try {
         const res = await fetch('/api/auth/connect_direct', {
@@ -778,18 +800,21 @@ async function handleDirectPasswordConnect() {
 
         const data = await res.json();
         if (res.ok && data.success) {
-            showModalMsg('✅ Connected successfully!', 'success');
+            showModalMsg('Connected successfully to Salesforce!', 'success');
             await checkUserAuthStatus();
             setTimeout(() => {
                 closeConnectModal();
-            }, 1000);
+            }, 800);
         } else {
             showModalMsg(data.error || 'Authentication failed. Check your username & password.', 'error');
         }
     } catch (err) {
         showModalMsg(`Connection error: ${err.message}`, 'error');
     } finally {
-        if (submitDirectPassBtn) submitDirectPassBtn.disabled = false;
+        if (submitDirectPassBtn) {
+            submitDirectPassBtn.disabled = false;
+            submitDirectPassBtn.innerHTML = origBtnContent;
+        }
     }
 }
 
@@ -811,8 +836,20 @@ if (closeModalBtn) closeModalBtn.addEventListener('click', closeConnectModal);
 if (submitDirectPassBtn) submitDirectPassBtn.addEventListener('click', handleDirectPasswordConnect);
 if (logoutBtn) logoutBtn.addEventListener('click', logoutSfUser);
 
+// Allow Enter key submission in password field
+const directPasswordElem = document.getElementById('directPassword');
+if (directPasswordElem) {
+    directPasswordElem.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleDirectPasswordConnect();
+        }
+    });
+}
+
 // Run auth check on initialization
 document.addEventListener('DOMContentLoaded', checkUserAuthStatus);
+
 
 
 

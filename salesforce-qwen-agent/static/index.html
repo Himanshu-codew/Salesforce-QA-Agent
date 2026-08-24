@@ -244,40 +244,67 @@
     </div>
 
     <!-- ─── Salesforce Connection Modal ─── -->
-    <div class="modal-overlay hidden" id="sfConnectModal">
+    <div class="modal-overlay hidden" id="sfConnectModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
         <div class="modal-card">
             <div class="modal-header">
-                <div class="modal-title">
-                    <img src="/static/salesforce_logo.png" alt="Salesforce" style="width: 22px; height: 22px;">
-                    <h3>Connect Your Salesforce Org</h3>
+                <div class="modal-title" id="modalTitle">
+                    <div class="sf-icon-badge">
+                        <img src="/static/salesforce_logo.png" alt="Salesforce Logo" class="sf-modal-logo">
+                    </div>
+                    <div>
+                        <h3>Connect Salesforce Org</h3>
+                        <span class="modal-subtitle">Direct Multi-Tenant Authentication</span>
+                    </div>
                 </div>
-                <button type="button" class="modal-close-btn" id="closeModalBtn">&times;</button>
+                <button type="button" class="modal-close-btn" id="closeModalBtn" aria-label="Close dialog">&times;</button>
             </div>
 
             <div class="modal-body">
-                <p class="tab-desc">Log into any Salesforce Org directly using your Username &amp; Password.</p>
+                <p class="tab-desc">Sign in with your Salesforce credentials to instantly connect your Organization.</p>
                 
                 <div class="form-group">
                     <label for="directUsername">Salesforce Username *</label>
-                    <input type="text" id="directUsername" class="form-control" placeholder="user@company.com" autocomplete="username">
+                    <div class="input-icon-wrapper">
+                        <svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21a8 8 0 1 0-16 0"/>
+                            <circle cx="12" cy="8" r="4"/>
+                        </svg>
+                        <input type="email" id="directUsername" class="form-control with-icon" placeholder="username@company.com" autocomplete="username" required>
+                    </div>
                 </div>
                 
                 <div class="form-group">
-                    <label for="directPassword">Password *</label>
-                    <input type="password" id="directPassword" class="form-control" placeholder="Your Salesforce Password" autocomplete="current-password">
+                    <label for="directPassword">Salesforce Password *</label>
+                    <div class="input-icon-wrapper">
+                        <svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        <input type="password" id="directPassword" class="form-control with-icon" placeholder="Enter your password" autocomplete="current-password" required>
+                    </div>
                 </div>
                 
                 <div class="form-group">
-                    <label for="directDomainSelect">Environment / Org Type</label>
-                    <select id="directDomainSelect" class="form-control">
-                        <option value="login">Production / Developer Org (login.salesforce.com)</option>
-                        <option value="test">Sandbox (test.salesforce.com)</option>
-                    </select>
+                    <label for="directDomainSelect">Environment Domain</label>
+                    <div class="input-icon-wrapper">
+                        <svg class="field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="2" y1="12" x2="22" y2="12"/>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                        </svg>
+                        <select id="directDomainSelect" class="form-control with-icon">
+                            <option value="login">Production / Developer Org (login.salesforce.com)</option>
+                            <option value="test">Sandbox Org (test.salesforce.com)</option>
+                        </select>
+                    </div>
                 </div>
                 
-                <button type="button" class="modal-submit-btn" id="submitDirectPassBtn">Connect Salesforce Account</button>
+                <button type="button" class="modal-submit-btn" id="submitDirectPassBtn">
+                    <span class="btn-text">Connect Salesforce Account</span>
+                    <svg class="btn-arrow-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </button>
                 
-                <div class="modal-status-msg hidden" id="modalStatusMsg"></div>
+                <div class="modal-status-msg hidden" id="modalStatusMsg" role="alert" aria-live="polite"></div>
             </div>
         </div>
     </div>
