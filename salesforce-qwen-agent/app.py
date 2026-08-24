@@ -13,13 +13,14 @@ from contextlib import asynccontextmanager
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import shutil
 import uuid
+import httpx
 
 # ── Load environment variables ──
 load_dotenv(override=True)
@@ -130,6 +131,17 @@ async def lifespan(app: FastAPI):
         max_iterations=int(os.getenv("MAX_TOOL_CALLS_PER_TURN", "10")),
         max_history=int(os.getenv("MAX_CONVERSATION_HISTORY", "20")),
     )
+
+    # 6. Initialize User Session Manager
+    from mcp.session_manager import session_manager
+    session_manager.initialize_defaults(
+        default_mcp_client=mcp_client,
+        default_tool_registry=tool_registry,
+        default_executor=tool_executor,
+        default_agent=agent,
+        llm=llm,
+    )
+
     logger.info("✅ Salesforce Agent ready! Server running on port 8000.")
     logger.info("=" * 60)
 
@@ -167,7 +179,134 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 # ═══════════════════════════════════════════
-# Routes
+# OAuth 2.0 Multi-User Authentication Routes
+# ═══════════════════════════════════════════
+from mcp.session_manager import session_manager
+
+
+@app.get("/api/auth/login")
+async def oauth_login(
+    session_id: str = Query("default"),
+    domain: str = Query("login"),
+):
+    """
+    Redirect user to Salesforce OAuth 2.0 authorization URL.
+    Supports login.salesforce.com (production/dev) or test.salesforce.com (sandbox).
+    """
+    client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
+    redirect_uri = os.getenv("SALESFORCE_REDIRECT_URI", "http://localhost:8000/api/auth/callback")
+    
+    oauth_url = (
+        f"https://{domain}.salesforce.com/services/oauth2/authorize"
+        f"?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&state={session_id}"
+    )
+    logger.info(f"🔗 Initiating Salesforce OAuth login for session '{session_id}' -> {oauth_url}")
+    return RedirectResponse(oauth_url)
+
+
+@app.get("/api/auth/callback")
+async def oauth_callback(
+    code: str = Query(...),
+    state: str = Query("default"),
+):
+    """
+    Callback endpoint for Salesforce OAuth redirect.
+    Exchanges authorization code for access token & user identity details.
+    """
+    session_id = state
+    client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
+    client_secret = os.getenv("SALESFORCE_CLIENT_SECRET", "")
+    redirect_uri = os.getenv("SALESFORCE_REDIRECT_URI", "http://localhost:8000/api/auth/callback")
+    domain = os.getenv("SALESFORCE_DOMAIN", "login")
+
+    token_url = f"https://{domain}.salesforce.com/services/oauth2/token"
+    token_params = {
+        "grant_type": "authorization_code",
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri,
+        "code": code,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as http:
+            res = await http.post(token_url, data=token_params)
+            res.raise_for_status()
+            token_data = res.json()
+
+            access_token = token_data.get("access_token")
+            refresh_token = token_data.get("refresh_token", "")
+            instance_url = token_data.get("instance_url")
+            id_url = token_data.get("id")
+
+            # Fetch user identity
+            id_res = await http.get(id_url, headers={"Authorization": f"Bearer {access_token}"})
+            id_res.raise_for_status()
+            id_data = id_res.json()
+
+            display_name = id_data.get("display_name") or id_data.get("username", "Salesforce User")
+            email = id_data.get("email", "")
+            username = id_data.get("username", "")
+            org_id = id_data.get("organization_id", "")
+
+            user_info = {
+                "display_name": display_name,
+                "email": email,
+                "username": username,
+                "org_id": org_id,
+                "org_name": f"Org ({org_id[:8]})" if org_id else "Salesforce Org",
+                "authenticated": True,
+            }
+
+            await session_manager.register_oauth_session(
+                session_id=session_id,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                instance_url=instance_url,
+                user_info=user_info,
+            )
+
+            # Return popup close HTML
+            html_content = """
+            <!DOCTYPE html>
+            <html>
+            <head><title>Salesforce Connected</title></head>
+            <body style="font-family: sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white;">
+                <h2>✅ Connected to Salesforce!</h2>
+                <p>Closing window and returning to Chat UI...</p>
+                <script>
+                    if (window.opener) {
+                        window.opener.postMessage({ type: 'oauth_success', session_id: '""" + session_id + """' }, '*');
+                        window.close();
+                    } else {
+                        window.location.href = '/';
+                    }
+                </script>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=html_content)
+
+    except Exception as e:
+        logger.error(f"OAuth callback error: {e}", exc_info=True)
+        return HTMLResponse(content=f"<h2>❌ Salesforce OAuth Failed</h2><p>{str(e)}</p>", status_code=500)
+
+
+@app.get("/api/auth/me")
+async def get_user_me(session_id: str = Query("default")):
+    """Get current user connection profile for session."""
+    return session_manager.get_user_info(session_id)
+
+
+@app.post("/api/auth/logout")
+async def oauth_logout(session_id: str = Query("default")):
+    """Logout and clear user session."""
+    success = await session_manager.logout_session(session_id)
+    return {"success": success, "session_id": session_id}
+
+
+# ═══════════════════════════════════════════
+# Core Routes & App Endpoints
 # ═══════════════════════════════════════════
 
 @app.get("/")
@@ -201,7 +340,6 @@ async def upload_file_endpoint(file: UploadFile = File(...)):
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # Also keep a clean copy with exact filename for attachment lookup
         clean_copy_path = os.path.join(UPLOAD_DIR, clean_filename)
         shutil.copyfile(file_path, clean_copy_path)
 
@@ -209,7 +347,6 @@ async def upload_file_endpoint(file: UploadFile = File(...)):
         parsed_info["file_id"] = file_id
         parsed_info["saved_path"] = file_path
 
-        # Bulletproof JSON serialization guarantee (handles all pandas/numpy types & NaNs)
         json_safe_info = json.loads(json.dumps(parsed_info, default=str))
 
         logger.info(f"📁 File uploaded & parsed: {clean_filename} ({parsed_info.get('file_type')})")
@@ -235,7 +372,8 @@ async def chat_endpoint(request: ChatRequest):
     HTTP-based chat endpoint (alternative to WebSocket).
     Returns the full response after all tool calls complete.
     """
-    if not agent:
+    target_agent = await session_manager.get_or_create_agent(request.session_id)
+    if not target_agent:
         return JSONResponse(
             status_code=503,
             content={"error": "Agent not initialized"},
@@ -257,12 +395,11 @@ async def chat_endpoint(request: ChatRequest):
             user_message = f"[Attached File: {filename} ({summary})]\n{preview}\n\nPlease analyze this file and proceed as requested."
 
     events = []
-    async for event in agent.process_message(
+    async for event in target_agent.process_message(
         user_message, request.session_id
     ):
         events.append(event)
 
-    # Extract the final response
     response_text = ""
     tool_calls = []
 
@@ -299,14 +436,15 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
     try:
         while True:
-            # Receive message from client
             raw = await websocket.receive_text()
             data = json.loads(raw)
 
+            target_agent = await session_manager.get_or_create_agent(session_id)
+
             if data.get("type") == "clear":
                 session_files.pop(session_id, None)
-                if agent:
-                    agent.clear_session(session_id)
+                if target_agent:
+                    target_agent.clear_session(session_id)
                 continue
 
             if data.get("type") == "message":
@@ -330,7 +468,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 if not user_message:
                     continue
 
-                if not agent:
+                if not target_agent:
                     await websocket.send_json({
                         "type": "error",
                         "data": "Agent not initialized. Check server logs.",
@@ -339,7 +477,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
                 # Stream agent events to the client
                 try:
-                    async for event in agent.process_message(
+                    async for event in target_agent.process_message(
                         user_message, session_id
                     ):
                         try:

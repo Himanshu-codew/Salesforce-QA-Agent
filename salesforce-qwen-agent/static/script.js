@@ -691,3 +691,71 @@ function buildTable(rows) {
     html += '</table>';
     return html;
 }
+
+// ─── OAuth 2.0 User Auth Logic ───
+const connectSfBtn = document.getElementById('connectSfBtn');
+const userProfileBadge = document.getElementById('userProfileBadge');
+const userDisplayName = document.getElementById('userDisplayName');
+const logoutBtn = document.getElementById('logoutBtn');
+
+async function checkUserAuthStatus() {
+    try {
+        const res = await fetch(`/api/auth/me?session_id=${sessionId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (data && data.authenticated) {
+            if (connectSfBtn) connectSfBtn.style.display = 'none';
+            if (userProfileBadge) userProfileBadge.classList.remove('hidden');
+            if (userDisplayName) {
+                const user = data.user || {};
+                userDisplayName.textContent = `${user.display_name || 'Salesforce User'} (${user.org_name || 'Connected'})`;
+            }
+        } else {
+            if (connectSfBtn) connectSfBtn.style.display = 'inline-flex';
+            if (userProfileBadge) userProfileBadge.classList.add('hidden');
+        }
+    } catch (e) {
+        console.warn('Auth status check notice:', e);
+    }
+}
+
+function initiateSfOAuth() {
+    const width = 600;
+    const height = 700;
+    const left = (window.innerWidth - width) / 2;
+    const top = (window.innerHeight - height) / 2;
+    const loginUrl = `/api/auth/login?session_id=${sessionId}`;
+    window.open(loginUrl, 'SalesforceOAuth', `width=${width},height=${height},top=${top},left=${left}`);
+}
+
+async function logoutSfUser() {
+    try {
+        await fetch(`/api/auth/logout?session_id=${sessionId}`, { method: 'POST' });
+        await checkUserAuthStatus();
+        if (typeof addSystemMessage === 'function') {
+            addSystemMessage('🔒 Disconnected from Salesforce. You are back on default connection.');
+        }
+    } catch (e) {
+        console.error('Logout error:', e);
+    }
+}
+
+// Event Listeners for Auth
+if (connectSfBtn) {
+    connectSfBtn.addEventListener('click', initiateSfOAuth);
+}
+
+if (logoutBtn) {
+    logoutBtn.addEventListener('click', logoutSfUser);
+}
+
+window.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'oauth_success') {
+        checkUserAuthStatus();
+    }
+});
+
+// Run auth check on initialization
+document.addEventListener('DOMContentLoaded', checkUserAuthStatus);
+
