@@ -5,11 +5,18 @@ Serves the chat Web UI and handles WebSocket connections
 for real-time agent interactions.
 """
 
+import asyncio
 import json
 import logging
 import os
+import secrets
+import shutil
 import sys
+import time
+import urllib.parse
+import xml.etree.ElementTree as ET
 from contextlib import asynccontextmanager
+from xml.sax.saxutils import escape as xml_escape
 
 import uvicorn
 from dotenv import load_dotenv
@@ -145,6 +152,10 @@ async def lifespan(app: FastAPI):
     logger.info("✅ Salesforce Agent ready! Server running on port 8000.")
     logger.info("=" * 60)
 
+    # Validate the Connected App consumer key in the background so OAuth
+    # breakage is reported immediately (see /health) rather than mid-login.
+    asyncio.create_task(_validate_connected_app())
+
     yield  # App is running
 
     # Shutdown
@@ -183,91 +194,291 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 # ═══════════════════════════════════════════
 from mcp.session_manager import session_manager
 
+# Pending OAuth flows awaiting callback: state -> flow metadata.
+# Binds each authorization code to the exact auth host + Connected App
+# credentials that started the flow (Salesforce requires the token exchange
+# to hit the same environment that issued the code).
+_oauth_pending_flows: dict[str, dict] = {}
+_OAUTH_STATE_TTL_SECONDS = 600
+
+# SOAP Partner API version used for direct credential logins.
+SOAP_API_VERSION = "58.0"
+
+
+def _prune_expired_states() -> None:
+    """Evict stale pending OAuth states to bound memory usage."""
+    cutoff = time.time() - _OAUTH_STATE_TTL_SECONDS
+    expired = [s for s, meta in _oauth_pending_flows.items() if meta["created_at"] < cutoff]
+    for s in expired:
+        _oauth_pending_flows.pop(s, None)
+
+
+def _resolve_auth_host(domain: str | None) -> str:
+    """
+    Map a user-selected environment to its Salesforce auth host:
+      - Production / Developer Org  -> login.salesforce.com
+      - Sandbox                     -> test.salesforce.com
+      - Custom My Domain            -> e.g. mycompany.my.salesforce.com
+    """
+    d = (domain or "").strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
+    if d in ("", "login", "production", "prod", "developer", "dev"):
+        return "login.salesforce.com"
+    if d == "test":
+        return "test.salesforce.com"
+    return d
+
+
+def _default_redirect_uri() -> str:
+    port = os.getenv("APP_PORT", "8000")
+    return os.getenv("SALESFORCE_REDIRECT_URI", f"http://localhost:{port}/api/auth/callback")
+
+
+def _resolve_redirect_uri(request: Request) -> str:
+    """
+    Callback URI for this login attempt.
+    An explicit SALESFORCE_REDIRECT_URI always wins; otherwise the callback
+    mirrors the address the caller actually used (localhost, LAN IP, tunnel),
+    so remote users aren't redirected back to their own machine's localhost.
+    NOTE: every address variant must be whitelisted in the Connected App.
+    """
+    explicit = os.getenv("SALESFORCE_REDIRECT_URI", "").strip()
+    if explicit:
+        return explicit
+    base = str(request.base_url).rstrip("/")
+    return f"{base}/api/auth/callback"
+
+
+# Runtime health of the configured Connected App consumer key. Probed once at
+# startup so a dead/invalid key is reported immediately instead of failing
+# silently inside the OAuth popup.
+connected_app_status: dict = {"valid": None, "checked_at": 0.0, "detail": ""}
+
+
+async def _validate_connected_app() -> None:
+    """Probe Salesforce to confirm SALESFORCE_CLIENT_ID resolves to a live app."""
+    client_id = os.getenv("SALESFORCE_CLIENT_ID", "").strip()
+    if not client_id:
+        connected_app_status.update(
+            valid=False, checked_at=time.time(), detail="No Consumer Key configured."
+        )
+        return
+
+    probe_url = (
+        "https://login.salesforce.com/services/oauth2/authorize?"
+        + urllib.parse.urlencode(
+            {
+                "response_type": "code",
+                "client_id": client_id,
+                "redirect_uri": "http://localhost/probe",
+            }
+        )
+    )
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            res = await http.get(probe_url, follow_redirects=False)
+        if res.status_code in (200, 302):
+            connected_app_status.update(valid=True, checked_at=time.time(), detail="")
+            logger.info("✅ Connected App Consumer Key validated against Salesforce.")
+        elif res.status_code == 400:
+            connected_app_status.update(
+                valid=False,
+                checked_at=time.time(),
+                detail=(
+                    "Consumer Key rejected by Salesforce (invalid_client_id). The Connected App "
+                    "was deleted or belongs to an expired org. Create a new one: Setup → App Manager "
+                    "→ New Connected App → Enable OAuth (callback + scopes api/refresh_token/id), "
+                    "then update SALESFORCE_CLIENT_ID and SALESFORCE_CLIENT_SECRET in .env and restart."
+                ),
+            )
+            logger.warning("⚠️ %s", connected_app_status["detail"])
+        else:
+            connected_app_status.update(
+                valid=False,
+                checked_at=time.time(),
+                detail=f"Unexpected Salesforce response validating Consumer Key: HTTP {res.status_code}",
+            )
+            logger.warning("⚠️ %s", connected_app_status["detail"])
+    except Exception as e:
+        connected_app_status.update(
+            valid=None, checked_at=time.time(), detail=f"Could not reach Salesforce to validate Consumer Key: {e}"
+        )
+
+
+def _popup_html(title: str, body_html: str, success: bool) -> str:
+    """Standalone result page rendered inside the OAuth popup window."""
+    return f"""<!DOCTYPE html>
+<html>
+<head><title>{title}</title></head>
+<body style="font-family: sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white;">
+    <h2>{'✅' if success else '❌'} {title}</h2>
+    {body_html}
+</body>
+</html>"""
+
 
 @app.get("/api/auth/login")
 async def oauth_login(
+    request: Request,
     session_id: str = Query("default"),
     domain: str = Query("login"),
+    client_id: str | None = Query(None),
+    client_secret: str | None = Query(None),
 ):
     """
     Redirect user to Salesforce OAuth 2.0 authorization URL.
-    Supports login.salesforce.com, test.salesforce.com, or My Domain URL.
-    """
-    client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
-    redirect_uri = os.getenv("SALESFORCE_REDIRECT_URI", "http://localhost:8000/api/auth/callback")
-    instance_url_env = os.getenv("SALESFORCE_INSTANCE_URL", "")
 
-    if domain == "login" and instance_url_env:
-        import urllib.parse
-        parsed = urllib.parse.urlparse(instance_url_env)
-        auth_domain = parsed.netloc
-    elif "." in domain:
-        auth_domain = domain.replace("https://", "").replace("http://", "").rstrip("/")
-    else:
-        auth_domain = f"{domain}.salesforce.com"
+    Multi-tenant aware:
+      - The authorize host follows the caller-selected environment
+        (login.salesforce.com, test.salesforce.com, or a custom My Domain).
+      - Callers may supply their own org's Connected App consumer key/secret
+        (BYO credentials); otherwise the server-wide app from .env is used.
+        Salesforce Connected Apps are org-local, so external users from other
+        orgs MUST authorize with a consumer key registered in THEIR org.
+      - The callback URI mirrors the address the caller used (unless
+        SALESFORCE_REDIRECT_URI is set), so remote users work too.
+    """
+    auth_host = _resolve_auth_host(domain)
+    redirect_uri = _resolve_redirect_uri(request)
+    effective_client_id = (client_id or os.getenv("SALESFORCE_CLIENT_ID", "")).strip()
+    effective_client_secret = (client_secret or os.getenv("SALESFORCE_CLIENT_SECRET", "")).strip()
+
+    if not effective_client_id:
+        return HTMLResponse(
+            content=_popup_html(
+                "Missing Consumer Key",
+                f"<p>No Connected App consumer key is configured. Create one under "
+                f"<b>Setup → App Manager → New Connected App</b> with callback URL "
+                f"<code>{xml_escape(redirect_uri)}</code>, then paste its Consumer Key &amp; Secret "
+                f"in the Connect dialog.</p>",
+                success=False,
+            ),
+            status_code=400,
+        )
+
+    # Bind this flow's parameters to an opaque state value so the callback
+    # exchanges the code against the SAME host & credentials.
+    state = secrets.token_urlsafe(24)
+    _oauth_pending_flows[state] = {
+        "session_id": session_id,
+        "auth_host": auth_host,
+        "client_id": effective_client_id,
+        "client_secret": effective_client_secret,
+        "redirect_uri": redirect_uri,
+        "created_at": time.time(),
+    }
+    _prune_expired_states()
 
     oauth_url = (
-        f"https://{auth_domain}/services/oauth2/authorize"
-        f"?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&state={session_id}"
+        f"https://{auth_host}/services/oauth2/authorize?"
+        + urllib.parse.urlencode(
+            {
+                "response_type": "code",
+                "client_id": effective_client_id,
+                "redirect_uri": redirect_uri,
+                "state": state,
+                "scope": os.getenv("SALESFORCE_OAUTH_SCOPE", "api refresh_token id"),
+                "prompt": "consent",
+            }
+        )
     )
-    logger.info(f"🔗 Initiating Salesforce OAuth login for session '{session_id}' -> {oauth_url}")
+    logger.info(f"🔗 Initiating Salesforce OAuth login for session '{session_id}' -> https://{auth_host}/services/oauth2/authorize")
     return RedirectResponse(oauth_url)
 
 
 @app.get("/api/auth/callback")
-async def oauth_callback(
-    code: str = Query(...),
-    state: str = Query("default"),
-):
+async def oauth_callback(request: Request):
     """
-    Callback endpoint for Salesforce OAuth redirect.
-    Exchanges authorization code for access token & user identity details.
+    Callback endpoint for the Salesforce OAuth redirect.
+
+    Exchanges the authorization code for access tokens using the same auth host
+    and Connected App credentials recorded at flow start (via the state param).
+    Also gracefully renders Salesforce's ?error=... redirects (e.g.
+    error=invalid_client_id) instead of failing with a validation error.
     """
-    session_id = state
-    client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
-    client_secret = os.getenv("SALESFORCE_CLIENT_SECRET", "")
-    redirect_uri = os.getenv("SALESFORCE_REDIRECT_URI", "http://localhost:8000/api/auth/callback")
-    instance_url_env = os.getenv("SALESFORCE_INSTANCE_URL", "")
+    params = dict(request.query_params)
+    state = params.get("state", "")
+    flow = _oauth_pending_flows.pop(state, None) if state else None
 
-    if instance_url_env:
-        import urllib.parse
-        parsed = urllib.parse.urlparse(instance_url_env)
-        auth_domain = parsed.netloc
-    else:
-        auth_domain = "login.salesforce.com"
+    # ── Salesforce redirected back with an OAuth error ──
+    oauth_error = params.get("error")
+    if oauth_error:
+        error_desc = params.get("error_description", "")
+        callback_hint = xml_escape(flow["redirect_uri"]) if flow and flow.get("redirect_uri") else xml_escape(_default_redirect_uri())
+        hint = ""
+        if oauth_error == "invalid_client_id":
+            hint = (
+                "<p><b>Why does this happen?</b> Salesforce Connected Apps are org-local — a Consumer Key created in "
+                "one org is not recognized by any other org.</p>"
+                "<p><b>Fix:</b> In YOUR org go to <b>Setup → App Manager → New Connected App</b>, enable OAuth with "
+                f"callback <code>{callback_hint}</code> and scopes "
+                "<code>api, refresh_token, id</code>, then paste that app's Consumer Key &amp; Secret under "
+                "<b>“Use my own Connected App”</b> in the Connect dialog and retry.</p>"
+            )
+        logger.error(f"OAuth error returned by Salesforce: {oauth_error} — {error_desc}")
+        return HTMLResponse(
+            content=_popup_html(
+                "Salesforce Authorization Failed",
+                f"<p><code>{xml_escape(oauth_error)}: {xml_escape(error_desc)}</code></p>{hint}",
+                success=False,
+            ),
+            status_code=400,
+        )
 
-    token_url = f"https://{auth_domain}/services/oauth2/token"
+    code = params.get("code")
+    if not code or not flow:
+        return HTMLResponse(
+            content=_popup_html(
+                "Salesforce OAuth Failed",
+                "<p>The authorization response was invalid or the login flow expired. Please restart the login.</p>",
+                success=False,
+            ),
+            status_code=400,
+        )
+
+    session_id = flow["session_id"]
+    token_url = f"https://{flow['auth_host']}/services/oauth2/token"
     token_params = {
         "grant_type": "authorization_code",
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "redirect_uri": redirect_uri,
+        "client_id": flow["client_id"],
+        "client_secret": flow["client_secret"],
+        "redirect_uri": flow["redirect_uri"],
         "code": code,
     }
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as http:
+        async with httpx.AsyncClient(timeout=20.0) as http:
             res = await http.post(token_url, data=token_params)
-            res.raise_for_status()
-            token_data = res.json()
 
+            if res.status_code != 200:
+                try:
+                    err_json = res.json()
+                    err_text = f"{err_json.get('error', '')}: {err_json.get('error_description', '')}".strip(": ")
+                except Exception:
+                    err_text = res.text[:300]
+                raise RuntimeError(f"Token exchange failed ({res.status_code}): {err_text}")
+
+            token_data = res.json()
             access_token = token_data.get("access_token")
             refresh_token = token_data.get("refresh_token", "")
-            instance_url = token_data.get("instance_url")
+            instance_url = token_data.get("instance_url", "")
+
+            # Fetch user identity (best-effort; must not block a valid token).
+            display_name, email, username, org_id = "", "", "", ""
             id_url = token_data.get("id")
-
-            # Fetch user identity
-            id_res = await http.get(id_url, headers={"Authorization": f"Bearer {access_token}"})
-            id_res.raise_for_status()
-            id_data = id_res.json()
-
-            display_name = id_data.get("display_name") or id_data.get("username", "Salesforce User")
-            email = id_data.get("email", "")
-            username = id_data.get("username", "")
-            org_id = id_data.get("organization_id", "")
+            if access_token and id_url:
+                try:
+                    id_res = await http.get(id_url, headers={"Authorization": f"Bearer {access_token}"})
+                    if id_res.status_code == 200:
+                        id_data = id_res.json()
+                        display_name = id_data.get("display_name") or ""
+                        email = id_data.get("email", "")
+                        username = id_data.get("username", "")
+                        org_id = id_data.get("organization_id", "")
+                except Exception as ident_err:
+                    logger.warning(f"Identity lookup failed during OAuth callback: {ident_err}")
 
             user_info = {
-                "display_name": display_name,
+                "display_name": display_name or username or "Salesforce User",
                 "email": email,
                 "username": username,
                 "org_id": org_id,
@@ -283,30 +494,26 @@ async def oauth_callback(
                 user_info=user_info,
             )
 
-            # Return popup close HTML
-            html_content = """
-            <!DOCTYPE html>
-            <html>
-            <head><title>Salesforce Connected</title></head>
-            <body style="font-family: sans-serif; text-align: center; padding: 40px; background: #0f172a; color: white;">
-                <h2>✅ Connected to Salesforce!</h2>
-                <p>Closing window and returning to Chat UI...</p>
-                <script>
-                    if (window.opener) {
-                        window.opener.postMessage({ type: 'oauth_success', session_id: '""" + session_id + """' }, '*');
-                        window.close();
-                    } else {
-                        window.location.href = '/';
-                    }
-                </script>
-            </body>
-            </html>
-            """
-            return HTMLResponse(content=html_content)
+            script_session_id = json.dumps(session_id)
+            body_html = (
+                "<p>Closing window and returning to Chat UI…</p>"
+                "<script>"
+                f"if (window.opener) {{ window.opener.postMessage({{ type: 'oauth_success', session_id: {script_session_id} }}, '*'); window.close(); }}"
+                "else { window.location.href = '/'; }"
+                "</script>"
+            )
+            return HTMLResponse(content=_popup_html("Connected to Salesforce!", body_html, success=True))
 
     except Exception as e:
         logger.error(f"OAuth callback error: {e}", exc_info=True)
-        return HTMLResponse(content=f"<h2>❌ Salesforce OAuth Failed</h2><p>{str(e)}</p>", status_code=500)
+        return HTMLResponse(
+            content=_popup_html(
+                "Salesforce OAuth Failed",
+                f"<p>{xml_escape(str(e))}</p>",
+                success=False,
+            ),
+            status_code=500,
+        )
 
 
 @app.get("/api/auth/me")
@@ -326,11 +533,62 @@ class DirectConnectRequest(BaseModel):
     domain: str = "login"
 
 
+def _extract_soap_fault(response_text: str) -> tuple[str, str]:
+    """Return (faultcode, faultstring) from a Salesforce SOAP fault envelope."""
+    try:
+        root = ET.fromstring(response_text)
+    except ET.ParseError:
+        return "", response_text.strip()[:300]
+    fault = root.find(".//soapenv:Fault", {"soapenv": "http://schemas.xmlsoap.org/soap/envelope/"})
+    if fault is None:
+        return "", ""
+    fault_code = (fault.findtext(".//faultcode", "") or "").strip()
+    fault_string = (fault.findtext(".//faultstring", "") or "").strip()
+    return fault_code, fault_string
+
+
+def _friendly_direct_login_error(fault_code: str, fault_string: str) -> str:
+    """Translate raw Salesforce SOAP faults into actionable user guidance."""
+    blob = f"{fault_code} {fault_string}".upper()
+
+    if "LOGIN_MUST_USE_SECURITY_TOKEN" in blob or ("INVALID_LOGIN" in blob and "TOKEN" in blob):
+        return (
+            "Salesforce rejected this login because it originates from an untrusted IP. "
+            "Paste your Security Token in the 'Security Token' field "
+            "(get it: Setup → My Personal Information → Reset Security Token), or add your "
+            "IP under Setup → Security → Network Access."
+        )
+    if "INVALID_LOGIN" in blob or "INVALID_USERNAME" in blob or "INVALID_PASSWORD" in blob:
+        return (
+            "Invalid username, password, or security token. Note: when logging in from an "
+            "untrusted IP/network you must append your Security Token to the password "
+            "(enter it in the Security Token field)."
+        )
+    if "IP_RESTRICTED" in blob or "LOGIN_ADDRESS" in blob or "RESTRICTED_IP" in blob:
+        return (
+            "Your IP address is blocked by the org's login restrictions. Ask an admin to add it "
+            "under Setup → Security → Network Access (Trusted IP Ranges)."
+        )
+    if "API_DISABLED" in blob or "UNSUPPORTED_CLIENT" in blob or "API_CURRENTLY_DISABLED" in blob:
+        return (
+            "API access is disabled for this org/user. Enable the 'API Enabled' permission "
+            "(requires Enterprise/Unlimited/Developer edition) and retry."
+        )
+    if "ORG_LOCKED" in blob or "LOCKED_OUT" in blob or "PASSWORD_LOCKOUT" in blob:
+        return "This user account is locked out. Wait a few minutes or ask an admin to unlock it under Setup → Users."
+    if "SERVER_UNAVAILABLE" in blob or "REQUEST_LIMIT_EXCEEDED" in blob:
+        return "Salesforce is temporarily unavailable or the org hit its API request limit. Please try again shortly."
+    return f"Salesforce rejected the login: {fault_string or fault_code or 'unknown error'}"
+
+
 @app.post("/api/auth/connect_direct")
 async def connect_direct_endpoint(req: DirectConnectRequest):
     """
     Connect any user's Salesforce Org using Username + Password + Security Token
     OR Access Token + Instance URL.
+
+    Direct password logins use the SOAP Partner API; from untrusted IPs
+    Salesforce requires the Security Token appended to the password.
     """
     try:
         access_token = ""
@@ -342,86 +600,126 @@ async def connect_direct_endpoint(req: DirectConnectRequest):
         if req.mode == "password":
             if not req.username or not req.password:
                 return JSONResponse(status_code=400, content={"error": "Username and Password are required."})
-            
-            domain = req.domain or "login"
-            if "." in domain or "http" in domain:
-                domain_clean = domain.replace("https://", "").replace("http://", "").rstrip("/")
-                soap_url = f"https://{domain_clean}/services/Soap/u/58.0"
-                domain_prefix = domain_clean
-            else:
-                soap_url = f"https://{domain}.salesforce.com/services/Soap/u/58.0"
-                domain_prefix = f"{domain}.salesforce.com"
 
-            sec_token = req.security_token or ""
-            soap_body = f"""<?xml version="1.0" encoding="utf-8"?>
-            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:partner.soap.sforce.com">
-              <soapenv:Body>
-                <urn:login>
-                  <urn:username>{req.username}</urn:username>
-                  <urn:password>{req.password}{sec_token}</urn:password>
-                </urn:login>
-              </soapenv:Body>
-            </soapenv:Envelope>"""
+            auth_host = _resolve_auth_host(req.domain)
+            sec_token = (req.security_token or "").strip()
+            full_password = req.password + sec_token
 
-            async with httpx.AsyncClient(timeout=15.0) as http:
-                # Attempt 1: SOAP Partner Login
-                res = await http.post(soap_url, data=soap_body, headers={"Content-Type": "text/xml", "SOAPAction": "login"})
-                
-                import xml.etree.ElementTree as ET
-                import urllib.parse
-                
-                if res.status_code == 200:
+            # SOAP Partner API login. XML-escape all user input to keep the
+            # envelope well-formed (& < > are common in passwords).
+            soap_body = (
+                '<?xml version="1.0" encoding="utf-8"?>'
+                '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" '
+                'xmlns:urn="urn:partner.soap.sforce.com">'
+                "<soapenv:Body>"
+                "<urn:login>"
+                f"<urn:username>{xml_escape(req.username)}</urn:username>"
+                f"<urn:password>{xml_escape(full_password)}</urn:password>"
+                "</urn:login>"
+                "</soapenv:Body>"
+                "</soapenv:Envelope>"
+            )
+
+            fault_code, fault_string = "", ""
+            rest_error = ""
+
+            try:
+                async with httpx.AsyncClient(timeout=20.0) as http:
+                    # ── Attempt 1: SOAP Partner Login ──
                     try:
-                        root = ET.fromstring(res.text)
-                        ns = {"soap": "http://schemas.xmlsoap.org/soap/envelope/", "urn": "urn:partner.soap.sforce.com"}
-                        session_id_elem = root.find(".//urn:sessionId", ns)
-                        server_url_elem = root.find(".//urn:serverUrl", ns)
-                        user_full_name_elem = root.find(".//urn:userFullName", ns)
-                        user_email_elem = root.find(".//urn:userEmail", ns)
+                        res = await http.post(
+                            f"https://{auth_host}/services/Soap/u/{SOAP_API_VERSION}",
+                            data=soap_body.encode("utf-8"),
+                            headers={
+                                "Content-Type": "text/xml; charset=utf-8",
+                                "SOAPAction": "login",
+                            },
+                        )
 
-                        if session_id_elem is not None and session_id_elem.text:
-                            access_token = session_id_elem.text
-                            if server_url_elem is not None and server_url_elem.text:
-                                parsed = urllib.parse.urlparse(server_url_elem.text)
-                                instance_url = f"{parsed.scheme}://{parsed.netloc}"
-                            if user_full_name_elem is not None and user_full_name_elem.text:
-                                display_name = user_full_name_elem.text
-                            if user_email_elem is not None and user_email_elem.text:
-                                email = user_email_elem.text
-                    except Exception:
-                        pass
+                        if res.status_code == 200:
+                            try:
+                                root = ET.fromstring(res.text)
+                                ns = {"urn": "urn:partner.soap.sforce.com"}
+                                session_id_elem = root.findtext(".//urn:sessionId", "", ns) or ""
+                                server_url = root.findtext(".//urn:serverUrl", "", ns) or ""
 
-                # Attempt 2: REST OAuth Password Grant Fallback
-                if not access_token:
-                    client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
-                    client_secret = os.getenv("SALESFORCE_CLIENT_SECRET", "")
-                    if client_id and client_secret:
-                        token_url = f"https://{domain_prefix}/services/oauth2/token"
-                        token_data = {
-                            "grant_type": "password",
-                            "client_id": client_id,
-                            "client_secret": client_secret,
-                            "username": req.username,
-                            "password": f"{req.password}{sec_token}",
-                        }
-                        try:
-                            rest_res = await http.post(token_url, data=token_data)
-                            if rest_res.status_code == 200:
-                                rest_json = rest_res.json()
-                                access_token = rest_json.get("access_token", "")
-                                instance_url = rest_json.get("instance_url", "")
-                                id_url = rest_json.get("id", "")
-                                if id_url:
-                                    id_res = await http.get(id_url, headers={"Authorization": f"Bearer {access_token}"})
-                                    if id_res.status_code == 200:
-                                        id_data = id_res.json()
-                                        display_name = id_data.get("display_name") or id_data.get("username", "")
-                                        email = id_data.get("email", "")
-                        except Exception:
-                            pass
+                                if session_id_elem:
+                                    access_token = session_id_elem
+                                    parsed = urllib.parse.urlparse(server_url)
+                                    instance_url = (
+                                        f"{parsed.scheme}://{parsed.netloc}"
+                                        if parsed.netloc else f"https://{auth_host}"
+                                    )
+                                    display_name = root.findtext(".//urn:userFullName", "", ns) or ""
+                                    email = root.findtext(".//urn:userEmail", "", ns) or ""
+                            except ET.ParseError as parse_err:
+                                logger.warning(f"Unexpected SOAP success payload: {parse_err}")
+                        else:
+                            fault_code, fault_string = _extract_soap_fault(res.text)
+                            logger.warning(
+                                f"SOAP login failed ({res.status_code}) via {auth_host}: "
+                                f"{fault_code} {fault_string}"
+                            )
+                    except httpx.RequestError as req_err:
+                        logger.warning(f"SOAP login unreachable at {auth_host}: {req_err}")
 
-                if not access_token:
-                    return JSONResponse(status_code=401, content={"error": "Invalid Salesforce Username or Password. Please check your credentials."})
+                    # ── Attempt 2: REST OAuth password grant fallback ──
+                    if not access_token:
+                        client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
+                        client_secret = os.getenv("SALESFORCE_CLIENT_SECRET", "")
+                        if client_id and client_secret:
+                            try:
+                                rest_res = await http.post(
+                                    f"https://{auth_host}/services/oauth2/token",
+                                    data={
+                                        "grant_type": "password",
+                                        "client_id": client_id,
+                                        "client_secret": client_secret,
+                                        "username": req.username,
+                                        "password": full_password,
+                                    },
+                                )
+                                if rest_res.status_code == 200:
+                                    rest_json = rest_res.json()
+                                    access_token = rest_json.get("access_token", "")
+                                    instance_url = rest_json.get("instance_url", "")
+                                    id_url = rest_json.get("id", "")
+                                    if id_url:
+                                        id_res = await http.get(
+                                            id_url, headers={"Authorization": f"Bearer {access_token}"}
+                                        )
+                                        if id_res.status_code == 200:
+                                            id_data = id_res.json()
+                                            display_name = id_data.get("display_name") or id_data.get("username", "")
+                                            email = id_data.get("email", "")
+                                elif not (fault_code or fault_string):
+                                    try:
+                                        err_json = rest_res.json()
+                                        rest_error = (
+                                            f"{err_json.get('error', '')}: {err_json.get('error_description', '')}"
+                                        ).strip(": ")
+                                    except Exception:
+                                        rest_error = rest_res.text[:200]
+                            except httpx.RequestError as rest_req_err:
+                                rest_error = str(rest_req_err)
+            except Exception as net_exc:
+                logger.error(f"Direct connect network failure: {net_exc}", exc_info=True)
+                return JSONResponse(
+                    status_code=502,
+                    content={"error": f"Could not reach Salesforce at https://{auth_host}. Check the selected Environment Domain."},
+                )
+
+            if not access_token:
+                if fault_code or fault_string:
+                    error_message = _friendly_direct_login_error(fault_code, fault_string)
+                elif rest_error:
+                    error_message = f"Salesforce rejected the login: {rest_error}"
+                else:
+                    error_message = (
+                        "Invalid Salesforce Username or Password. If this org is a Sandbox, "
+                        "switch Environment Domain to Sandbox; from untrusted networks also supply your Security Token."
+                    )
+                return JSONResponse(status_code=401, content={"error": error_message})
 
         elif req.mode == "token":
             if not req.access_token or not req.instance_url:
@@ -477,10 +775,20 @@ async def serve_ui():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
+    checked_ago = (
+        round(time.time() - connected_app_status["checked_at"], 1)
+        if connected_app_status["checked_at"] else None
+    )
     return {
         "status": "healthy",
         "mcp_connected": mcp_client.is_connected if mcp_client else False,
         "tools_registered": len(tool_registry) if tool_registry else 0,
+        "connected_app": {
+            "valid": connected_app_status["valid"],
+            "detail": connected_app_status["detail"],
+            "checked_seconds_ago": checked_ago,
+            "oauth_login_available": connected_app_status["valid"] is not False,
+        },
     }
 
 

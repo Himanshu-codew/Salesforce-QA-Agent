@@ -762,10 +762,12 @@ async function handleDirectPasswordConnect() {
     hideModalMsg();
     const usernameInput = document.getElementById('directUsername');
     const passwordInput = document.getElementById('directPassword');
+    const secTokenInput = document.getElementById('directSecToken');
     const domainSelect = document.getElementById('directDomainSelect');
 
     const username = usernameInput ? usernameInput.value.trim() : '';
     const password = passwordInput ? passwordInput.value.trim() : '';
+    const securityToken = secTokenInput ? secTokenInput.value.trim() : '';
     const domain = domainSelect ? domainSelect.value : 'login';
 
     if (!username || !password) {
@@ -793,7 +795,7 @@ async function handleDirectPasswordConnect() {
                 mode: 'password',
                 username,
                 password,
-                security_token: '',
+                security_token: securityToken,
                 domain
             })
         });
@@ -802,6 +804,10 @@ async function handleDirectPasswordConnect() {
         if (res.ok && data.success) {
             showModalMsg('Connected successfully to Salesforce!', 'success');
             await checkUserAuthStatus();
+            if (typeof addSystemMessage === 'function') {
+                const user = data.user || {};
+                addSystemMessage(`✅ Connected to Salesforce Org as **${user.display_name || user.username || 'Salesforce User'}** (${user.org_name || 'Connected'})`);
+            }
             setTimeout(() => {
                 closeConnectModal();
             }, 800);
@@ -833,12 +839,29 @@ async function logoutSfUser() {
 function initiateSfOAuth() {
     const domainSelect = document.getElementById('directDomainSelect');
     const domain = domainSelect ? domainSelect.value : 'login';
+    const customDomainInput = document.getElementById('oauthCustomDomain');
+    const clientIdInput = document.getElementById('oauthClientId');
+    const clientSecretInput = document.getElementById('oauthClientSecret');
+
+    const params = new URLSearchParams({ session_id: sessionId, domain });
+
+    // Custom My Domain overrides the standard login/test endpoints
+    if (customDomainInput && customDomainInput.value.trim()) {
+        params.set('domain', customDomainInput.value.trim());
+    }
+    // BYO Connected App credentials (required for orgs other than the server's default)
+    if (clientIdInput && clientIdInput.value.trim()) {
+        params.set('client_id', clientIdInput.value.trim());
+    }
+    if (clientSecretInput && clientSecretInput.value.trim()) {
+        params.set('client_secret', clientSecretInput.value.trim());
+    }
+
     const width = 600;
     const height = 700;
     const left = (window.innerWidth - width) / 2;
     const top = (window.innerHeight - height) / 2;
-    const loginUrl = `/api/auth/login?session_id=${sessionId}&domain=${domain}`;
-    window.open(loginUrl, 'SalesforceOAuth', `width=${width},height=${height},top=${top},left=${left}`);
+    window.open(`/api/auth/login?${params.toString()}`, 'SalesforceOAuth', `width=${width},height=${height},top=${top},left=${left}`);
 }
 
 // Event Listeners

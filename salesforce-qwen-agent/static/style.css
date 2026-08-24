@@ -1577,6 +1577,36 @@ textarea::placeholder { color: var(--text-muted); }
     box-shadow: 0 4px 14px rgba(0, 161, 224, 0.25);
 }
 
+/* Advanced OAuth (custom domain / own Connected App) */
+.advanced-oauth {
+    margin-top: 10px;
+    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    transition: border-color 0.2s ease;
+}
+
+.advanced-oauth[open] {
+    border-color: rgba(0, 161, 224, 0.4);
+}
+
+.advanced-oauth summary {
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    user-select: none;
+    outline: none;
+}
+
+.advanced-oauth summary:hover {
+    color: #38bdf8;
+}
+
+.advanced-oauth .form-group:first-of-type {
+    margin-top: 12px;
+}
+
 .modal-divider {
     display: flex;
     align-items: center;
