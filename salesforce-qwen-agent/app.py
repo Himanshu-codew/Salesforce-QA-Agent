@@ -225,16 +225,13 @@ def _prune_expired_states() -> None:
 
 def _resolve_auth_host(domain: str | None) -> str:
     """
-    Map a user-selected environment to its Salesforce auth host.
-    Uses SALESFORCE_INSTANCE_URL host if available to match Connected App registration.
+    Map a user-selected environment to its Salesforce auth host:
+      - Production / Developer Org  -> login.salesforce.com
+      - Sandbox                     -> test.salesforce.com
+      - Custom My Domain            -> e.g. mycompany.my.salesforce.com
     """
     d = (domain or "").strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
     if d in ("", "login", "production", "prod", "developer", "dev"):
-        instance_env = os.getenv("SALESFORCE_INSTANCE_URL", "")
-        if instance_env:
-            parsed = urllib.parse.urlparse(instance_env)
-            if parsed.netloc:
-                return parsed.netloc
         return "login.salesforce.com"
     if d == "test":
         return "test.salesforce.com"
