@@ -762,10 +762,12 @@ async function handleDirectPasswordConnect() {
     hideModalMsg();
     const usernameInput = document.getElementById('directUsername');
     const passwordInput = document.getElementById('directPassword');
+    const secTokenInput = document.getElementById('directSecToken');
     const domainSelect = document.getElementById('directDomainSelect');
 
     const username = usernameInput ? usernameInput.value.trim() : '';
     const password = passwordInput ? passwordInput.value.trim() : '';
+    const security_token = secTokenInput ? secTokenInput.value.trim() : '';
     const domain = domainSelect ? domainSelect.value : 'login';
 
     if (!username || !password) {
@@ -793,7 +795,7 @@ async function handleDirectPasswordConnect() {
                 mode: 'password',
                 username,
                 password,
-                security_token: '',
+                security_token,
                 domain
             })
         });

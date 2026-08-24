@@ -327,7 +327,12 @@ async def connect_direct_endpoint(req: DirectConnectRequest):
                 return JSONResponse(status_code=400, content={"error": "Username and Password are required."})
             
             domain = req.domain or "login"
-            login_url = f"https://{domain}.salesforce.com/services/Soap/u/58.0"
+            if "." in domain or "http" in domain:
+                domain_clean = domain.replace("https://", "").replace("http://", "").rstrip("/")
+                login_url = f"https://{domain_clean}/services/Soap/u/58.0"
+            else:
+                login_url = f"https://{domain}.salesforce.com/services/Soap/u/58.0"
+
             sec_token = req.security_token or ""
             soap_body = f"""<?xml version="1.0" encoding="utf-8"?>
             <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:partner.soap.sforce.com">
@@ -341,11 +346,25 @@ async def connect_direct_endpoint(req: DirectConnectRequest):
 
             async with httpx.AsyncClient(timeout=15.0) as http:
                 res = await http.post(login_url, data=soap_body, headers={"Content-Type": "text/xml", "SOAPAction": "login"})
-                if res.status_code != 200:
-                    return JSONResponse(status_code=401, content={"error": "Invalid Salesforce Username, Password, or Security Token."})
-
+                
                 import xml.etree.ElementTree as ET
                 import urllib.parse
+                
+                if res.status_code != 200:
+                    error_msg = "Invalid Salesforce Username, Password, or Security Token."
+                    try:
+                        root = ET.fromstring(res.text)
+                        fault_string = root.find(".//faultstring")
+                        if fault_string is not None and fault_string.text:
+                            clean_fault = fault_string.text.split(":")[-1].strip()
+                            if "INVALID_LOGIN" in fault_string.text:
+                                error_msg = "Invalid Username, Password, or missing Security Token. (If logging in from a new network/IP, enter your Salesforce Security Token)."
+                            else:
+                                error_msg = clean_fault or fault_string.text
+                    except Exception:
+                        pass
+                    return JSONResponse(status_code=401, content={"error": error_msg})
+
                 root = ET.fromstring(res.text)
                 ns = {"soap": "http://schemas.xmlsoap.org/soap/envelope/", "urn": "urn:partner.soap.sforce.com"}
                 session_id_elem = root.find(".//urn:sessionId", ns)

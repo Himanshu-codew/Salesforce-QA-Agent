@@ -1568,6 +1568,30 @@ textarea::placeholder { color: var(--text-muted); }
     letter-spacing: 0.01em;
 }
 
+.label-with-hint {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.opt-tag {
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: #a78bfa;
+    background: rgba(167, 139, 250, 0.12);
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.field-helper-text {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 5px;
+    line-height: 1.35;
+}
+
+
 /* Input with Icon Wrapper */
 .input-icon-wrapper {
     position: relative;
