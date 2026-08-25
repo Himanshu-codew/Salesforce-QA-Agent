@@ -316,9 +316,8 @@ class QwenLLM(BaseLLM):
         self._check_and_update_base_url()
         try:
             extra_body = {}
-            token_limit = 512 if tools else max_tokens
             if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
-                extra_body["options"] = {"num_ctx": 16384, "num_predict": token_limit, "temperature": 0.0, "num_gpu": 100}
+                extra_body["options"] = {"num_ctx": 16384, "num_predict": max_tokens, "temperature": 0.0, "num_gpu": 100}
 
             # Sanitize None content to empty string for Ollama/GGUF template compatibility
             clean_messages = []
@@ -333,7 +332,7 @@ class QwenLLM(BaseLLM):
                 messages=clean_messages,
                 tools=tools if tools else None,
                 temperature=0.0,
-                max_tokens=token_limit,
+                max_tokens=max_tokens,
                 extra_body=extra_body if extra_body else None,
             )
 
