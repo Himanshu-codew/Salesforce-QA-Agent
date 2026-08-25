@@ -374,6 +374,43 @@ class SalesforceAgent:
 
             # ── Case 2: LLM returns a final text response ──
             elif llm_result["content"] and llm_result["content"].strip():
+                # Mandatory Tool Execution Interceptor for Data Queries on Turn 1
+                if iteration == 1 and tools:
+                    user_msg_lower = user_message.lower()
+                    data_intent_keywords = [
+                        "account", "accounts", "lead", "leads", "contact", "contacts",
+                        "opportunity", "opportunities", "case", "cases", "task", "tasks",
+                        "event", "events", "user", "who am i", "schema", "fields",
+                        "show", "list", "select", "find", "search", "count", "how many",
+                        "delete", "remove", "update", "edit", "create", "banao", "dikhao",
+                        "hatao", "badlo", "kitne", "saare"
+                    ]
+                    has_data_intent = any(kw in user_msg_lower for kw in data_intent_keywords)
+                    if has_data_intent:
+                        logger.warning(
+                            f"⚠️ [INTERCEPTOR] LLM returned text without tool call on Turn 1 for query: '{user_message[:40]}...'. "
+                            "Forcing tool execution retry."
+                        )
+                        interceptor_messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
+                        interceptor_messages.append({
+                            "role": "user",
+                            "content": (
+                                "TOOL CALL MANDATORY: You must call an appropriate MCP tool (such as soqlQuery, find, or getObjectSchema) "
+                                "to fetch real Salesforce data before answering. Do NOT reply with text or dummy data."
+                            )
+                        })
+                        try:
+                            retry_result = await self.llm.chat_with_tools(
+                                messages=interceptor_messages,
+                                tools=tools,
+                                temperature=0.0,
+                            )
+                            if retry_result.get("tool_calls"):
+                                llm_result = retry_result
+                                continue  # Re-enter turn loop with forced tool calls!
+                        except Exception as retry_err:
+                            logger.error(f"Interceptor retry error: {retry_err}")
+
                 response = sanitize_response_output(llm_result["content"].strip())
                 if not response:
                     # LLM returned only artifacts — ask for a proper summary
