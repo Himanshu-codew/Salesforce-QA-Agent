@@ -271,20 +271,20 @@ class QwenLLM(BaseLLM):
         self,
         messages: list[dict[str, Any]],
         temperature: float = 0.0,
-        max_tokens: int = 1024,
+        max_tokens: int = 3072,
     ) -> str:
         """Send a simple chat completion request (no tools)."""
         self._check_and_update_base_url()
         try:
             extra_body = {}
             if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
-                extra_body["options"] = {"num_ctx": 8192, "num_predict": 1024, "temperature": 0.0, "num_gpu": 100}
+                extra_body["options"] = {"num_ctx": 16384, "num_predict": max_tokens, "temperature": 0.0, "num_gpu": 100}
 
             response = await self._client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=1024,
+                max_tokens=max_tokens,
                 extra_body=extra_body if extra_body else None,
             )
             content = response.choices[0].message.content or ""
@@ -307,7 +307,7 @@ class QwenLLM(BaseLLM):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         temperature: float = 0.0,
-        max_tokens: int = 1024,
+        max_tokens: int = 3072,
     ) -> dict[str, Any]:
         """
         Send a chat completion with tool/function calling.
@@ -317,8 +317,7 @@ class QwenLLM(BaseLLM):
         try:
             extra_body = {}
             if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
-                target_tokens = min(max_tokens, 1024) if tools else max_tokens
-                extra_body["options"] = {"num_ctx": 8192, "num_predict": target_tokens, "temperature": 0.0, "num_gpu": 100}
+                extra_body["options"] = {"num_ctx": 16384, "num_predict": max_tokens, "temperature": 0.0, "num_gpu": 100}
 
             # Sanitize None content to empty string for Ollama/GGUF template compatibility
             clean_messages = []
@@ -333,7 +332,7 @@ class QwenLLM(BaseLLM):
                 messages=clean_messages,
                 tools=tools if tools else None,
                 temperature=0.0,
-                max_tokens=min(max_tokens, 1024) if tools else max_tokens,
+                max_tokens=max_tokens,
                 extra_body=extra_body if extra_body else None,
             )
 

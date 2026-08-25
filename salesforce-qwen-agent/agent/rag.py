@@ -162,7 +162,7 @@ class ToolRAGRetriever:
                 logger.info(f"⚡ RAG Retriever: General/conversational/document query detected for '{target_text[:30]}...'. Serving 0 tools for max speed.")
                 return []
 
-            # Select top-K tool names above confidence
+            # ── Initialize top_names BEFORE any intent checks ──
             top_names = [name for sim, name in scores[:k] if sim > 0.05]
             if not top_names:
                 top_names = [name for _, name in scores[:k]]
