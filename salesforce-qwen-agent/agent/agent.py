@@ -5,6 +5,7 @@ the LLM (Qwen3), MCP executor, memory, and planner.
 
 import json
 import logging
+import re
 from typing import Any, AsyncGenerator
 
 from llm.base import BaseLLM
@@ -16,6 +17,104 @@ from .prompts import SYSTEM_PROMPT, ERROR_MESSAGES
 from .rag import ToolRAGRetriever
 
 logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────────────────────
+# Output Sanitizer — strips internal artifacts before user delivery
+# ──────────────────────────────────────────────────────────────
+def sanitize_response_output(text: str) -> str:
+    """
+    Final output sanitizer that strips any leftover internal artifacts
+    from the assistant response before delivering to the user.
+    Removes: <think> tags, raw JSON tool call blocks, XML tool tags,
+    stray system artifacts, and code blocks containing tool schemas.
+    """
+    if not text:
+        return text
+
+    cleaned = text
+
+    # 1. Strip <think>...</think> reasoning blocks (Qwen3 internal monologue)
+    cleaned = re.sub(r"<think>.*?(?:</think>|$)", "", cleaned, flags=re.DOTALL)
+
+    # 2. Strip XML tool tags: <tools>...</tools>, <tool_call>...</tool_call>
+    cleaned = re.sub(r"<(?:tools|tool_call|function_call)>[\s\S]*?</(?:tools|tool_call|function_call)>", "", cleaned, flags=re.IGNORECASE)
+
+    # 3. Strip markdown code blocks containing JSON tool call schemas
+    #    (```json { "name": "soqlQuery", ... } ```)
+    cleaned = re.sub(
+        r"```(?:json)?\s*\{[\s\S]*?\"(?:name|function|arguments)\"[\s\S]*?\}```",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+
+    # 4. Strip standalone JSON objects that look like tool calls
+    #    { "name": "toolName", "arguments": { ... } }
+    cleaned = re.sub(
+        r"\{\s*\"name\"\s*:\s*\"(?:soqlQuery|find|getUserInfo|getObjectSchema|createSobjectRecord|updateSobjectRecord|deleteSobjectRecord|getRelatedRecords|listRecentSobjectRecords|updateRelatedRecord|deleteRelatedRecord|uploadRecordAttachment)\"[\s\S]*?\}",
+        "",
+        cleaned,
+    )
+
+    # 5. Strip stray code block markers and empty blocks
+    lines = []
+    for line in cleaned.split("\n"):
+        stripped = line.strip()
+        # Skip lines that are only stray markers
+        if stripped in ("{", "}", "]", "[", "```", "```json", "```tool_call", "}}", "}}}", "`]"):
+            continue
+        lines.append(line)
+    cleaned = "\n".join(lines)
+
+    # 6. Collapse multiple blank lines into max 2
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+
+    # 7. Final trim
+    cleaned = cleaned.strip()
+
+    # 8. If the result is empty or only whitespace/braces, return a generic fallback
+    if not cleaned or re.fullmatch(r"[\{\}\[\]\`\s]*", cleaned):
+        return ""
+
+    return cleaned
+
+
+# ──────────────────────────────────────────────────────────────
+# SOQL Error Auto-Correction Helper
+# ──────────────────────────────────────────────────────────────
+_SOQL_ERROR_PATTERNS = [
+    # (regex_pattern, fix_description, replacement_suggestion)
+    (r"\$\d[\d,]*", "Remove dollar signs and commas from numeric literals"),
+    (r"'\d[\d,]*'", "Remove quotes around numeric values"),
+    (r"AS\s+\w+", "Remove 'AS' keyword — SOQL uses implicit aliases"),
+    (r"DATE\s*\(", "Replace DATE() with SOQL date literals (TODAY, THIS_WEEK, etc.)"),
+    (r"DATEADD\s*\(", "Replace DATEADD() with SOQL date literals (LAST_N_DAYS:N, etc.)"),
+    (r"NOW\s*\(\s*\)", "Replace NOW() with TODAY or use datetime literals"),
+    (r"GETDATE\s*\(\s*\)", "Replace GETDATE() with TODAY"),
+]
+
+_SOQL_FIX_SUGGESTIONS = {
+    "$": "Remove dollar signs ($) from SOQL numeric filters. Write Amount > 50000, NOT Amount > '$50,000'.",
+    "AS ": "SOQL does not support the 'AS' keyword for aliases. Write SUM(Amount) total instead of SUM(Amount) AS total.",
+    "DATE()": "SOQL does not have DATE() function. Use date literals like TODAY, THIS_WEEK, LAST_N_DAYS:7, THIS_YEAR.",
+    "DATEADD()": "SOQL does not have DATEADD(). Use date literals like LAST_N_DAYS:N, LAST_7_DAYS, THIS_MONTH.",
+    "malformed": "Check SOQL syntax: ensure SELECT, FROM, WHERE, and LIMIT clauses are correct.",
+    "invalid_field": "Check field API names using getObjectSchema if unsure.",
+    "group by": "SOQL does not allow GROUP BY inside semi-join subqueries. Query the child object directly.",
+}
+
+
+def get_soql_fix_suggestion(error_msg: str) -> str | None:
+    """
+    Analyze a SOQL error message and return a fix suggestion if pattern matches.
+    Returns None if no known pattern matches.
+    """
+    error_lower = error_msg.lower()
+    for pattern, suggestion in _SOQL_FIX_SUGGESTIONS.items():
+        if pattern.lower() in error_lower:
+            return suggestion
+    return None
 
 
 class SalesforceAgent:
@@ -181,6 +280,74 @@ class SalesforceAgent:
                             })
                             logger.error(f"❌ Tool execution error ({tc['name']}): {e}")
 
+                        # ── SOQL Error Auto-Correction (max 2 retries) ──
+                        if tc["name"] == "soqlQuery":
+                            retry_count = 0
+                            max_soql_retries = 2
+                            while retry_count < max_soql_retries:
+                                result_lower = result.lower()
+                                is_soql_error = any(kw in result_lower for kw in [
+                                    "malformed", "syntax error", "invalid_field",
+                                    "unexpected token", "no such column", "invalid",
+                                    "didn't understand", "error", "parse_error",
+                                ])
+                                if not is_soql_error:
+                                    break
+
+                                fix_suggestion = get_soql_fix_suggestion(result)
+                                if not fix_suggestion:
+                                    break
+
+                                retry_count += 1
+                                logger.info(
+                                    f"🔧 [SOQL AUTO-CORRECT] Attempt {retry_count}/{max_soql_retries}: "
+                                    f"{fix_suggestion}"
+                                )
+                                yield {
+                                    "type": "thinking",
+                                    "data": f"SOQL query needs correction. Retrying... (attempt {retry_count}/{max_soql_retries})",
+                                }
+
+                                # Ask the LLM to fix the SOQL query
+                                fix_messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
+                                fix_messages.append({
+                                    "role": "user",
+                                    "content": (
+                                        f"The SOQL query failed with error: {result}\n\n"
+                                        f"Fix suggestion: {fix_suggestion}\n\n"
+                                        f"Please provide a corrected SOQL query using the soqlQuery tool. "
+                                        f"Output ONLY the corrected tool call."
+                                    ),
+                                })
+
+                                try:
+                                    fix_result = await self.llm.chat_with_tools(
+                                        messages=fix_messages,
+                                        tools=tools,
+                                        temperature=0.0,
+                                    )
+                                    if fix_result.get("tool_calls"):
+                                        fixed_tc = fix_result["tool_calls"][0]
+                                        yield {
+                                            "type": "tool_call",
+                                            "data": {"name": fixed_tc["name"], "arguments": fixed_tc["arguments"]},
+                                        }
+                                        result = await self.executor.execute(
+                                            fixed_tc["name"], fixed_tc["arguments"]
+                                        )
+                                        logger.info(
+                                            f"✅ [SOQL RETRY {retry_count} RESULT]: {tc['name']} "
+                                            f"(Result len: {len(result)} chars)"
+                                        )
+                                        # Update the tool call in memory with the corrected one
+                                        memory.add_tool_result(tc["id"], tc["name"], result)
+                                    else:
+                                        # LLM didn't produce a tool call, break out
+                                        break
+                                except Exception as retry_err:
+                                    logger.error(f"SOQL retry error: {retry_err}")
+                                    break
+
                         # Truncate very large results to avoid context overflow
                         if len(result) > 15000:
                             result = result[:15000] + "\n... [truncated, showing first 15000 chars]"
@@ -207,7 +374,10 @@ class SalesforceAgent:
 
             # ── Case 2: LLM returns a final text response ──
             elif llm_result["content"] and llm_result["content"].strip():
-                response = llm_result["content"].strip()
+                response = sanitize_response_output(llm_result["content"].strip())
+                if not response:
+                    # LLM returned only artifacts — ask for a proper summary
+                    response = "I processed your request. How else can I assist you with your Salesforce data?"
                 logger.info(f"🤖 [ASSISTANT RESPONSE]: {response[:150]}...")
                 memory.add_assistant_message(response)
                 yield {"type": "response", "data": response}
@@ -220,11 +390,13 @@ class SalesforceAgent:
                         messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
                         messages.append({
                             "role": "user",
-                            "content": "Please provide a clear, concise natural language summary of the action or tool results completed above for the user."
+                            "content": "Please provide a clear, concise natural language summary of the action or tool results completed above for the user. Format as clean Markdown with tables or bullet points. Do NOT output raw JSON."
                         })
                         summary = await self.llm.chat(messages)
                         if summary and summary.strip():
-                            fallback = summary.strip()
+                            fallback = sanitize_response_output(summary.strip())
+                            if not fallback:
+                                fallback = "✅ Operation completed successfully in Salesforce!"
                         else:
                             fallback = "✅ Operation completed successfully in Salesforce!"
                     except Exception:
@@ -244,10 +416,11 @@ class SalesforceAgent:
             messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
             messages.append({
                 "role": "user",
-                "content": "Please summarize the results you've gathered so far.",
+                "content": "Please summarize the results you've gathered so far in clean Markdown format (tables and bullet points). Do NOT output raw JSON.",
             })
             summary = await self.llm.chat(messages)
-            final_msg = f"{max_iter_msg}\n\n{summary}"
+            sanitized = sanitize_response_output(summary.strip()) if summary else ""
+            final_msg = f"{max_iter_msg}\n\n{sanitized}" if sanitized else max_iter_msg
         except Exception:
             final_msg = max_iter_msg
 

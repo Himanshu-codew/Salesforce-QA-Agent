@@ -83,13 +83,13 @@ SALESFORCE_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "soqlQuery",
-            "description": "Executes a SOQL query to read Salesforce data. Example: SELECT Id, Name, Account.Name FROM Opportunity WHERE Amount > 1000 ORDER BY Amount DESC LIMIT 10",
+            "description": "Executes a SOQL query to read Salesforce data. CRITICAL: Use raw numbers without $ or commas (Amount > 50000, NOT Amount > '$50,000'). Use SOQL date literals (TODAY, THIS_WEEK, LAST_N_DAYS:7) — NEVER use DATE() or SQL functions. Do NOT use the AS keyword for aliases.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "q": {
                         "type": "string",
-                        "description": "SOQL query string.",
+                        "description": "SOQL query string. Examples: SELECT Id, Name, Industry FROM Account LIMIT 10 | SELECT COUNT(Id) FROM Lead | SELECT Id, Name, Amount, StageName FROM Opportunity WHERE Amount > 50000 AND CloseDate = THIS_QUARTER",
                     },
                 },
                 "required": ["q"],
@@ -150,17 +150,17 @@ SALESFORCE_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "createSobjectRecord",
-            "description": "Creates a new Salesforce record. Requires: sobject-name and body (field-value map).",
+            "description": "Creates a new Salesforce record. Requires sobject-name and body (field-value map). For Leads, Company is mandatory. For Contacts, Account lookup is via AccountId.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "sobject-name": {
                         "type": "string",
-                        "description": "API name of the object (e.g., 'Account', 'Contact').",
+                        "description": "API name of the object (e.g., 'Account', 'Contact', 'Lead', 'Opportunity', 'Case', 'Task').",
                     },
                     "body": {
                         "type": "object",
-                        "description": "Field-value pairs for the new record.",
+                        "description": "Field-value pairs for the new record. Use field API names as keys. Example for Lead: {\"FirstName\": \"John\", \"LastName\": \"Doe\", \"Company\": \"Acme Corp\", \"Email\": \"john@acme.com\"}",
                     },
                 },
                 "required": ["sobject-name", "body"],

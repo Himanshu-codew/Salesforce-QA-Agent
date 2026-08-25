@@ -150,10 +150,20 @@ class ToolRAGRetriever:
             "attachment banao", "contentversion"
         ])
 
+        # Detect compound/multi-part queries (e.g., "do X AND do Y", "find X AND show Y AND count Z")
+        is_compound_query = any(sep in q_lower for sep in [
+            " and ", " & ", " also ", " along with ", " as well as ",
+            " plus ", " aur ", " tatha ", " evam ",
+        ])
+
         # High confidence check: If top score is below threshold AND no Salesforce intent, return 0 tools for ultra-fast response
-        if top_score < self.min_confidence and not has_sf_intent and not is_attach_request:
+        if top_score < self.min_confidence and not has_sf_intent and not is_attach_request and not is_compound_query:
             logger.info(f"⚡ RAG Retriever: General/conversational/document query detected for '{target_text[:30]}...'. Serving 0 tools for max speed.")
             return []
+
+        # For compound queries, ensure soqlQuery is always included
+        if is_compound_query and "soqlQuery" not in top_names:
+            top_names.append("soqlQuery")
 
         # Select top-K tool names above confidence
         top_names = [name for sim, name in scores[:k] if sim > 0.05]

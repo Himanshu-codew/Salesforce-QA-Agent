@@ -37,28 +37,61 @@ def strip_raw_tool_json(text: str) -> str:
     """
     Remove raw JSON tool call blocks like { "name": "soqlQuery", "arguments": ... }
     from response text so raw JSON code or stray braces never leak into the user UI.
+    This is the LLM-level sanitizer; agent.py applies a second pass before delivery.
     """
     if not text:
         return ""
-    # 1. Remove markdown code blocks containing "name":
-    cleaned = re.sub(r"```(?:json)?[\s\S]*?\"name\"[\s\S]*?```", "", text, flags=re.IGNORECASE)
-    # 2. Remove XML tool tags <tools>...</tools> or <tool_call>...</tool_call>
-    cleaned = re.sub(r"<(?:tools|tool_call)>[\s\S]*?</(?:tools|tool_call)>", "", cleaned, flags=re.IGNORECASE)
-    # 3. Remove standalone { "name": "...", ... } JSON objects (including multi-nested braces)
-    cleaned = re.sub(r"\{\s*\"name\"\s*:[\s\S]*?\}\s*\}\s*\}", "", cleaned)
-    cleaned = re.sub(r"\{\s*\"name\"\s*:[\s\S]*?\}", "", cleaned)
+    # 0. Strip <think>...</think> reasoning blocks first
+    cleaned = re.sub(r"<think>.*?(?:</think>|$)", "", text, flags=re.DOTALL)
 
-    # 4. Remove lines containing only stray braces, brackets, or codeblock markers
+    # 1. Remove markdown code blocks containing tool call JSON schemas
+    cleaned = re.sub(r"```(?:json)?[\s\S]*?\"name\"[\s\S]*?```", "", cleaned, flags=re.IGNORECASE)
+
+    # 2. Remove XML tool tags <tools>...</tools>, <tool_call>...</tool_call>, <function_call>...</function_call>
+    cleaned = re.sub(r"<(?:tools|tool_call|function_call)>[\s\S]*?</(?:tools|tool_call|function_call)>", "", cleaned, flags=re.IGNORECASE)
+
+    # 3. Remove standalone tool call JSON objects with known tool names
+    known_tools = (
+        "soqlQuery|find|getUserInfo|getObjectSchema|createSobjectRecord|"
+        "updateSobjectRecord|deleteSobjectRecord|getRelatedRecords|"
+        "listRecentSobjectRecords|updateRelatedRecord|deleteRelatedRecord|"
+        "uploadRecordAttachment"
+    )
+    # Match {"name": "toolName", "arguments": {...}} patterns (with optional whitespace/newlines)
+    cleaned = re.sub(
+        rf'\{{\s*"name"\s*:\s*"(?:{known_tools})"[\s\S]*?\}}\s*\}}\s*\}}',
+        "", cleaned
+    )
+    cleaned = re.sub(
+        rf'\{{\s*"name"\s*:\s*"(?:{known_tools})"[\s\S]*?\}}\s*\}}',
+        "", cleaned
+    )
+    cleaned = re.sub(
+        rf'\{{\s*"name"\s*:\s*"(?:{known_tools})"[\s\S]*?\}}',
+        "", cleaned
+    )
+
+    # 4. Also catch tool call objects where "function" key wraps the name
+    cleaned = re.sub(
+        rf'\{{\s*"function"\s*:\s*\{{\s*"name"\s*:\s*"(?:{known_tools})"[\s\S]*?\}}\s*\}}',
+        "", cleaned
+    )
+
+    # 5. Remove lines containing only stray braces, brackets, or codeblock markers
     lines = []
     for line in cleaned.split("\n"):
         stripped = line.strip()
-        if stripped in ["{", "}", "]", "[", "```", "```json", "}}", "}}}", "`]"]:
+        if stripped in ["{", "}", "]", "[", "```", "```json", "}}", "}}}", "`]", "{}", "[]"]:
+            continue
+        # Also skip lines that are only a key-value pair from a tool call schema
+        if re.match(r'^\s*"(name|type|function|arguments|parameters|properties|required)"\s*:', stripped):
             continue
         lines.append(line)
+    cleaned = "\n".join(lines)
 
-    final_text = "\n".join(lines).strip()
+    final_text = cleaned.strip()
 
-    # 5. If only stray symbols/braces/spaces remain, collapse to empty string
+    # 6. If only stray symbols/braces/spaces remain, collapse to empty string
     if re.fullmatch(r"[\{\}\[\]\`\s]*", final_text):
         return ""
     return final_text
