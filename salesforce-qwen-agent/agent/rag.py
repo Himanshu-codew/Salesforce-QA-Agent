@@ -94,139 +94,143 @@ class ToolRAGRetriever:
     def get_relevant_tools(self, user_query: str, top_k: int | None = None) -> list[dict[str, Any]]:
         """
         Retrieve top-K relevant tool definitions matching the user query.
-        Falls back to all tools if query is conversational or confidence is low.
+        Falls back to all tools if query is conversational, confidence is low, or an error occurs.
         """
-        # Enable RAG by default unless explicitly set to false
-        if os.getenv("ENABLE_RAG_TOOLS", "true").lower() in ("false", "0", "no"):
-            return self.all_tools
+        try:
+            # Enable RAG by default unless explicitly set to false
+            if os.getenv("ENABLE_RAG_TOOLS", "true").lower() in ("false", "0", "no"):
+                return self.all_tools
 
-        k = top_k or self.default_top_k
-        if not user_query or len(user_query.strip()) < 2:
-            return []
+            k = top_k or self.default_top_k
+            if not user_query or len(user_query.strip()) < 2:
+                return []
 
-        # When a file is attached, isolate the actual user instruction/question
-        actual_query = user_query
-        if "[Attached File:" in user_query:
-            if "User Message:" in user_query:
-                actual_query = user_query.split("User Message:")[-1].strip()
-            else:
-                parts = user_query.split("]\n")
-                if len(parts) > 1:
-                    actual_query = parts[-1].strip()
+            # When a file is attached, isolate the actual user instruction/question
+            actual_query = user_query
+            if "[Attached File:" in user_query:
+                if "User Message:" in user_query:
+                    actual_query = user_query.split("User Message:")[-1].strip()
+                else:
+                    parts = user_query.split("]\n")
+                    if len(parts) > 1:
+                        actual_query = parts[-1].strip()
 
-        target_text = actual_query if actual_query else user_query
-        query_tokens = tokenize(target_text)
-        query_vec = compute_vector(query_tokens, self.vocab)
+            target_text = actual_query if actual_query else user_query
+            query_tokens = tokenize(target_text)
+            query_vec = compute_vector(query_tokens, self.vocab)
 
-        # Calculate similarity scores
-        scores = []
-        for name, doc_vec in self.vectors.items():
-            sim = cosine_similarity(query_vec, doc_vec)
-            scores.append((sim, name))
+            # Calculate similarity scores
+            scores = []
+            for name, doc_vec in self.vectors.items():
+                sim = cosine_similarity(query_vec, doc_vec)
+                scores.append((sim, name))
 
-        # Sort by highest similarity
-        scores.sort(key=lambda x: x[0], reverse=True)
+            # Sort by highest similarity
+            scores.sort(key=lambda x: x[0], reverse=True)
 
-        top_score = scores[0][0] if scores else 0.0
+            top_score = scores[0][0] if scores else 0.0
 
-        # Check for explicit Salesforce intent keywords in the actual query
-        q_lower = target_text.lower()
-        sf_keywords = {
-            "salesforce", "sf", "soql", "sosl", "sobject", "record", "records", "object", "schema", "field", "fields",
-            "account", "accounts", "contact", "contacts", "lead", "leads", "opportunity", "opportunities", "opp", "case", "cases", "user",
-            "task", "tasks", "event", "events", "campaign", "campaigns",
-            "query", "select", "find", "search", "list", "recent", "describe", "get", "show", "view",
-            "create", "insert", "add", "new", "update", "edit", "modify", "delete", "remove", "related", "child",
-            "who", "am", "i", "my", "me", "profile", "role", "email", "username", "logged", "identity", "admin",
-            "banao", "dikhao", "hatao", "daalo", "nikalo", "badlo", "mera", "meri", "kaun", "konse", "kitne", "saare", "sab", "pichle"
-        }
-        has_sf_intent = any(kw in q_lower for kw in sf_keywords)
+            # Check for explicit Salesforce intent keywords in the actual query
+            q_lower = target_text.lower()
+            sf_keywords = {
+                "salesforce", "sf", "soql", "sosl", "sobject", "record", "records", "object", "schema", "field", "fields",
+                "account", "accounts", "contact", "contacts", "lead", "leads", "opportunity", "opportunities", "opp", "case", "cases", "user",
+                "task", "tasks", "event", "events", "campaign", "campaigns",
+                "query", "select", "find", "search", "list", "recent", "describe", "get", "show", "view",
+                "create", "insert", "add", "new", "update", "edit", "modify", "delete", "remove", "related", "child",
+                "who", "am", "i", "my", "me", "profile", "role", "email", "username", "logged", "identity", "admin",
+                "banao", "dikhao", "hatao", "daalo", "nikalo", "badlo", "mera", "meri", "kaun", "konse", "kitne", "saare", "sab", "pichle"
+            }
+            has_sf_intent = any(kw in q_lower for kw in sf_keywords)
 
-        # Explicit check for file attachment action intent (e.g. attach to record, upload to salesforce)
-        is_attach_request = any(phrase in q_lower for phrase in [
-            "attach to", "attach this file", "attach file to", "upload to record", "upload to account",
-            "upload to lead", "upload to opportunity", "upload to case", "upload to contact",
-            "salesforce me attach", "salesforce me upload", "record pe attach", "record me attach",
-            "attachment banao", "contentversion"
-        ])
+            # Explicit check for file attachment action intent (e.g. attach to record, upload to salesforce)
+            is_attach_request = any(phrase in q_lower for phrase in [
+                "attach to", "attach this file", "attach file to", "upload to record", "upload to account",
+                "upload to lead", "upload to opportunity", "upload to case", "upload to contact",
+                "salesforce me attach", "salesforce me upload", "record pe attach", "record me attach",
+                "attachment banao", "contentversion"
+            ])
 
-        # Detect compound/multi-part queries (e.g., "do X AND do Y", "find X AND show Y AND count Z")
-        is_compound_query = any(sep in q_lower for sep in [
-            " and ", " & ", " also ", " along with ", " as well as ",
-            " plus ", " aur ", " tatha ", " evam ",
-        ])
+            # Detect compound/multi-part queries (e.g., "do X AND do Y", "find X AND show Y AND count Z")
+            is_compound_query = any(sep in q_lower for sep in [
+                " and ", " & ", " also ", " along with ", " as well as ",
+                " plus ", " aur ", " tatha ", " evam ",
+            ])
 
-        # High confidence check: If top score is below threshold AND no Salesforce intent, return 0 tools for ultra-fast response
-        if top_score < self.min_confidence and not has_sf_intent and not is_attach_request and not is_compound_query:
-            logger.info(f"⚡ RAG Retriever: General/conversational/document query detected for '{target_text[:30]}...'. Serving 0 tools for max speed.")
-            return []
+            # High confidence check: If top score is below threshold AND no Salesforce intent, return 0 tools for ultra-fast response
+            if top_score < self.min_confidence and not has_sf_intent and not is_attach_request and not is_compound_query:
+                logger.info(f"⚡ RAG Retriever: General/conversational/document query detected for '{target_text[:30]}...'. Serving 0 tools for max speed.")
+                return []
 
-        # For compound queries, ensure soqlQuery is always included
-        if is_compound_query and "soqlQuery" not in top_names:
-            top_names.append("soqlQuery")
+            # Select top-K tool names above confidence
+            top_names = [name for sim, name in scores[:k] if sim > 0.05]
+            if not top_names:
+                top_names = [name for _, name in scores[:k]]
 
-        # Select top-K tool names above confidence
-        top_names = [name for sim, name in scores[:k] if sim > 0.05]
-        if not top_names:
-            top_names = [name for _, name in scores[:k]]
-
-        # ── Intent-Based Safety Guarantees for all 11 MCP Tools ──
-        # 1. Create
-        if any(w in q_lower for w in ["create", "add", "insert", "new", "make", "generate", "banao", "daalo"]):
-            if "createSobjectRecord" not in top_names:
-                top_names.append("createSobjectRecord")
-
-        # 2. Update (direct & related)
-        if any(w in q_lower for w in ["update", "edit", "change", "modify", "set", "badlo"]):
-            if any(w in q_lower for w in ["related", "child", "contact of", "case of", "opportunities under", "under account"]):
-                if "updateRelatedRecord" not in top_names:
-                    top_names.append("updateRelatedRecord")
-            if "updateSobjectRecord" not in top_names:
-                top_names.append("updateSobjectRecord")
-
-        # 3. Delete (direct & related)
-        if any(w in q_lower for w in ["delete", "remove", "drop", "erase", "hatao", "destroy", "mitao"]):
-            if any(w in q_lower for w in ["related", "child", "contact of", "contacts under", "cases under", "opportunities under", "under account"]):
-                if "deleteRelatedRecord" not in top_names:
-                    top_names.append("deleteRelatedRecord")
-            if "deleteSobjectRecord" not in top_names:
-                top_names.append("deleteSobjectRecord")
-
-        # 4. Recent
-        if any(w in q_lower for w in ["recent", "recently", "viewed", "last viewed", "last contacts", "pichle", "aakhri"]):
-            if "listRecentSobjectRecords" not in top_names:
-                top_names.append("listRecentSobjectRecords")
-
-        # 5. Search / SOSL
-        if any(w in q_lower for w in ["search", "find", "lookup", "sosl", "dhundo", "khojo"]):
-            if "find" not in top_names:
-                top_names.append("find")
-
-        # 6. User Info
-        if any(w in q_lower for w in ["who am i", "my profile", "my email", "my role", "my username", "logged in", "mera account", "meri details", "kaun", "am i admin"]):
-            if "getUserInfo" not in top_names:
-                top_names.append("getUserInfo")
-
-        # 7. Schema / Describe
-        if any(w in q_lower for w in ["schema", "fields", "describe", "metadata", "required", "mandatory", "picklist", "data type", "datatype", "type of", "konse fields"]):
-            if "getObjectSchema" not in top_names:
-                top_names.append("getObjectSchema")
-
-        # 8. Related Records
-        if any(w in q_lower for w in ["related", "child", "contacts of", "cases of", "opportunities of", "under account", "ke saare", "linked to", "associated"]):
-            if "getRelatedRecords" not in top_names:
-                top_names.append("getRelatedRecords")
-
-        # 9. SOQL Query (show, select, count, how many, all, etc.)
-        if any(w in q_lower for w in ["select", "show", "query", "how many", "count", "list", "top", "highest", "closed won", "filter", "where", "dikhao", "saare leads", "saare accounts"]):
-            if "soqlQuery" not in top_names:
+            # For compound queries, ensure soqlQuery is always included
+            if is_compound_query and "soqlQuery" not in top_names:
                 top_names.append("soqlQuery")
 
-        # 10. File Upload / Attachment (only when explicit attachment command)
-        if is_attach_request:
-            if "uploadRecordAttachment" not in top_names:
-                top_names.append("uploadRecordAttachment")
+            # ── Intent-Based Safety Guarantees for all 11 MCP Tools ──
+            # 1. Create
+            if any(w in q_lower for w in ["create", "add", "insert", "new", "make", "generate", "banao", "daalo"]):
+                if "createSobjectRecord" not in top_names:
+                    top_names.append("createSobjectRecord")
 
-        retrieved = [self.tool_map[name] for name in top_names if name in self.tool_map]
-        logger.info(f"🔍 RAG Retriever: Selected tools: {[t['function']['name'] for t in retrieved]}")
-        return retrieved
+            # 2. Update (direct & related)
+            if any(w in q_lower for w in ["update", "edit", "change", "modify", "set", "badlo"]):
+                if any(w in q_lower for w in ["related", "child", "contact of", "case of", "opportunities under", "under account"]):
+                    if "updateRelatedRecord" not in top_names:
+                        top_names.append("updateRelatedRecord")
+                if "updateSobjectRecord" not in top_names:
+                    top_names.append("updateSobjectRecord")
+
+            # 3. Delete (direct & related)
+            if any(w in q_lower for w in ["delete", "remove", "drop", "erase", "hatao", "destroy", "mitao"]):
+                if any(w in q_lower for w in ["related", "child", "contact of", "contacts under", "cases under", "opportunities under", "under account"]):
+                    if "deleteRelatedRecord" not in top_names:
+                        top_names.append("deleteRelatedRecord")
+                if "deleteSobjectRecord" not in top_names:
+                    top_names.append("deleteSobjectRecord")
+
+            # 4. Recent
+            if any(w in q_lower for w in ["recent", "recently", "viewed", "last viewed", "last contacts", "pichle", "aakhri"]):
+                if "listRecentSobjectRecords" not in top_names:
+                    top_names.append("listRecentSobjectRecords")
+
+            # 5. Search / SOSL
+            if any(w in q_lower for w in ["search", "find", "lookup", "sosl", "dhundo", "khojo"]):
+                if "find" not in top_names:
+                    top_names.append("find")
+
+            # 6. User Info
+            if any(w in q_lower for w in ["who am i", "my profile", "my email", "my role", "my username", "logged in", "mera account", "meri details", "kaun", "am i admin"]):
+                if "getUserInfo" not in top_names:
+                    top_names.append("getUserInfo")
+
+            # 7. Schema / Describe
+            if any(w in q_lower for w in ["schema", "fields", "describe", "metadata", "required", "mandatory", "picklist", "data type", "datatype", "type of", "konse fields"]):
+                if "getObjectSchema" not in top_names:
+                    top_names.append("getObjectSchema")
+
+            # 8. Related Records
+            if any(w in q_lower for w in ["related", "child", "contacts of", "cases of", "opportunities of", "under account", "ke saare", "linked to", "associated"]):
+                if "getRelatedRecords" not in top_names:
+                    top_names.append("getRelatedRecords")
+
+            # 9. SOQL Query (show, select, count, how many, all, etc.)
+            if any(w in q_lower for w in ["select", "show", "query", "how many", "count", "list", "top", "highest", "closed won", "filter", "where", "dikhao", "saare leads", "saare accounts"]):
+                if "soqlQuery" not in top_names:
+                    top_names.append("soqlQuery")
+
+            # 10. File Upload / Attachment (only when explicit attachment command)
+            if is_attach_request:
+                if "uploadRecordAttachment" not in top_names:
+                    top_names.append("uploadRecordAttachment")
+
+            retrieved = [self.tool_map[name] for name in top_names if name in self.tool_map]
+            logger.info(f"🔍 RAG Retriever: Selected tools: {[t['function']['name'] for t in retrieved]}")
+            return retrieved
+        except Exception as e:
+            logger.error(f"⚠️ RAG ToolRetriever Error: {e}. Falling back to serving all tools.")
+            return self.all_tools
