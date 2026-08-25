@@ -411,6 +411,56 @@ class SalesforceAgent:
                         except Exception as retry_err:
                             logger.error(f"Interceptor retry error: {retry_err}")
 
+                # ── Compound Query Completeness Interceptor ──
+                # Catches cases where LLM returns text with blank/empty sections
+                # for multi-part queries (e.g., "Show ALL Accounts AND count ALL Leads")
+                if iteration >= 2 and tools:
+                    user_msg_lower = user_message.lower()
+                    compound_separators = [
+                        " and ", " & ", " also ", " along with ", " as well as ",
+                        " plus ", " aur ", " tatha ", " evam ",
+                    ]
+                    is_compound = any(sep in user_msg_lower for sep in compound_separators)
+
+                    if is_compound:
+                        response_text = llm_result["content"].strip()
+                        headers = list(re.finditer(r"###\s+([^\n]+)", response_text))
+                        truly_empty: list[str] = []
+                        for i, match in enumerate(headers):
+                            start = match.end()
+                            end = headers[i + 1].start() if i + 1 < len(headers) else len(response_text)
+                            section_content = response_text[start:end].strip()
+                            if not section_content or section_content in ("", "-", "N/A"):
+                                truly_empty.append(match.group(1).strip())
+
+                        if truly_empty:
+                            logger.warning(
+                                f"⚠️ [COMPOUND INTERCEPTOR] Empty sections: {truly_empty}. "
+                                "Forcing tool execution for missing parts."
+                            )
+                            interceptor_messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
+                            interceptor_messages.append({
+                                "role": "user",
+                                "content": (
+                                    "INCOMPLETE MULTI-QUERY RESPONSE: Your response has section headers "
+                                    f"({', '.join(truly_empty)}) with no data underneath. "
+                                    "You MUST execute the appropriate MCP tool calls (soqlQuery, find, etc.) "
+                                    "to fetch the missing data for ALL sections before providing the final answer. "
+                                    "Do NOT return a final answer until every section has real data from tool execution."
+                                ),
+                            })
+                            try:
+                                retry_result = await self.llm.chat_with_tools(
+                                    messages=interceptor_messages,
+                                    tools=tools,
+                                    temperature=0.0,
+                                )
+                                if retry_result.get("tool_calls"):
+                                    llm_result = retry_result
+                                    continue
+                            except Exception as interceptor_err:
+                                logger.error(f"Compound query interceptor error: {interceptor_err}")
+
                 response = sanitize_response_output(llm_result["content"].strip())
                 if not response:
                     # LLM returned only artifacts — ask for a proper summary

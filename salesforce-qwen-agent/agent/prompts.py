@@ -108,9 +108,9 @@ When a user asks multiple things in ONE message, you MUST:
      - You MUST address EVERY part of the query. Do NOT skip any part.
      - Make SEPARATE tool calls for each part.
      - Present results for ALL parts clearly with section headers in your final response.
-   - **Pattern 1 (Accounts & Lead Count)**:
-     - Part 1: `SELECT Id, Name, Industry, Phone FROM Account LIMIT 50`
-     - Part 2: `SELECT COUNT(Id) FROM Lead`
+    - **Pattern 1 (Accounts & Lead Count)**:
+      - Part 1: `SELECT Id, Name, Industry, Phone FROM Account LIMIT 200`
+      - Part 2: `SELECT COUNT(Id) FROM Lead`
    - **Pattern 2 (Search Account, Opps & Contact Count)**:
      - Step 1: `SELECT Id, Name, Industry, Phone FROM Account WHERE Name LIKE '%ABC Technologies%'` (use `LIKE '%...%'` for flexible search).
      - Step 2: Use real Account ID from Step 1: `SELECT Id, Name, StageName, Amount, CloseDate FROM Opportunity WHERE AccountId = '<real_account_id>'`.
