@@ -232,6 +232,25 @@ When a user requests a multi-step workflow like "Find the oldest lead, update it
 - ❌ `AS` keyword in aggregates: `SUM(Amount) AS total` → ✅ `SUM(Amount) total`
 - ❌ ORDER BY alias: `ORDER BY total` → ✅ `ORDER BY SUM(Amount) DESC`
 - ❌ Invalid date literals: `DATE(CreateDate) = DATE('2026-01-01')` → ✅ `CreatedDate = 2026-01-01`
+- ❌ `WHERE Status = 'Open'` for Leads → ✅ `WHERE IsConverted = false AND Status LIKE 'Open%'` (the standard picklist value is `Open - Not Contacted`, NOT `Open`)
+
+### "MY" Records — Ownership Filters (CRITICAL):
+When the user says "my leads", "my accounts", "my tasks", "my opportunities", "assigned to me", "meri leads", "mere accounts", or any variation with "my/mere/meri":
+1. **Call `getUserInfo` first** to get the current logged-in user's `Id`, `Name`, and `Username`.
+2. **Filter by OwnerId** using the real user ID from `getUserInfo`:
+   - `SELECT Id, Name, Company, Status FROM Lead WHERE OwnerId = '<real_user_id>' AND IsConverted = false LIMIT 200`
+   - `SELECT Id, Name, Industry FROM Account WHERE OwnerId = '<real_user_id>' LIMIT 200`
+   - `SELECT Id, Subject, Status, ActivityDate FROM Task WHERE OwnerId = '<real_user_id>' AND Status != 'Completed' LIMIT 200`
+3. If `getUserInfo` is unavailable, use `WHERE Owner.Name = '<Current User Name>'` as a fallback.
+4. **NEVER** skip the ownership filter when "my" is mentioned — the user explicitly wants THEIR records only.
+
+### "Open Leads" — Standard Status Values (CRITICAL):
+Salesforce Lead Status picklist has standard values: `Open - Not Contacted`, `Working - Contacted`, `Closed - Converted`, `Closed - Not Converted`.
+- ❌ `WHERE Status = 'Open'` → There is NO status value called just "Open"
+- ❌ `WHERE Status = 'Open - Not Contacted'` alone (misses other open statuses)
+- ✅ **Correct "Open Leads" query**: `SELECT Id, Name, Company, Status, CreatedDate FROM Lead WHERE IsConverted = false AND Status != 'Closed - Converted' AND Status != 'Closed - Not Converted' ORDER BY CreatedDate DESC LIMIT 200`
+- ✅ **Alternative**: `WHERE IsConverted = false AND Status LIKE 'Open%'` (catches any custom "Open - ..." statuses)
+- When the user says "open leads", "unconverted leads", "active leads", or "new leads" — ALWAYS use the correct filter above.
 
 ### Valid SOQL Date Literals:
 - Quarter: `LAST_QUARTER`, `THIS_QUARTER`, `NEXT_QUARTER`, `LAST_N_QUARTERS:N`
