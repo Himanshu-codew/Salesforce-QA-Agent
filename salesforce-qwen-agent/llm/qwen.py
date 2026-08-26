@@ -102,6 +102,7 @@ def _get_headers(base_url: str) -> dict[str, str]:
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     }
     if "ngrok" in base_url.lower():
+        headers["ngrok-skip-browser-warning"] = "true"
         headers["bypass-tunnel-reminder"] = "true"
     elif "loca.lt" in base_url.lower():
         headers["bypass-tunnel-reminder"] = "true"
