@@ -406,20 +406,16 @@ def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery"
         obj_type = first["attributes"].get("type")
 
     # Case 1: Aggregate/COUNT result → clean single-value text, never a table
-    if "expr0" in first or (len(first) <= 3 and "Id" not in first):
-        # Extract the aggregate value from the first record
-        agg_keys = [k for k in first.keys() if k not in _SKIP_FIELDS]
-        if not agg_keys:
-            return None
-        agg_val = first.get(agg_keys[0])
-        # Format the number nicely
+    # Salesforce returns {"totalSize": 1, "records": [{"expr0": 60}]} for COUNT queries.
+    # totalSize is always 1 (one aggregate row), so we must read expr0 / count for the real value.
+    if records and isinstance(first, dict) and ("expr0" in first or "count" in first):
+        count_val = first.get("expr0", first.get("count", 0))
+        # Format with commas for readability: 1234567 → 1,234,567
         try:
-            count_num = int(float(agg_val)) if agg_val is not None else 0
+            count_num = int(float(count_val)) if count_val is not None else 0
         except (ValueError, TypeError):
-            count_num = agg_val
-        # Use totalSize if available and more reliable
-        display_count = total_size if total_size > 0 else count_num
-        return f"📊 **Count:** {display_count}"
+            count_num = 0
+        return f"**Total Count:** {count_num:,}"
 
     # Case 2: Check if ANY record has subquery collections → Hierarchical Cards
     has_subqueries = any(
