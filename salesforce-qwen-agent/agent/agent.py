@@ -81,13 +81,182 @@ def _get_nested(record: dict, field: str) -> Any:
     return val
 
 
+def _detect_subquery_collections(record: dict) -> list[str]:
+    """
+    Detect subquery collection fields in a Salesforce record dict.
+    These are fields whose value is a dict with 'totalSize' and 'records' keys,
+    e.g. {"Opportunities": {"totalSize": 4, "records": [...]}, "Contacts": {...}}
+    Returns a list of subquery field names in order.
+    """
+    collections = []
+    for key, val in record.items():
+        if key in _SKIP_FIELDS:
+            continue
+        if isinstance(val, dict) and "totalSize" in val and "records" in val:
+            collections.append(key)
+    return collections
+
+
+def _format_subquery_child(
+    child_records: list[dict],
+    parent_obj_type: str,
+    child_rel_name: str,
+) -> str:
+    """
+    Format a list of child records from a SOQL subquery into markdown bullet lines.
+    Uses smart field selection based on common child object types.
+    Returns a string like:
+      - Edge Emergency Generator — $35,000 *(Closed Won | 21 Jun 2026)*
+      - Edge SLA — $60,000 *(Closed Won | 08 Mar 2026)*
+    """
+    if not child_records:
+        return ""
+
+    def _fmt_currency(val: Any) -> str:
+        """Format a numeric value as currency: $35,000"""
+        if val is None or val == "":
+            return "-"
+        try:
+            num = float(val)
+            return f"${num:,.0f}"
+        except (ValueError, TypeError):
+            return str(val)
+
+    # Determine child object type from first record's attributes
+    child_type = ""
+    first = child_records[0]
+    if isinstance(first.get("attributes"), dict):
+        child_type = first["attributes"].get("type", "")
+
+    # Define display templates per child relationship type
+    _CHILD_FORMATS = {
+        "Opportunity": lambda r: (
+            f"{_fmt_value(r.get('Name', 'Unnamed'))} — "
+            f"{_fmt_currency(r.get('Amount'))}" if r.get('Amount') else
+            f"{_fmt_value(r.get('Name', 'Unnamed'))}"
+        ) + (
+            f" *({_fmt_value(r.get('StageName', ''))}"
+            f"{(' | ' + _fmt_value(r.get('CloseDate', ''))) if r.get('CloseDate') else ''})*"
+            if r.get('StageName') else ""
+        ),
+        "Contact": lambda r: (
+            f"**{_fmt_value(r.get('Name', ''))}**"
+            f" *({_fmt_value(r.get('Email', ''))}"
+            f"{(' | Phone: ' + _fmt_value(r.get('Phone', ''))) if r.get('Phone') else ''})*"
+        ),
+        "Case": lambda r: (
+            f"#{_fmt_value(r.get('CaseNumber', ''))} — "
+            f"{_fmt_value(r.get('Subject', ''))}"
+            f" *({_fmt_value(r.get('Status', ''))} | {_fmt_value(r.get('Priority', ''))})*"
+        ),
+        "Task": lambda r: (
+            f"{_fmt_value(r.get('Subject', ''))}"
+            f" *({_fmt_value(r.get('Status', ''))}"
+            f"{(' | Due: ' + _fmt_value(r.get('ActivityDate', ''))) if r.get('ActivityDate') else ''})*"
+        ),
+        "Lead": lambda r: (
+            f"**{_fmt_value(r.get('Name', ''))}** — "
+            f"{_fmt_value(r.get('Company', ''))}"
+            f" *({_fmt_value(r.get('Status', ''))})*"
+        ),
+    }
+
+    formatter = _CHILD_FORMATS.get(child_type)
+    if not formatter:
+        # Generic fallback: show Name + any other non-system fields
+        def formatter(r):
+            name = r.get("Name") or r.get("Subject") or r.get("CaseNumber") or "Record"
+            other_fields = [
+                f"{k}: {_fmt_value(v)}"
+                for k, v in r.items()
+                if k not in _SKIP_FIELDS and k != "Name" and k != "Subject" and k != "CaseNumber"
+                and not isinstance(v, (dict, list)) and v is not None
+            ]
+            extras = f" — {', '.join(other_fields[:3])}" if other_fields else ""
+            return f"{_fmt_value(name)}{extras}"
+
+    lines = []
+    for rec in child_records:
+        line = formatter(rec)
+        if line.strip():
+            lines.append(f"  - {line.strip()}")
+
+    total = len(child_records)
+    header_prefix = f"{total} record{'s' if total != 1 else ''}"
+    return "\n".join(lines) if lines else f"  - *(No {child_rel_name.lower()} found)*"
+
+
+def _format_parent_with_children(record: dict, total_size: int) -> str:
+    """
+    Format a single parent record with its subquery children as a hierarchical card.
+
+    Output format:
+    ### 🏢 Edge Communications *(Electronics)*
+    - **💰 Opportunities (4):**
+      - Edge Emergency Generator — $35,000 *(Closed Won | 21 Jun 2026)*
+      - Edge SLA — $60,000 *(Closed Won | 08 Mar 2026)*
+    - **👤 Contacts (2):**
+      - Sean Forbes *(sean@edge.com | Phone: (512) 757-6000)*
+      - Rose Gonzalez *(rose@edge.com | Phone: (512) 757-6000)*
+    """
+    # Determine object type
+    obj_type = ""
+    if isinstance(record.get("attributes"), dict):
+        obj_type = record["attributes"].get("type", "")
+
+    # Build parent card header
+    parent_name = record.get("Name") or record.get("Subject") or record.get("Id", "Record")
+    parent_subtitle_parts = []
+    # Add a secondary descriptive field if available
+    for hint_field in ["Industry", "Type", "Status", "StageName", "Rating"]:
+        if record.get(hint_field):
+            parent_subtitle_parts.append(_fmt_value(record[hint_field]))
+    subtitle = f" *({' | '.join(parent_subtitle_parts)})*" if parent_subtitle_parts else ""
+
+    card_lines = [f"### {_fmt_value(parent_name)}{subtitle}"]
+
+    # Detect and format subquery collections
+    collections = _detect_subquery_collections(record)
+
+    # Icons for common relationship names
+    _REL_ICONS = {
+        "Opportunities": "💰",
+        "Contacts": "👤",
+        "Cases": "🎫",
+        "Tasks": "✅",
+        "Events": "📅",
+        "Notes": "📝",
+        "Attachments": "📎",
+        "Quotes": "📋",
+        "Orders": "📦",
+    }
+
+    for rel_name in collections:
+        sub_data = record[rel_name]
+        child_records = sub_data.get("records", [])
+        child_count = sub_data.get("totalSize", len(child_records))
+        icon = _REL_ICONS.get(rel_name, "📄")
+
+        card_lines.append(f"- **{icon} {rel_name} ({child_count}):**")
+        child_formatted = _format_subquery_child(child_records, obj_type, rel_name)
+        if child_formatted:
+            card_lines.append(child_formatted)
+        else:
+            card_lines.append(f"  - *(No {rel_name.lower()} found)*")
+
+    return "\n".join(card_lines)
+
+
 def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery") -> str | None:
     """
-    Parse a Salesforce soqlQuery JSON result and return a complete markdown table.
-    Returns None if the result is not a parseable record list (e.g. errors, counts).
+    Parse a Salesforce soqlQuery JSON result and return formatted markdown.
 
-    This is the PERMANENT fix for LLM table truncation:
-    Python outputs every single row — the LLM only writes section headers.
+    Handles three cases:
+    1. Aggregate/COUNT queries → simple count table
+    2. Parent-child subqueries (nested records with Opportunities.records, etc.) → Hierarchical Cards
+    3. Flat record lists → Standard markdown table
+
+    Returns None if the result is not a parseable record list.
     """
     if tool_name != "soqlQuery":
         return None
@@ -96,22 +265,21 @@ def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery"
     except Exception:
         return None
 
-    # Handle aggregate/COUNT queries → just return count text
     records = data.get("records", [])
     total_size = data.get("totalSize", len(records))
 
     if not records:
         return f"**Total: 0 records found.**"
 
-    # Detect object type from first record's attributes
-    obj_type = None
     first = records[0]
+
+    # Detect object type
+    obj_type = None
     if isinstance(first.get("attributes"), dict):
         obj_type = first["attributes"].get("type")
 
-    # Detect if this is a COUNT/aggregate result (no Id field, has expr0 etc.)
+    # Case 1: Aggregate/COUNT result
     if "expr0" in first or (len(first) <= 3 and "Id" not in first):
-        # Aggregate result — format as simple table
         keys = [k for k in first.keys() if k not in _SKIP_FIELDS]
         if not keys:
             return None
@@ -123,9 +291,21 @@ def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery"
             rows.append(row)
         return "\n".join([header, sep] + rows) + f"\n\n**Total: {total_size} record(s)**"
 
-    # Determine display columns
+    # Case 2: Check if ANY record has subquery collections → Hierarchical Cards
+    has_subqueries = any(
+        len(_detect_subquery_collections(rec)) > 0 for rec in records
+    )
+
+    if has_subqueries:
+        cards = []
+        for rec in records:
+            cards.append(_format_parent_with_children(rec, total_size))
+
+        total_line = f"\n\n**Total: {total_size} parent record(s)**"
+        return "\n\n".join(cards) + total_line
+
+    # Case 3: Flat record list → Standard markdown table
     all_keys = []
-    # Flatten nested keys (e.g. Account.Name)
     for rec in records[:5]:
         for k, v in rec.items():
             if k in _SKIP_FIELDS:
@@ -139,19 +319,15 @@ def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery"
             elif k not in all_keys:
                 all_keys.append(k)
 
-    # Apply preferred field order if known object type
     preferred = _FIELD_ORDER.get(obj_type, [])
     ordered = [f for f in preferred if f in all_keys]
     remaining = [f for f in all_keys if f not in ordered]
     cols = ordered + remaining
-
-    # Skip attributes in cols
     cols = [c for c in cols if c.split(".")[0] not in _SKIP_FIELDS]
 
     if not cols:
         return None
 
-    # Build markdown table header
     header = "| " + " | ".join(cols) + " |"
     sep    = "| " + " | ".join(["---"] * len(cols)) + " |"
 
@@ -175,6 +351,8 @@ def sanitize_response_output(text: str) -> str:
     from the assistant response before delivering to the user.
     Removes: <think> tags, raw JSON tool call blocks, XML tool tags,
     stray system artifacts, and code blocks containing tool schemas.
+    Preserves: Hierarchical cards (### headers with bullet children),
+    Markdown tables, and natural language content.
     """
     if not text:
         return text
@@ -205,11 +383,15 @@ def sanitize_response_output(text: str) -> str:
     )
 
     # 5. Strip stray code block markers and empty blocks
+    #    But preserve markers that are part of hierarchical cards or tables
     lines = []
     for line in cleaned.split("\n"):
         stripped = line.strip()
-        # Skip lines that are only stray markers
+        # Skip lines that are ONLY stray markers (not embedded in content)
         if stripped in ("{", "}", "]", "[", "```", "```json", "```tool_call", "}}", "}}}", "`]"):
+            continue
+        # Skip stray [PRE-BUILT TABLE...] markers
+        if stripped.startswith("[PRE-BUILT TABLE") or stripped.startswith("[PRE-BUILT"):
             continue
         lines.append(line)
     cleaned = "\n".join(lines)
@@ -375,10 +557,17 @@ class SalesforceAgent:
         # LLM is NEVER allowed to present data that isn't in this dict
         tool_results_fetched: dict[str, str] = {}
 
-        # ── Python-built tables: tc_id → (obj_type, table_markdown, total_count) ──
+        # ── Python-built tables: tc_id → (tool_name, markdown) ──
         # When ALL tool calls produce Python tables, we compose the final response
         # in Python and skip the LLM formatting step entirely.
         python_tables: dict[str, tuple[str, str]] = {}  # tc_id → (tool_name, markdown)
+
+        # ── Track zero-record results for conversational follow-up ──
+        zero_record_results: list[dict] = []
+
+        # ── Multi-step action tracking ──
+        # Tracks sequential actions (read→update→delete) for proper dependency handling
+        pending_sequential_actions: list[dict] = []
 
         # ── Detect multi-query upfront ──
         user_msg_lower = user_message.lower()
@@ -524,6 +713,17 @@ class SalesforceAgent:
                             tool_results_fetched[tc["id"]] = result
                             # Track the pre-built table for direct Python response
                             python_tables[tc["id"]] = (tc["name"], py_table)
+                            # Track zero-record results for conversational follow-up
+                            try:
+                                parsed = json.loads(result)
+                                if parsed.get("totalSize", -1) == 0 or not parsed.get("records", []):
+                                    zero_record_results.append({
+                                        "tool_name": tc["name"],
+                                        "query": tc.get("arguments", {}).get("q", tc.get("arguments", {}).get("query", "")),
+                                        "tool_id": tc["id"],
+                                    })
+                            except Exception:
+                                pass
                             # Tell LLM it has pre-built table (minimal hint)
                             memory_result = (
                                 f"[PRE-BUILT TABLE — copy it VERBATIM into your response]\n\n{py_table}"
@@ -553,7 +753,7 @@ class SalesforceAgent:
                         if tc["id"] in python_tables:
                             _, table_md = python_tables[tc["id"]]
                             # Derive section header from SOQL query or tool name
-                            soql = tc.get("arguments", {}).get("query", "")
+                            soql = tc.get("arguments", {}).get("q", tc.get("arguments", {}).get("query", ""))
                             obj_match = re.search(r"FROM\s+(\w+)", soql, re.IGNORECASE)
                             obj_name = obj_match.group(1) if obj_match else "Records"
                             # Friendly header
@@ -567,11 +767,47 @@ class SalesforceAgent:
                                 "Event": "### 📅 Events Found",
                                 "User": "### 👥 Users Found",
                             }
-                            header = _headers.get(obj_name, f"### {obj_name} Found")
-                            sections.append(f"{header}\n\n{table_md}")
+                            # For hierarchical cards, skip generic header (cards have their own)
+                            has_hierarchical = "### " in table_md and "**" in table_md and "- **" in table_md
+                            if has_hierarchical:
+                                sections.append(table_md)
+                            else:
+                                header = _headers.get(obj_name, f"### {obj_name} Found")
+                                sections.append(f"{header}\n\n{table_md}")
 
                     if sections:
                         direct_response = "\n\n---\n\n".join(sections)
+
+                        # ── Conversational Zero-Records Enhancement ──
+                        # When all queries return 0 records, add a helpful conversational note
+                        if zero_record_results and len(zero_record_results) == len(safe_calls):
+                            total_query_count = len(zero_record_results)
+                            # Parse what was being searched for
+                            search_intents = []
+                            for zr in zero_record_results:
+                                q = zr.get("query", "")
+                                from_match = re.search(r"FROM\s+(\w+)", q, re.IGNORECASE)
+                                if from_match:
+                                    search_intents.append(from_match.group(1))
+                                where_match = re.search(r"WHERE\s+(.+?)(?:\s+LIMIT|\s*$)", q, re.IGNORECASE)
+                                if where_match:
+                                    search_intents.append(f"matching {where_match.group(1).strip()}")
+
+                            if search_intents:
+                                intent_text = ", ".join(set(search_intents))
+                                direct_response += (
+                                    f"\n\n---\n\n"
+                                    f"ℹ️ **I searched for {intent_text} but didn't find any matching records "
+                                    f"in your Salesforce org.** This could mean:\n"
+                                    f"- The records don't exist yet in your org\n"
+                                    f"- The filter criteria didn't match any existing records\n"
+                                    f"- The records may be under a different name or spelling\n\n"
+                                    f"Would you like me to:\n"
+                                    f"- **Broaden the search** (remove filters)?\n"
+                                    f"- **Show recent records** of this type instead?\n"
+                                    f"- **Check a different object**?"
+                                )
+
                         logger.info(f"⚡ [PYTHON DIRECT RESPONSE] Bypassing LLM formatter — "
                                     f"{len(sections)} table(s), {len(direct_response)} chars")
                         memory.add_assistant_message(direct_response)
