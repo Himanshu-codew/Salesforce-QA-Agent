@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────
 # Python-Side Salesforce Table Formatter
-# PERMANENT FIX: Formats tool results as markdown tables in Python.
-# LLM NEVER formats tables → LLM can NEVER truncate rows.
+# Formats flat SOQL results and COUNT queries as clean markdown.
+# Hierarchical/subquery results are left for the LLM to render as cards.
 # ──────────────────────────────────────────────────────────────
 
 # Fields to skip in auto-generated tables (internal Salesforce system fields)
@@ -378,10 +378,12 @@ def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery"
     """
     Parse a Salesforce soqlQuery JSON result and return formatted markdown.
 
-    Handles three cases:
-    1. Aggregate/COUNT queries → simple count table
-    2. Parent-child subqueries (nested records with Opportunities.records, etc.) → Hierarchical Cards
-    3. Flat record lists → Standard markdown table
+    Handles two cases:
+    1. Aggregate/COUNT queries → clean count line
+    2. Flat record lists → Standard markdown table
+
+    Hierarchical/subquery results return None — they are passed raw to the
+    LLM which renders them as structured cards.
 
     Returns None if the result is not a parseable record list.
     """
@@ -396,7 +398,7 @@ def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery"
     total_size = data.get("totalSize", len(records))
 
     if not records:
-        return f"**Total: 0 records found.**"
+        return None
 
     first = records[0]
 
@@ -417,18 +419,12 @@ def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery"
             count_num = 0
         return f"**Total Count:** {count_num:,}"
 
-    # Case 2: Check if ANY record has subquery collections → Hierarchical Cards
+    # Case 2: Subquery results → return None (let LLM handle hierarchical formatting)
     has_subqueries = any(
         len(_detect_subquery_collections(rec)) > 0 for rec in records
     )
-
     if has_subqueries:
-        cards = []
-        for rec in records:
-            cards.append(_format_parent_with_children(rec, total_size))
-
-        total_line = f"\n\n**Total: {total_size} parent record(s)**"
-        return "\n\n".join(cards) + total_line
+        return None
 
     # Case 3: Flat record list → Standard markdown table
     all_keys = []
@@ -479,6 +475,7 @@ def sanitize_response_output(text: str) -> str:
     stray system artifacts, and code blocks containing tool schemas.
     Preserves: Hierarchical cards (### headers with bullet children),
     Markdown tables, and natural language content.
+    Strips: [reference_table] and [PRE-BUILT TABLE...] internal markers.
     """
     if not text:
         return text
@@ -516,8 +513,10 @@ def sanitize_response_output(text: str) -> str:
         # Skip lines that are ONLY stray markers (not embedded in content)
         if stripped in ("{", "}", "]", "[", "```", "```json", "```tool_call", "}}", "}}}", "`]"):
             continue
-        # Skip stray [PRE-BUILT TABLE...] markers
+        # Skip stray [PRE-BUILT TABLE...] and [reference_table] markers
         if stripped.startswith("[PRE-BUILT TABLE") or stripped.startswith("[PRE-BUILT"):
+            continue
+        if stripped == "[reference_table]":
             continue
         lines.append(line)
     cleaned = "\n".join(lines)
@@ -684,8 +683,8 @@ class SalesforceAgent:
         tool_results_fetched: dict[str, str] = {}
 
         # ── Python-built tables: tc_id → (tool_name, markdown) ──
-        # When ALL tool calls produce Python tables, we compose the final response
-        # in Python and skip the LLM formatting step entirely.
+        # Stores pre-formatted flat tables and count lines. Hierarchical/subquery
+        # results are NOT stored here — they flow raw to the LLM for card formatting.
         python_tables: dict[str, tuple[str, str]] = {}  # tc_id → (tool_name, markdown)
 
         # ── Track zero-record results for conversational follow-up ──
@@ -831,13 +830,13 @@ class SalesforceAgent:
                                     except Exception as retry_err:
                                         logger.error(f"SOQL retry error: {retry_err}")
 
-                        # ── PERMANENT TABLE FIX: Format tables in Python, not LLM ──
-                        # LLM receives pre-built markdown tables → cannot truncate rows.
+                        # ── PYTHON TABLE FORMATTING: Flat SOQL → markdown table, COUNT → count line ──
+                        # Hierarchical/subquery results return None → raw JSON goes to LLM for card formatting.
                         py_table = format_sf_records_as_markdown(result, tc["name"])
                         if py_table:
                             # Store raw result for hallucination checking
                             tool_results_fetched[tc["id"]] = result
-                            # Track the pre-built table for direct Python response
+                            # Track the pre-built table for potential direct response bypass
                             python_tables[tc["id"]] = (tc["name"], py_table)
                             # Track zero-record results for conversational follow-up
                             try:
@@ -850,9 +849,9 @@ class SalesforceAgent:
                                     })
                             except Exception:
                                 pass
-                            # Tell LLM it has pre-built table (minimal hint)
+                            # Pass formatted table to LLM as clean reference — no aggressive prefix
                             memory_result = (
-                                f"[PRE-BUILT TABLE — copy it VERBATIM into your response]\n\n{py_table}"
+                                f"[reference_table]\n\n{py_table}"
                             )
                             logger.info(f"📊 [PYTHON TABLE] Built {tc['name']} table "
                                         f"({py_table.count(chr(10))} rows)")
@@ -870,17 +869,16 @@ class SalesforceAgent:
                             "data": {"name": tc["name"], "result": result},
                         }
 
-                # ── PYTHON DIRECT RESPONSE: Skip LLM if all results are tabular ──
-                # If every tool call produced a Python table, compose response directly.
-                # LLM is bypassed → zero truncation possible.
-                # BUT: if user query has action/multi-intent keywords, let LLM continue
-                # to handle updates, deletes, confirmations, or synthesize complex answers.
+                # ── PYTHON DIRECT RESPONSE: Skip LLM for simple flat queries only ──
+                # Only bypass LLM when ALL tool calls produced flat Python tables
+                # (no hierarchical cards, no subqueries). Action keywords and complex
+                # queries always go to the LLM for natural synthesis.
                 _action_kw = [
                     "update", "edit", "change", "modify", "badlo", "set",
                     "delete", "remove", "hatao", "mitao", "drop",
                     "create", "add", "insert", "new", "make", "banao", "daalo",
-                    "and tell me", "and how many", "and count", "and delete",
-                    "and update", "and create", "also count", "how many",
+                    "and tell me", "and count", "and delete",
+                    "and update", "and create", "also count",
                 ]
                 _has_action_or_complex = any(kw in user_msg_lower for kw in _action_kw)
                 if python_tables and safe_calls and len(python_tables) == len(safe_calls) and not destructive_calls and not _has_action_or_complex:
@@ -903,13 +901,8 @@ class SalesforceAgent:
                                 "Event": "### 📅 Events Found",
                                 "User": "### 👥 Users Found",
                             }
-                            # For hierarchical cards, skip generic header (cards have their own)
-                            has_hierarchical = "### " in table_md and "**" in table_md and "- **" in table_md
-                            if has_hierarchical:
-                                sections.append(table_md)
-                            else:
-                                header = _headers.get(obj_name, f"### {obj_name} Found")
-                                sections.append(f"{header}\n\n{table_md}")
+                            header = _headers.get(obj_name, f"### {obj_name} Found")
+                            sections.append(f"{header}\n\n{table_md}")
 
                     if sections:
                         direct_response = "\n\n---\n\n".join(sections)

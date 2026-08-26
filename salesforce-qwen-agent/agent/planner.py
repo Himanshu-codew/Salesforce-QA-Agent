@@ -97,7 +97,8 @@ class TaskPlanner:
         # Check if user confirmed
         response_lower = user_response.strip().lower()
         confirmed = response_lower in {
-            "yes", "y", "confirm", "proceed", "do it", "go ahead", "ok", "sure",
+            "yes", "y", "yeah", "yep", "confirm", "confirmed", "proceed",
+            "do it", "go ahead", "ok", "okay", "sure", "aye", "absolutely",
         }
 
         if confirmed:
