@@ -23,7 +23,7 @@ if __name__ == "__main__":
     load_dotenv(override=True)
 
     host = os.getenv("APP_HOST", "0.0.0.0")
-    port = int(os.getenv("APP_PORT", "8000"))
+    port = int(os.getenv("PORT", os.getenv("APP_PORT", "8000")))
 
     print(f"\n============================================================")
     print(f"  Salesforce Qwen Agent Server")

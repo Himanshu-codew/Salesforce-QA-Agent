@@ -271,7 +271,7 @@ class QwenLLM(BaseLLM):
         self,
         messages: list[dict[str, Any]],
         temperature: float = 0.0,
-        max_tokens: int = 3072,
+        max_tokens: int = 8192,  # Raised: 3072 was cutting multi-query tables mid-row
     ) -> str:
         """Send a simple chat completion request (no tools)."""
         self._check_and_update_base_url()
@@ -307,7 +307,7 @@ class QwenLLM(BaseLLM):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         temperature: float = 0.0,
-        max_tokens: int = 3072,
+        max_tokens: int = 8192,  # Raised: 3072 was cutting multi-query tables mid-row
     ) -> dict[str, Any]:
         """
         Send a chat completion with tool/function calling.

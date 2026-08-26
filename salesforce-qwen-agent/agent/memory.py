@@ -76,16 +76,17 @@ class ConversationMemory:
         """
         Add a tool execution result to the history.
         Must follow an assistant message containing the corresponding tool call.
-        Truncated to 4000 chars to preserve IDs and key data in multi-step queries.
+        Limit raised to 25000 chars — enough for 200 full Salesforce records.
+        Truncating at 4000 was causing hallucination (LLM got partial data and invented the rest).
         """
         clean_result = result
-        if len(clean_result) > 4000:
-            # Cut at line boundary to preserve syntax integrity
-            truncated_pos = clean_result.rfind("\n", 0, 4000)
-            if truncated_pos > 1000:
-                clean_result = clean_result[:truncated_pos] + "\n... [truncated for memory performance]"
+        if len(clean_result) > 25000:
+            # Cut at line boundary to preserve last complete record row
+            truncated_pos = clean_result.rfind("\n", 0, 25000)
+            if truncated_pos > 5000:
+                clean_result = clean_result[:truncated_pos] + "\n... [truncated at 25000 chars — query returned very large dataset]"
             else:
-                clean_result = clean_result[:4000] + "\n... [truncated for memory performance]"
+                clean_result = clean_result[:25000] + "\n... [truncated at 25000 chars]"
 
         self._messages.append({
             "role": "tool",
@@ -93,7 +94,8 @@ class ConversationMemory:
             "name": tool_name,
             "content": clean_result,
         })
-        logger.debug(f"Added tool result for {tool_name} (id={tool_call_id})")
+        logger.debug(f"Added tool result for {tool_name} (id={tool_call_id}, len={len(clean_result)})")
+
 
     def clear(self) -> None:
         """Clear all conversation history."""
