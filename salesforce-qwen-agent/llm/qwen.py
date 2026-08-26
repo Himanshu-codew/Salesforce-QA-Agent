@@ -268,6 +268,19 @@ class QwenLLM(BaseLLM):
         except Exception as e:
             logger.warning(f"Failed to check base_url update: {e}")
 
+    async def _auto_fallback_model(self) -> bool:
+        """Query /models from server and auto-select the loaded model if current model returns 404."""
+        try:
+            models_resp = await self._client.models.list()
+            available = [m.id for m in models_resp.data if m.id]
+            if available and self.model not in available:
+                logger.warning(f"⚠️ Model '{self.model}' not found in server models {available}. Auto-switching to '{available[0]}'")
+                self.model = available[0]
+                return True
+        except Exception as e:
+            logger.warning(f"Could not auto-discover models: {e}")
+        return False
+
     async def chat(
         self,
         messages: list[dict[str, Any]],
@@ -276,32 +289,38 @@ class QwenLLM(BaseLLM):
     ) -> str:
         """Send a simple chat completion request (no tools)."""
         self._check_and_update_base_url()
-        try:
-            extra_body = {}
-            if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
-                extra_body["options"] = {"num_ctx": 16384, "num_predict": max_tokens, "temperature": 0.0, "num_gpu": 100}
+        extra_body = {}
+        if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
+            extra_body["options"] = {"num_ctx": 16384, "num_predict": max_tokens, "temperature": 0.0, "num_gpu": 100}
 
-            response = await self._client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                extra_body=extra_body if extra_body else None,
-            )
-            content = response.choices[0].message.content or ""
-            content = strip_thinking(content)
-            logger.debug(f"Chat response (truncated): {content[:200]}")
-            return content
+        for attempt in range(2):
+            try:
+                response = await self._client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    extra_body=extra_body if extra_body else None,
+                )
+                content = response.choices[0].message.content or ""
+                content = strip_thinking(content)
+                logger.debug(f"Chat response (truncated): {content[:200]}")
+                return content
 
-        except Exception as e:
-            logger.error(
-                f"Qwen chat error: {e}. "
-                f"Check if URL is reachable: {self.base_url}"
-            )
-            raise ConnectionError(
-                f"Failed to connect to LLM at '{self.base_url}'. "
-                "If using Kaggle/Ngrok, check if your tunnel URL has expired or update QWEN_BASE_URL in .env."
-            ) from e
+            except Exception as e:
+                # If model not found (404), try auto-discovering the active model on server
+                if attempt == 0 and ("404" in str(e) or "not found" in str(e).lower() or "NotFoundError" in type(e).__name__):
+                    switched = await self._auto_fallback_model()
+                    if switched:
+                        continue
+                logger.error(
+                    f"Qwen chat error: {type(e).__name__} - {e}. "
+                    f"Check if URL is reachable: {self.base_url}"
+                )
+                raise ConnectionError(
+                    f"Failed to connect to LLM at '{self.base_url}' ({type(e).__name__}: {e}). "
+                    "If using Kaggle/Ngrok, check if your tunnel URL has expired or update QWEN_BASE_URL in .env."
+                ) from e
 
     async def chat_with_tools(
         self,
@@ -315,77 +334,83 @@ class QwenLLM(BaseLLM):
         Returns parsed response with content, tool_calls, and finish_reason.
         """
         self._check_and_update_base_url()
-        try:
-            extra_body = {}
-            if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
-                extra_body["options"] = {"num_ctx": 16384, "num_predict": max_tokens, "temperature": 0.0, "num_gpu": 100}
+        extra_body = {}
+        if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
+            extra_body["options"] = {"num_ctx": 16384, "num_predict": max_tokens, "temperature": 0.0, "num_gpu": 100}
 
-            # Sanitize None content to empty string for Ollama/GGUF template compatibility
-            clean_messages = []
-            for m in messages:
-                msg_copy = dict(m)
-                if msg_copy.get("content") is None:
-                    msg_copy["content"] = ""
-                clean_messages.append(msg_copy)
+        # Sanitize None content to empty string for Ollama/GGUF template compatibility
+        clean_messages = []
+        for m in messages:
+            msg_copy = dict(m)
+            if msg_copy.get("content") is None:
+                msg_copy["content"] = ""
+            clean_messages.append(msg_copy)
 
-            response = await self._client.chat.completions.create(
-                model=self.model,
-                messages=clean_messages,
-                tools=tools if tools else None,
-                temperature=0.0,
-                max_tokens=max_tokens,
-                extra_body=extra_body if extra_body else None,
-            )
-
-            choice = response.choices[0]
-            message = choice.message
-            result: dict[str, Any] = {
-                "content": strip_thinking(message.content) if message.content else message.content,
-                "tool_calls": [],
-                "finish_reason": choice.finish_reason,
-            }
-
-            # Parse native tool calls if present
-            if message.tool_calls:
-                for tc in message.tool_calls:
-                    try:
-                        arguments = json.loads(tc.function.arguments)
-                    except (json.JSONDecodeError, TypeError):
-                        arguments = tc.function.arguments
-
-                    result["tool_calls"].append({
-                        "id": tc.id,
-                        "name": tc.function.name,
-                        "arguments": arguments,
-                    })
-            elif result["content"]:
-                # Fallback: Extract embedded XML/JSON tool calls from Qwen3 GGUF text output
-                extracted = _extract_text_tool_calls(result["content"])
-                if extracted:
-                    result["tool_calls"].extend(extracted)
-                    result["content"] = strip_raw_tool_json(result["content"])
-
-            # Clean any leftover raw JSON tool call syntax from text response
-            if result["content"]:
-                result["content"] = strip_raw_tool_json(result["content"])
-
-            if result["tool_calls"]:
-                logger.info(
-                    f"Tool calls requested: "
-                    f"{[tc['name'] for tc in result['tool_calls']]}"
+        for attempt in range(2):
+            try:
+                response = await self._client.chat.completions.create(
+                    model=self.model,
+                    messages=clean_messages,
+                    tools=tools if tools else None,
+                    temperature=0.0,
+                    max_tokens=max_tokens,
+                    extra_body=extra_body if extra_body else None,
                 )
 
-            return result
+                choice = response.choices[0]
+                message = choice.message
+                result: dict[str, Any] = {
+                    "content": strip_thinking(message.content) if message.content else message.content,
+                    "tool_calls": [],
+                    "finish_reason": choice.finish_reason,
+                }
 
-        except Exception as e:
-            logger.error(
-                f"Qwen chat_with_tools error: {e}. "
-                f"Check if URL is reachable: {self.base_url}"
-            )
-            raise ConnectionError(
-                f"Failed to connect to LLM at '{self.base_url}'. "
-                "If using Kaggle/Ngrok, check if your tunnel URL has expired or update QWEN_BASE_URL in .env."
-            ) from e
+                # Parse native tool calls if present
+                if message.tool_calls:
+                    for tc in message.tool_calls:
+                        try:
+                            arguments = json.loads(tc.function.arguments)
+                        except (json.JSONDecodeError, TypeError):
+                            arguments = tc.function.arguments
+
+                        result["tool_calls"].append({
+                            "id": tc.id,
+                            "name": tc.function.name,
+                            "arguments": arguments,
+                        })
+                elif result["content"]:
+                    # Fallback: Extract embedded XML/JSON tool calls from Qwen3 GGUF text output
+                    extracted = _extract_text_tool_calls(result["content"])
+                    if extracted:
+                        result["tool_calls"].extend(extracted)
+                        result["content"] = strip_raw_tool_json(result["content"])
+
+                # Clean any leftover raw JSON tool call syntax from text response
+                if result["content"]:
+                    result["content"] = strip_raw_tool_json(result["content"])
+
+                if result["tool_calls"]:
+                    logger.info(
+                        f"Tool calls requested: "
+                        f"{[tc['name'] for tc in result['tool_calls']]}"
+                    )
+
+                return result
+
+            except Exception as e:
+                # If model not found (404), try auto-discovering the active model on server
+                if attempt == 0 and ("404" in str(e) or "not found" in str(e).lower() or "NotFoundError" in type(e).__name__):
+                    switched = await self._auto_fallback_model()
+                    if switched:
+                        continue
+                logger.error(
+                    f"Qwen chat_with_tools error: {type(e).__name__} - {e}. "
+                    f"Check if URL is reachable: {self.base_url}"
+                )
+                raise ConnectionError(
+                    f"Failed to connect to LLM at '{self.base_url}' ({type(e).__name__}: {e}). "
+                    "If using Kaggle/Ngrok, check if your tunnel URL has expired or update QWEN_BASE_URL in .env."
+                ) from e
 
     async def close(self) -> None:
         """Close the underlying HTTP client."""
