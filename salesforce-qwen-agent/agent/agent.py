@@ -97,6 +97,179 @@ def _detect_subquery_collections(record: dict) -> list[str]:
     return collections
 
 
+def _fmt_currency(val: Any) -> str:
+    """Format a numeric value as currency: $35,000."""
+    if val is None or val == "":
+        return "-"
+    try:
+        num = float(val)
+        return f"${num:,.0f}"
+    except (ValueError, TypeError):
+        return str(val)
+
+
+def _fmt_record_id(record: dict) -> str:
+    """Extract the 18-char Salesforce ID from a record, or empty string."""
+    raw = record.get("Id", "")
+    return str(raw)[:18] if raw else ""
+
+
+# ──────────────────────────────────────────────────────────────
+# Per-type child record formatters
+# Each receives a single child record dict and returns a one-line markdown string.
+# ──────────────────────────────────────────────────────────────
+
+def _fmt_child_opportunity(r: dict) -> str:
+    """Format one Opportunity child record."""
+    name = _fmt_value(r.get("Name", "Unnamed"))
+    amount = _fmt_currency(r.get("Amount")) if r.get("Amount") else None
+    stage = _fmt_value(r.get("StageName", "")) if r.get("StageName") else None
+    close = _fmt_value(r.get("CloseDate", "")) if r.get("CloseDate") else None
+    rid = _fmt_record_id(r)
+
+    parts = [f"💰 **{name}**"]
+    if amount:
+        parts.append(f"— **{amount}**")
+    meta = []
+    if stage:
+        meta.append(f"*Stage:* {stage}")
+    if close:
+        meta.append(f"*Close Date:* {close}")
+    if meta:
+        parts.append("| " + " | ".join(meta))
+    if rid:
+        parts.append(f"*(ID: {rid})*")
+    return " ".join(parts)
+
+
+def _fmt_child_contact(r: dict) -> str:
+    """Format one Contact child record."""
+    name = _fmt_value(r.get("Name", "Unknown"))
+    rid = _fmt_record_id(r)
+    email = _fmt_value(r.get("Email", "")) if r.get("Email") else None
+    phone = _fmt_value(r.get("Phone", "")) if r.get("Phone") else None
+
+    parts = [f"👤 **{name}**"]
+    detail_parts = []
+    if rid:
+        detail_parts.append(f"ID: {rid}")
+    if email:
+        detail_parts.append(email)
+    if phone:
+        detail_parts.append(f"Phone: {phone}")
+    if detail_parts:
+        parts.append(f"*({' | '.join(detail_parts)})*")
+    return " ".join(parts)
+
+
+def _fmt_child_case(r: dict) -> str:
+    """Format one Case child record."""
+    case_num = _fmt_value(r.get("CaseNumber", ""))
+    subject = _fmt_value(r.get("Subject", "No subject"))
+    status = _fmt_value(r.get("Status", "")) if r.get("Status") else None
+    priority = _fmt_value(r.get("Priority", "")) if r.get("Priority") else None
+
+    parts = [f"🎫 **#{case_num}** — {subject}"]
+    meta = []
+    if status:
+        meta.append(f"*Status:* {status}")
+    if priority:
+        meta.append(f"*Priority:* {priority}")
+    if meta:
+        parts.append("| " + " | ".join(meta))
+    return " ".join(parts)
+
+
+def _fmt_child_task(r: dict) -> str:
+    """Format one Task child record."""
+    subject = _fmt_value(r.get("Subject", "No subject"))
+    status = _fmt_value(r.get("Status", "")) if r.get("Status") else None
+    due = _fmt_value(r.get("ActivityDate", "")) if r.get("ActivityDate") else None
+
+    parts = [f"✅ **{subject}**"]
+    meta = []
+    if status:
+        meta.append(f"*Status:* {status}")
+    if due:
+        meta.append(f"*Due:* {due}")
+    if meta:
+        parts.append("| " + " | ".join(meta))
+    return " ".join(parts)
+
+
+def _fmt_child_lead(r: dict) -> str:
+    """Format one Lead child record."""
+    name = _fmt_value(r.get("Name", "Unknown"))
+    company = _fmt_value(r.get("Company", "")) if r.get("Company") else None
+    status = _fmt_value(r.get("Status", "")) if r.get("Status") else None
+
+    parts = [f"📋 **{name}**"]
+    if company:
+        parts.append(f"— {company}")
+    if status:
+        parts.append(f"| *Status:* {status}")
+    return " ".join(parts)
+
+
+def _fmt_child_event(r: dict) -> str:
+    """Format one Event child record."""
+    subject = _fmt_value(r.get("Subject", "No subject"))
+    start = _fmt_value(r.get("StartDateTime", "")) if r.get("StartDateTime") else None
+    end = _fmt_value(r.get("EndDateTime", "")) if r.get("EndDateTime") else None
+
+    parts = [f"📅 **{subject}**"]
+    meta = []
+    if start:
+        meta.append(f"*Start:* {start}")
+    if end:
+        meta.append(f"*End:* {end}")
+    if meta:
+        parts.append("| " + " | ".join(meta))
+    return " ".join(parts)
+
+
+def _fmt_child_generic(r: dict) -> str:
+    """Generic fallback: extract Name + key non-system fields cleanly."""
+    name = r.get("Name") or r.get("Subject") or r.get("CaseNumber") or "Record"
+    rid = _fmt_record_id(r)
+
+    # Collect meaningful scalar fields (skip system metadata, nested objects, and duplicates of Name)
+    skip = _SKIP_FIELDS | {"Name", "Subject", "CaseNumber", "Id"}
+    detail_parts = []
+    if rid:
+        detail_parts.append(f"ID: {rid}")
+    for k, v in r.items():
+        if k in skip or isinstance(v, (dict, list)) or v is None or v == "":
+            continue
+        detail_parts.append(f"{k}: {_fmt_value(v)}")
+        if len(detail_parts) >= 5:
+            break
+
+    parts = [f"📄 **{_fmt_value(name)}**"]
+    if detail_parts:
+        parts.append(f"*({' | '.join(detail_parts)})*")
+    return " ".join(parts)
+
+
+# Registry: relationship name → formatter (checked first), then child type → formatter
+_CHILD_FORMATS_BY_REL: dict[str, callable] = {
+    "Opportunities": _fmt_child_opportunity,
+    "Contacts": _fmt_child_contact,
+    "Cases": _fmt_child_case,
+    "Tasks": _fmt_child_task,
+    "Events": _fmt_child_event,
+}
+
+_CHILD_FORMATS_BY_TYPE: dict[str, callable] = {
+    "Opportunity": _fmt_child_opportunity,
+    "Contact": _fmt_child_contact,
+    "Case": _fmt_child_case,
+    "Task": _fmt_child_task,
+    "Lead": _fmt_child_lead,
+    "Event": _fmt_child_event,
+}
+
+
 def _format_subquery_child(
     child_records: list[dict],
     parent_obj_type: str,
@@ -104,23 +277,15 @@ def _format_subquery_child(
 ) -> str:
     """
     Format a list of child records from a SOQL subquery into markdown bullet lines.
-    Uses smart field selection based on common child object types.
-    Returns a string like:
-      - Edge Emergency Generator — $35,000 *(Closed Won | 21 Jun 2026)*
-      - Edge SLA — $60,000 *(Closed Won | 08 Mar 2026)*
+    Uses relationship-name-based dispatch first, then child-type-based dispatch,
+    then a clean generic fallback. No raw field dumps.
+
+    Output examples:
+      * 💰 **Edge SLA** — **$60,000** | *Stage:* Closed Won | *Close Date:* 08 Mar 2026
+      * 👤 **Sean Forbes** *(ID: 003g500000NhEDmAAN | sean@edge.com)*
     """
     if not child_records:
         return ""
-
-    def _fmt_currency(val: Any) -> str:
-        """Format a numeric value as currency: $35,000"""
-        if val is None or val == "":
-            return "-"
-        try:
-            num = float(val)
-            return f"${num:,.0f}"
-        except (ValueError, TypeError):
-            return str(val)
 
     # Determine child object type from first record's attributes
     child_type = ""
@@ -128,62 +293,16 @@ def _format_subquery_child(
     if isinstance(first.get("attributes"), dict):
         child_type = first["attributes"].get("type", "")
 
-    # Define display templates per child relationship type
-    _CHILD_FORMATS = {
-        "Opportunity": lambda r: (
-            f"{_fmt_value(r.get('Name', 'Unnamed'))} — "
-            f"{_fmt_currency(r.get('Amount'))}" if r.get('Amount') else
-            f"{_fmt_value(r.get('Name', 'Unnamed'))}"
-        ) + (
-            f" *({_fmt_value(r.get('StageName', ''))}"
-            f"{(' | ' + _fmt_value(r.get('CloseDate', ''))) if r.get('CloseDate') else ''})*"
-            if r.get('StageName') else ""
-        ),
-        "Contact": lambda r: (
-            f"**{_fmt_value(r.get('Name', ''))}**"
-            f" *({_fmt_value(r.get('Email', ''))}"
-            f"{(' | Phone: ' + _fmt_value(r.get('Phone', ''))) if r.get('Phone') else ''})*"
-        ),
-        "Case": lambda r: (
-            f"#{_fmt_value(r.get('CaseNumber', ''))} — "
-            f"{_fmt_value(r.get('Subject', ''))}"
-            f" *({_fmt_value(r.get('Status', ''))} | {_fmt_value(r.get('Priority', ''))})*"
-        ),
-        "Task": lambda r: (
-            f"{_fmt_value(r.get('Subject', ''))}"
-            f" *({_fmt_value(r.get('Status', ''))}"
-            f"{(' | Due: ' + _fmt_value(r.get('ActivityDate', ''))) if r.get('ActivityDate') else ''})*"
-        ),
-        "Lead": lambda r: (
-            f"**{_fmt_value(r.get('Name', ''))}** — "
-            f"{_fmt_value(r.get('Company', ''))}"
-            f" *({_fmt_value(r.get('Status', ''))})*"
-        ),
-    }
-
-    formatter = _CHILD_FORMATS.get(child_type)
-    if not formatter:
-        # Generic fallback: show Name + any other non-system fields
-        def formatter(r):
-            name = r.get("Name") or r.get("Subject") or r.get("CaseNumber") or "Record"
-            other_fields = [
-                f"{k}: {_fmt_value(v)}"
-                for k, v in r.items()
-                if k not in _SKIP_FIELDS and k != "Name" and k != "Subject" and k != "CaseNumber"
-                and not isinstance(v, (dict, list)) and v is not None
-            ]
-            extras = f" — {', '.join(other_fields[:3])}" if other_fields else ""
-            return f"{_fmt_value(name)}{extras}"
+    # Resolve formatter: relationship name takes priority over type
+    formatter = _CHILD_FORMATS_BY_REL.get(child_rel_name) or _CHILD_FORMATS_BY_TYPE.get(child_type) or _fmt_child_generic
 
     lines = []
     for rec in child_records:
         line = formatter(rec)
         if line.strip():
-            lines.append(f"  - {line.strip()}")
+            lines.append(f"  * {line.strip()}")
 
-    total = len(child_records)
-    header_prefix = f"{total} record{'s' if total != 1 else ''}"
-    return "\n".join(lines) if lines else f"  - *(No {child_rel_name.lower()} found)*"
+    return "\n".join(lines) if lines else ""
 
 
 def _format_parent_with_children(record: dict, total_size: int) -> str:
@@ -192,12 +311,16 @@ def _format_parent_with_children(record: dict, total_size: int) -> str:
 
     Output format:
     ### 🏢 Edge Communications *(Electronics)*
-    - **💰 Opportunities (4):**
-      - Edge Emergency Generator — $35,000 *(Closed Won | 21 Jun 2026)*
-      - Edge SLA — $60,000 *(Closed Won | 08 Mar 2026)*
-    - **👤 Contacts (2):**
-      - Sean Forbes *(sean@edge.com | Phone: (512) 757-6000)*
-      - Rose Gonzalez *(rose@edge.com | Phone: (512) 757-6000)*
+    * **💰 Opportunities (4):**
+      * 💰 **Edge Emergency Generator** — **$35,000** | *Stage:* Closed Won | *Close Date:* 21 Jun 2026
+      * 💰 **Edge SLA** — **$60,000** | *Stage:* Closed Won | *Close Date:* 08 Mar 2026
+    * **👤 Contacts (2):**
+      * 👤 **Sean Forbes** *(ID: 003... | sean@edge.com)*
+      * 👤 **Rose Gonzalez** *(ID: 003... | rose@edge.com)*
+
+    Accounts with no children render a clean empty state:
+    ### 🏢 ABC Technologies
+    * *No linked Opportunities or Contacts*
     """
     # Determine object type
     obj_type = ""
@@ -207,10 +330,10 @@ def _format_parent_with_children(record: dict, total_size: int) -> str:
     # Build parent card header
     parent_name = record.get("Name") or record.get("Subject") or record.get("Id", "Record")
     parent_subtitle_parts = []
-    # Add a secondary descriptive field if available
     for hint_field in ["Industry", "Type", "Status", "StageName", "Rating"]:
-        if record.get(hint_field):
-            parent_subtitle_parts.append(_fmt_value(record[hint_field]))
+        val = record.get(hint_field)
+        if val:
+            parent_subtitle_parts.append(_fmt_value(val))
     subtitle = f" *({' | '.join(parent_subtitle_parts)})*" if parent_subtitle_parts else ""
 
     card_lines = [f"### {_fmt_value(parent_name)}{subtitle}"]
@@ -231,18 +354,22 @@ def _format_parent_with_children(record: dict, total_size: int) -> str:
         "Orders": "📦",
     }
 
-    for rel_name in collections:
-        sub_data = record[rel_name]
-        child_records = sub_data.get("records", [])
-        child_count = sub_data.get("totalSize", len(child_records))
-        icon = _REL_ICONS.get(rel_name, "📄")
+    if not collections:
+        # No subquery children at all — clean empty state
+        card_lines.append(f"  * *No linked Opportunities or Contacts*")
+    else:
+        for rel_name in collections:
+            sub_data = record[rel_name]
+            child_records = sub_data.get("records", [])
+            child_count = sub_data.get("totalSize", len(child_records))
+            icon = _REL_ICONS.get(rel_name, "📄")
 
-        card_lines.append(f"- **{icon} {rel_name} ({child_count}):**")
-        child_formatted = _format_subquery_child(child_records, obj_type, rel_name)
-        if child_formatted:
-            card_lines.append(child_formatted)
-        else:
-            card_lines.append(f"  - *(No {rel_name.lower()} found)*")
+            card_lines.append(f"* **{icon} {rel_name} ({child_count}):**")
+            child_formatted = _format_subquery_child(child_records, obj_type, rel_name)
+            if child_formatted:
+                card_lines.append(child_formatted)
+            else:
+                card_lines.append(f"  * *No {rel_name.lower()} linked*")
 
     return "\n".join(card_lines)
 
@@ -779,33 +906,39 @@ class SalesforceAgent:
                         direct_response = "\n\n---\n\n".join(sections)
 
                         # ── Conversational Zero-Records Enhancement ──
-                        # When all queries return 0 records, add a helpful conversational note
+                        # When all queries return 0 records, produce ONE unified friendly card.
+                        # NEVER expose raw SOQL syntax (WHERE, ORDER BY, >=, LIKE, etc.)
                         if zero_record_results and len(zero_record_results) == len(safe_calls):
-                            total_query_count = len(zero_record_results)
-                            # Parse what was being searched for
-                            search_intents = []
+                            # Extract clean, human-readable object names from each query
+                            searched_objects = []
                             for zr in zero_record_results:
                                 q = zr.get("query", "")
                                 from_match = re.search(r"FROM\s+(\w+)", q, re.IGNORECASE)
                                 if from_match:
-                                    search_intents.append(from_match.group(1))
-                                where_match = re.search(r"WHERE\s+(.+?)(?:\s+LIMIT|\s*$)", q, re.IGNORECASE)
-                                if where_match:
-                                    search_intents.append(f"matching {where_match.group(1).strip()}")
+                                    obj_name = from_match.group(1)
+                                    # Title-case for display: "Event" not "event"
+                                    friendly = obj_name.replace("_", " ").strip()
+                                    friendly = " ".join(w.capitalize() for w in friendly.split())
+                                    if friendly not in searched_objects:
+                                        searched_objects.append(friendly)
 
-                            if search_intents:
-                                intent_text = ", ".join(set(search_intents))
+                            if searched_objects:
+                                if len(searched_objects) == 1:
+                                    obj_list = searched_objects[0]
+                                else:
+                                    obj_list = ", ".join(searched_objects[:-1]) + f" and {searched_objects[-1]}"
+
                                 direct_response += (
                                     f"\n\n---\n\n"
-                                    f"ℹ️ **I searched for {intent_text} but didn't find any matching records "
-                                    f"in your Salesforce org.** This could mean:\n"
-                                    f"- The records don't exist yet in your org\n"
-                                    f"- The filter criteria didn't match any existing records\n"
-                                    f"- The records may be under a different name or spelling\n\n"
-                                    f"Would you like me to:\n"
-                                    f"- **Broaden the search** (remove filters)?\n"
-                                    f"- **Show recent records** of this type instead?\n"
-                                    f"- **Check a different object**?"
+                                    f"🔍 **No matching records found** for {obj_list}.\n\n"
+                                    f"This could mean:\n"
+                                    f"- The records don't exist in your org yet\n"
+                                    f"- The search filters didn't match any existing records\n"
+                                    f"- The records may be named differently than expected\n\n"
+                                    f"**What would you like to try?**\n"
+                                    f"- Remove filters and show all {obj_list}\n"
+                                    f"- Show recently modified {obj_list}\n"
+                                    f"- Search for a specific record by name"
                                 )
 
                         logger.info(f"⚡ [PYTHON DIRECT RESPONSE] Bypassing LLM formatter — "
