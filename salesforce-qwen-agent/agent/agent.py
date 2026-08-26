@@ -405,18 +405,21 @@ def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery"
     if isinstance(first.get("attributes"), dict):
         obj_type = first["attributes"].get("type")
 
-    # Case 1: Aggregate/COUNT result
+    # Case 1: Aggregate/COUNT result → clean single-value text, never a table
     if "expr0" in first or (len(first) <= 3 and "Id" not in first):
-        keys = [k for k in first.keys() if k not in _SKIP_FIELDS]
-        if not keys:
+        # Extract the aggregate value from the first record
+        agg_keys = [k for k in first.keys() if k not in _SKIP_FIELDS]
+        if not agg_keys:
             return None
-        header = "| " + " | ".join(keys) + " |"
-        sep    = "| " + " | ".join(["---"] * len(keys)) + " |"
-        rows   = []
-        for rec in records:
-            row = "| " + " | ".join(_fmt_value(rec.get(k)) for k in keys) + " |"
-            rows.append(row)
-        return "\n".join([header, sep] + rows) + f"\n\n**Total: {total_size} record(s)**"
+        agg_val = first.get(agg_keys[0])
+        # Format the number nicely
+        try:
+            count_num = int(float(agg_val)) if agg_val is not None else 0
+        except (ValueError, TypeError):
+            count_num = agg_val
+        # Use totalSize if available and more reliable
+        display_count = total_size if total_size > 0 else count_num
+        return f"📊 **Count:** {display_count}"
 
     # Case 2: Check if ANY record has subquery collections → Hierarchical Cards
     has_subqueries = any(
@@ -874,7 +877,17 @@ class SalesforceAgent:
                 # ── PYTHON DIRECT RESPONSE: Skip LLM if all results are tabular ──
                 # If every tool call produced a Python table, compose response directly.
                 # LLM is bypassed → zero truncation possible.
-                if python_tables and safe_calls and len(python_tables) == len(safe_calls) and not destructive_calls:
+                # BUT: if user query has action/multi-intent keywords, let LLM continue
+                # to handle updates, deletes, confirmations, or synthesize complex answers.
+                _action_kw = [
+                    "update", "edit", "change", "modify", "badlo", "set",
+                    "delete", "remove", "hatao", "mitao", "drop",
+                    "create", "add", "insert", "new", "make", "banao", "daalo",
+                    "and tell me", "and how many", "and count", "and delete",
+                    "and update", "and create", "also count", "how many",
+                ]
+                _has_action_or_complex = any(kw in user_msg_lower for kw in _action_kw)
+                if python_tables and safe_calls and len(python_tables) == len(safe_calls) and not destructive_calls and not _has_action_or_complex:
                     sections = []
                     for tc in safe_calls:
                         if tc["id"] in python_tables:
