@@ -199,13 +199,37 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
                 except Exception:
                     pass
 
-    # 5. Bare tool name or function call fallback (e.g. "getUserInfo", "getUserInfo()", "soqlQuery(q=...)")
     known_tools = {
         "getUserInfo", "soqlQuery", "find", "getObjectSchema",
         "describeSObject", "listRecentRecords", "createSobjectRecord",
         "updateSobjectRecord", "deleteSobjectRecord", "getGlobalDescribe",
-        "executeApex", "batchCreateRecords"
+        "executeApex", "batchCreateRecords", "getRelatedRecords",
+        "updateRelatedRecord", "deleteRelatedRecord", "uploadRecordAttachment"
     }
+
+    # 5. Markdown list format fallback (e.g. - `soqlQuery` -> `SELECT ...`)
+    md_list_matches = re.finditer(r"[-*]\s*`?([a-zA-Z0-9_]+)`?\s*(?:->|:|=>)\s*`?(.*?)`?(?:\n|$)", content)
+    for m in md_list_matches:
+        fn_name = m.group(1).strip()
+        fn_arg = m.group(2).strip()
+        if fn_name in known_tools:
+            # Smart guess for argument key based on tool name
+            arg_key = "q"
+            if fn_name == "getObjectSchema":
+                arg_key = "sobject-name"
+            elif "Record" in fn_name or "Attachment" in fn_name:
+                arg_key = "id"
+            
+            tool_calls.append({
+                "id": f"text_tc_{len(tool_calls)+1}",
+                "name": fn_name,
+                "arguments": {arg_key: fn_arg},
+            })
+            
+    if tool_calls:
+        return tool_calls
+
+    # 6. Bare tool name or function call fallback (e.g. "getUserInfo", "getUserInfo()", "soqlQuery(q=...)")
     cleaned_content = content.strip().strip("`'\" \n\r\t")
     # Check bare tool name or bare tool()
     bare_name = cleaned_content.rstrip("()").strip()
