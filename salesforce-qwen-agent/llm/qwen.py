@@ -199,6 +199,45 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
                 except Exception:
                     pass
 
+    # 5. Bare tool name or function call fallback (e.g. "getUserInfo", "getUserInfo()", "soqlQuery(q=...)")
+    known_tools = {
+        "getUserInfo", "soqlQuery", "find", "getObjectSchema",
+        "describeSObject", "listRecentRecords", "createSobjectRecord",
+        "updateSobjectRecord", "deleteSobjectRecord", "getGlobalDescribe",
+        "executeApex", "batchCreateRecords"
+    }
+    cleaned_content = content.strip().strip("`'\" \n\r\t")
+    # Check bare tool name or bare tool()
+    bare_name = cleaned_content.rstrip("()").strip()
+    if bare_name in known_tools:
+        tool_calls.append({
+            "id": f"text_tc_{len(tool_calls)+1}",
+            "name": bare_name,
+            "arguments": {},
+        })
+        return tool_calls
+
+    # Check function-call syntax like soqlQuery(q="SELECT ...")
+    fn_match = re.match(r"^(\w+)\s*\((.*)\)$", cleaned_content, re.DOTALL)
+    if fn_match:
+        fn_name = fn_match.group(1).strip()
+        fn_args_raw = fn_match.group(2).strip()
+        if fn_name in known_tools:
+            parsed_args = {}
+            if fn_args_raw:
+                # Try JSON format or key=value format
+                try:
+                    parsed_args = json.loads("{" + fn_args_raw + "}")
+                except Exception:
+                    for kv_match in re.finditer(r'(\w+)\s*=\s*(["\'])(.*?)\2', fn_args_raw, re.DOTALL):
+                        parsed_args[kv_match.group(1)] = kv_match.group(3)
+            tool_calls.append({
+                "id": f"text_tc_{len(tool_calls)+1}",
+                "name": fn_name,
+                "arguments": parsed_args,
+            })
+            return tool_calls
+
     return tool_calls
 
 

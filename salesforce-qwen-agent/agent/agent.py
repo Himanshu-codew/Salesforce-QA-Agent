@@ -741,8 +741,105 @@ class SalesforceAgent:
                 memory.add_assistant_message(error_msg)
                 return
 
+            # --- INTERCEPTORS (Pre-process LLM result) ---
+            
+            # 1. Bare Tool Name Cleanup & Interception
+            if llm_result.get("content"):
+                content_clean = llm_result["content"].strip().strip("`'\" \n\r\t").rstrip("()")
+                _known_tools = {
+                    "getUserInfo", "soqlQuery", "find", "getObjectSchema",
+                    "describeSObject", "listRecentRecords", "createSobjectRecord",
+                    "updateSobjectRecord", "deleteSobjectRecord", "getGlobalDescribe",
+                    "executeApex", "batchCreateRecords"
+                }
+                if content_clean in _known_tools:
+                    logger.info(f"🔄 [BARE TOOL NAME CLEANUP]: {content_clean}")
+                    if not llm_result.get("tool_calls") and tools:
+                        llm_result["tool_calls"] = [{"id": f"intercepted_tc_{iteration}", "name": content_clean, "arguments": {}}]
+                    llm_result["content"] = ""
+
+            # 2. Mandatory Turn 1 Data Query Interceptor
+            if not llm_result.get("tool_calls") and iteration == 1 and tools:
+                user_msg_lower = user_message.lower()
+                data_intent_keywords = [
+                    "account", "accounts", "lead", "leads", "contact", "contacts",
+                    "opportunity", "opportunities", "case", "cases", "task", "tasks",
+                    "event", "events", "user", "who am i", "schema", "fields",
+                    "show", "list", "select", "find", "search", "count", "how many",
+                    "delete", "remove", "update", "edit", "create", "banao", "dikhao",
+                    "hatao", "badlo", "kitne", "saare"
+                ]
+                if any(kw in user_msg_lower for kw in data_intent_keywords):
+                    logger.warning(
+                        f"⚠️ [INTERCEPTOR] LLM returned text without tool call on Turn 1 for query: '{user_message[:40]}...'. "
+                        "Forcing tool execution retry."
+                    )
+                    interceptor_messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
+                    interceptor_messages.append({
+                        "role": "user",
+                        "content": (
+                            "TOOL CALL MANDATORY: You must call an appropriate MCP tool (such as soqlQuery, find, or getObjectSchema) "
+                            "to fetch real Salesforce data before answering. Do NOT reply with text or dummy data."
+                        )
+                    })
+                    try:
+                        retry_result = await self.llm.chat_with_tools(
+                            messages=interceptor_messages,
+                            tools=tools,
+                            temperature=0.0,
+                        )
+                        if retry_result.get("tool_calls"):
+                            llm_result = retry_result
+                    except Exception as retry_err:
+                        logger.error(f"Interceptor retry error: {retry_err}")
+
+            # 3. Compound Query Completeness Interceptor
+            if not llm_result.get("tool_calls") and iteration >= 2 and tools and llm_result.get("content"):
+                user_msg_lower = user_message.lower()
+                compound_separators = [
+                    " and ", " & ", " also ", " along with ", " as well as ",
+                    " plus ", " aur ", " tatha ", " evam ",
+                ]
+                if any(sep in user_msg_lower for sep in compound_separators):
+                    response_text = llm_result["content"].strip()
+                    headers = list(re.finditer(r"###\s+([^\n]+)", response_text))
+                    truly_empty: list[str] = []
+                    for i, match in enumerate(headers):
+                        start = match.end()
+                        end = headers[i + 1].start() if i + 1 < len(headers) else len(response_text)
+                        section_content = response_text[start:end].strip()
+                        if not section_content or section_content in ("", "-", "N/A"):
+                            truly_empty.append(match.group(1).strip())
+
+                    if truly_empty:
+                        logger.warning(
+                            f"⚠️ [COMPOUND INTERCEPTOR] Empty sections: {truly_empty}. "
+                            "Forcing tool execution for missing parts."
+                        )
+                        interceptor_messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
+                        interceptor_messages.append({
+                            "role": "user",
+                            "content": (
+                                "INCOMPLETE MULTI-QUERY RESPONSE: Your response has section headers "
+                                f"({', '.join(truly_empty)}) with no data underneath. "
+                                "You MUST execute the appropriate MCP tool calls (soqlQuery, find, etc.) "
+                                "to fetch the missing data for ALL sections before providing the final answer. "
+                                "Do NOT return a final answer until every section has real data from tool execution."
+                            ),
+                        })
+                        try:
+                            retry_result = await self.llm.chat_with_tools(
+                                messages=interceptor_messages,
+                                tools=tools,
+                                temperature=0.0,
+                            )
+                            if retry_result.get("tool_calls"):
+                                llm_result = retry_result
+                        except Exception as interceptor_err:
+                            logger.error(f"Compound query interceptor error: {interceptor_err}")
+
             # ── Case 1: LLM wants to call tools ──
-            if llm_result["tool_calls"]:
+            if llm_result.get("tool_calls"):
                 tool_calls = llm_result["tool_calls"]
                 logger.info(f"🛠️ [LLM REQUESTED TOOL CALLS]: {[tc['name'] for tc in tool_calls]}")
 
@@ -964,93 +1061,6 @@ class SalesforceAgent:
 
             # ── Case 2: LLM returns a final text response ──
             elif llm_result["content"] and llm_result["content"].strip():
-                # Mandatory Tool Execution Interceptor for Data Queries on Turn 1
-                if iteration == 1 and tools:
-                    user_msg_lower = user_message.lower()
-                    data_intent_keywords = [
-                        "account", "accounts", "lead", "leads", "contact", "contacts",
-                        "opportunity", "opportunities", "case", "cases", "task", "tasks",
-                        "event", "events", "user", "who am i", "schema", "fields",
-                        "show", "list", "select", "find", "search", "count", "how many",
-                        "delete", "remove", "update", "edit", "create", "banao", "dikhao",
-                        "hatao", "badlo", "kitne", "saare"
-                    ]
-                    has_data_intent = any(kw in user_msg_lower for kw in data_intent_keywords)
-                    if has_data_intent:
-                        logger.warning(
-                            f"⚠️ [INTERCEPTOR] LLM returned text without tool call on Turn 1 for query: '{user_message[:40]}...'. "
-                            "Forcing tool execution retry."
-                        )
-                        interceptor_messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
-                        interceptor_messages.append({
-                            "role": "user",
-                            "content": (
-                                "TOOL CALL MANDATORY: You must call an appropriate MCP tool (such as soqlQuery, find, or getObjectSchema) "
-                                "to fetch real Salesforce data before answering. Do NOT reply with text or dummy data."
-                            )
-                        })
-                        try:
-                            retry_result = await self.llm.chat_with_tools(
-                                messages=interceptor_messages,
-                                tools=tools,
-                                temperature=0.0,
-                            )
-                            if retry_result.get("tool_calls"):
-                                llm_result = retry_result
-                                continue  # Re-enter turn loop with forced tool calls!
-                        except Exception as retry_err:
-                            logger.error(f"Interceptor retry error: {retry_err}")
-
-                # ── Compound Query Completeness Interceptor ──
-                # Catches cases where LLM returns text with blank/empty sections
-                # for multi-part queries (e.g., "Show ALL Accounts AND count ALL Leads")
-                if iteration >= 2 and tools:
-                    user_msg_lower = user_message.lower()
-                    compound_separators = [
-                        " and ", " & ", " also ", " along with ", " as well as ",
-                        " plus ", " aur ", " tatha ", " evam ",
-                    ]
-                    is_compound = any(sep in user_msg_lower for sep in compound_separators)
-
-                    if is_compound:
-                        response_text = llm_result["content"].strip()
-                        headers = list(re.finditer(r"###\s+([^\n]+)", response_text))
-                        truly_empty: list[str] = []
-                        for i, match in enumerate(headers):
-                            start = match.end()
-                            end = headers[i + 1].start() if i + 1 < len(headers) else len(response_text)
-                            section_content = response_text[start:end].strip()
-                            if not section_content or section_content in ("", "-", "N/A"):
-                                truly_empty.append(match.group(1).strip())
-
-                        if truly_empty:
-                            logger.warning(
-                                f"⚠️ [COMPOUND INTERCEPTOR] Empty sections: {truly_empty}. "
-                                "Forcing tool execution for missing parts."
-                            )
-                            interceptor_messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
-                            interceptor_messages.append({
-                                "role": "user",
-                                "content": (
-                                    "INCOMPLETE MULTI-QUERY RESPONSE: Your response has section headers "
-                                    f"({', '.join(truly_empty)}) with no data underneath. "
-                                    "You MUST execute the appropriate MCP tool calls (soqlQuery, find, etc.) "
-                                    "to fetch the missing data for ALL sections before providing the final answer. "
-                                    "Do NOT return a final answer until every section has real data from tool execution."
-                                ),
-                            })
-                            try:
-                                retry_result = await self.llm.chat_with_tools(
-                                    messages=interceptor_messages,
-                                    tools=tools,
-                                    temperature=0.0,
-                                )
-                                if retry_result.get("tool_calls"):
-                                    llm_result = retry_result
-                                    continue
-                            except Exception as interceptor_err:
-                                logger.error(f"Compound query interceptor error: {interceptor_err}")
-
                 response = sanitize_response_output(llm_result["content"].strip())
                 if not response:
                     # LLM returned only artifacts — ask for a proper summary
