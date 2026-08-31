@@ -191,7 +191,7 @@ class TestToolRegistry:
 
     @pytest.mark.asyncio
     async def test_initialize_with_local_tools(self):
-        from mcp.registry import ToolRegistry
+        from sfmcp.registry import ToolRegistry
         registry = ToolRegistry()
         await registry.initialize(mcp_client=None)
 
@@ -200,7 +200,7 @@ class TestToolRegistry:
 
     @pytest.mark.asyncio
     async def test_lookup_tool(self):
-        from mcp.registry import ToolRegistry
+        from sfmcp.registry import ToolRegistry
         registry = ToolRegistry()
         await registry.initialize(mcp_client=None)
 
@@ -210,7 +210,7 @@ class TestToolRegistry:
 
     @pytest.mark.asyncio
     async def test_has_tool(self):
-        from mcp.registry import ToolRegistry
+        from sfmcp.registry import ToolRegistry
         registry = ToolRegistry()
         await registry.initialize(mcp_client=None)
 
@@ -219,7 +219,7 @@ class TestToolRegistry:
 
     @pytest.mark.asyncio
     async def test_list_tool_names(self):
-        from mcp.registry import ToolRegistry
+        from sfmcp.registry import ToolRegistry
         registry = ToolRegistry()
         await registry.initialize(mcp_client=None)
 
@@ -231,7 +231,7 @@ class TestToolRegistry:
 
     @pytest.mark.asyncio
     async def test_mcp_to_openai_conversion(self):
-        from mcp.registry import ToolRegistry
+        from sfmcp.registry import ToolRegistry
 
         mcp_tool = {
             "name": "testTool",

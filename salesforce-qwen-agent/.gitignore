@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 uploads/
+
+# Token vault security — never commit the KEK or stored (encrypted) tokens
+.sf_kek
+mcp_tokens.enc

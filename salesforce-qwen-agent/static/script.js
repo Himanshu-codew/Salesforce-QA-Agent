@@ -592,10 +592,16 @@ function renderMarkdown(text) {
     html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
     html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
-    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/^[-*+] {1,}(.+)$/gm, '<li>$1</li>');
     html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
 
-    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+
+    // Harden bold/italic: drop a trailing lone asterisk so it never renders raw,
+    // and do not turn a single '*' bullet into a mangled <em>.
+    html = html.replace(/\*\*\s*\*\*/g, '');
+    html = html.replace(/<em>.*?<\/em>/g, (m) => m.replace(/\*/g, ''));
 
     html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
@@ -633,23 +639,27 @@ function renderTables(html) {
     let tableRows = [];
 
     for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
+        const line = lines[i];
+        const trimmed = line.trim();
 
-        if (line.startsWith('|') && line.endsWith('|')) {
-            if (/^\|[\s\-:]+\|/.test(line) && line.includes('---')) {
-                continue;
+        // A row is table-y if it starts with '|' (outer-pipe style) OR is a
+        // gutter-separator row like '---|---' that marks a real table.
+        const isSeparator = /^\|?[\s\-:]+\|?$/.test(trimmed) && trimmed.includes('---');
+        const isRow = (trimmed.startsWith('|') && trimmed.includes('|', 1))
+                      || (isSeparator && inTable);
+
+        if (isRow) {
+            if (isSeparator) {
+                continue; // skip gutter row; header already captured
             }
-
             if (!inTable) {
                 inTable = true;
                 tableRows = [];
             }
-
-            const cells = line
-                .slice(1, -1)
-                .split('|')
-                .map(c => c.trim());
-
+            let body = trimmed;
+            if (body.startsWith('|')) body = body.slice(1);
+            if (body.endsWith('|')) body = body.slice(0, -1);
+            const cells = body.split('|').map(c => c.trim());
             tableRows.push(cells);
         } else {
             if (inTable) {
@@ -657,7 +667,7 @@ function renderTables(html) {
                 inTable = false;
                 tableRows = [];
             }
-            result.push(lines[i]);
+            result.push(line);
         }
     }
 

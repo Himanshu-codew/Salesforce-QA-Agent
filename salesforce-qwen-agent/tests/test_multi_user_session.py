@@ -10,10 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mcp.session_manager import UserSessionManager
+from sfmcp.session_manager import UserSessionManager
 from agent.agent import SalesforceAgent
-from mcp.executor import ToolExecutor
-from mcp.client import SalesforceMCPClient
+from sfmcp.executor import ToolExecutor
+from sfmcp.client import SalesforceMCPClient
 
 
 class TestMultiUserSessionManager(unittest.TestCase):
@@ -58,7 +58,7 @@ class TestMultiUserSessionManager(unittest.TestCase):
                 "authenticated": True,
             }
 
-            with patch("mcp.session_manager.SalesforceMCPClient") as mock_client_cls:
+            with patch("sfmcp.session_manager.SalesforceMCPClient") as mock_client_cls:
                 mock_inst = AsyncMock()
                 mock_client_cls.return_value = mock_inst
 

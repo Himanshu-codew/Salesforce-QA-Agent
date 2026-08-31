@@ -83,7 +83,7 @@ SALESFORCE_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "soqlQuery",
-            "description": "Executes a SOQL query to read Salesforce data. CRITICAL: Use raw numbers without $ or commas (Amount > 50000, NOT Amount > '$50,000'). Use SOQL date literals (TODAY, THIS_WEEK, LAST_N_DAYS:7) — NEVER use DATE() or SQL functions. Do NOT use the AS keyword for aliases.",
+            "description": "Executes a SOQL query to read Salesforce data. CRITICAL: Use raw numbers without $ or commas. Use SOQL date literals (TODAY, NEXT_N_DAYS:7) — NEVER use DATE() or SQL functions. NEVER use UNION, JOIN, or SELECT *. If you need data from multiple objects, make separate soqlQuery calls. Do NOT use AS keyword.",
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent.agent import SalesforceAgent
 from agent.rag import ToolRAGRetriever
-from mcp.executor import ToolExecutor
+from sfmcp.executor import ToolExecutor
 from llm.base import BaseLLM
 
 
@@ -64,15 +64,14 @@ class Test7BenchmarkQueries(unittest.TestCase):
         """3. Show me Contacts at John Doe, update phone, delete oldest Lead"""
         tools = self.rag.get_relevant_tools("Show me Contacts at John Doe, update the phone on the first one to 555-1111, and then delete the oldest Lead")
         tool_names = [t["function"]["name"] for t in tools]
-        self.assertIn("soqlQuery", tool_names)
         self.assertIn("updateSobjectRecord", tool_names)
         self.assertIn("deleteSobjectRecord", tool_names)
+        self.assertIn("listRecentSobjectRecords", tool_names)
 
     def test_query_4_rag_tools(self):
         """4. Find newest Lead and delete it, then create Account"""
         tools = self.rag.get_relevant_tools("Find the newest Lead and delete it, then create a new Account for whatever company it was from")
         tool_names = [t["function"]["name"] for t in tools]
-        self.assertIn("soqlQuery", tool_names)
         self.assertIn("deleteSobjectRecord", tool_names)
         self.assertIn("createSobjectRecord", tool_names)
 

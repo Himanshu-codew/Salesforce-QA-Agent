@@ -1,5 +1,5 @@
 """
-Qwen3 LLM implementation using OpenAI-compatible API.
+Qwen LLM implementation using OpenAI-compatible API.
 Works with Groq (free), DashScope, Ollama, or any OpenAI-compatible provider.
 Supports tool/function calling for the agent loop.
 Strips <think>...</think> reasoning blocks from Qwen3 output.
@@ -11,7 +11,7 @@ import os
 import re
 from typing import Any
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIStatusError, NotFoundError, APIConnectionError, RateLimitError
 
 import httpx
 
@@ -19,6 +19,26 @@ from .base import BaseLLM
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Custom exceptions for clear error classification
+# ---------------------------------------------------------------------------
+
+class LLMConnectionError(Exception):
+    """Network-level failure: host unreachable, DNS error, tunnel down, timeout."""
+
+
+class LLMModelError(Exception):
+    """Model-level failure: 404 model not found, 400 bad request from API, etc."""
+
+
+class LLMToolError(Exception):
+    """Tool-calling compatibility error: native tools unsupported and fallback also failed."""
+
+
+# ---------------------------------------------------------------------------
+# Text processing helpers
+# ---------------------------------------------------------------------------
 
 def strip_thinking(text: str) -> str:
     """
@@ -28,7 +48,6 @@ def strip_thinking(text: str) -> str:
     """
     if not text:
         return text
-    # Remove <think>...</think> blocks (including multiline and unclosed <think>...)
     cleaned = re.sub(r"<think>.*?(?:</think>|$)", "", text, flags=re.DOTALL)
     return cleaned.strip()
 
@@ -41,23 +60,16 @@ def strip_raw_tool_json(text: str) -> str:
     """
     if not text:
         return ""
-    # 0. Strip <think>...</think> reasoning blocks first
     cleaned = re.sub(r"<think>.*?(?:</think>|$)", "", text, flags=re.DOTALL)
-
-    # 1. Remove markdown code blocks containing tool call JSON schemas
     cleaned = re.sub(r"```(?:json)?[\s\S]*?\"name\"[\s\S]*?```", "", cleaned, flags=re.IGNORECASE)
-
-    # 2. Remove XML tool tags <tools>...</tools>, <tool_call>...</tool_call>, <function_call>...</function_call>
     cleaned = re.sub(r"<(?:tools|tool_call|function_call)>[\s\S]*?</(?:tools|tool_call|function_call)>", "", cleaned, flags=re.IGNORECASE)
 
-    # 3. Remove standalone tool call JSON objects with known tool names
     known_tools = (
         "soqlQuery|find|getUserInfo|getObjectSchema|createSobjectRecord|"
         "updateSobjectRecord|deleteSobjectRecord|getRelatedRecords|"
         "listRecentSobjectRecords|updateRelatedRecord|deleteRelatedRecord|"
         "uploadRecordAttachment"
     )
-    # Match {"name": "toolName", "arguments": {...}} patterns (with optional whitespace/newlines)
     cleaned = re.sub(
         rf'\{{\s*"name"\s*:\s*"(?:{known_tools})"[\s\S]*?\}}\s*\}}\s*\}}',
         "", cleaned
@@ -70,28 +82,22 @@ def strip_raw_tool_json(text: str) -> str:
         rf'\{{\s*"name"\s*:\s*"(?:{known_tools})"[\s\S]*?\}}',
         "", cleaned
     )
-
-    # 4. Also catch tool call objects where "function" key wraps the name
     cleaned = re.sub(
         rf'\{{\s*"function"\s*:\s*\{{\s*"name"\s*:\s*"(?:{known_tools})"[\s\S]*?\}}\s*\}}',
         "", cleaned
     )
 
-    # 5. Remove lines containing only stray braces, brackets, or codeblock markers
     lines = []
     for line in cleaned.split("\n"):
         stripped = line.strip()
         if stripped in ["{", "}", "]", "[", "```", "```json", "}}", "}}}", "`]", "{}", "[]"]:
             continue
-        # Also skip lines that are only a key-value pair from a tool call schema
         if re.match(r'^\s*"(name|type|function|arguments|parameters|properties|required)"\s*:', stripped):
             continue
         lines.append(line)
     cleaned = "\n".join(lines)
 
     final_text = cleaned.strip()
-
-    # 6. If only stray symbols/braces/spaces remain, collapse to empty string
     if re.fullmatch(r"[\{\}\[\]\`\s]*", final_text):
         return ""
     return final_text
@@ -113,11 +119,8 @@ def _clean_json_str(s: str) -> str:
     """Strip C-style comments (// and /* */) and trailing commas before json.loads()."""
     if not s:
         return s
-    # Remove // comments
     s = re.sub(r"//.*", "", s)
-    # Remove /* ... */ comments
     s = re.sub(r"/\*.*?\*/", "", s, flags=re.DOTALL)
-    # Remove trailing commas before closing braces/brackets
     s = re.sub(r",\s*([\}\]])", r"\1", s)
     return s.strip()
 
@@ -139,7 +142,6 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
         if isinstance(data, dict):
             name = data.get("name") or data.get("function_name") or data.get("function")
             args = data.get("arguments") or data.get("parameters") or {}
-            # Sometimes models return arguments as a stringified JSON
             if isinstance(args, str):
                 try:
                     args = json.loads(_clean_json_str(args))
@@ -154,7 +156,6 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
                 return True
         return False
 
-    # 1. Try parsing the entire content as JSON directly
     try:
         data = json.loads(_clean_json_str(content.strip()))
         if try_add_tool(data):
@@ -162,7 +163,6 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
     except Exception:
         pass
 
-    # 2. Look for markdown json blocks (```json ... ```)
     json_blocks = re.findall(r"```(?:json)?\s*(.*?)\s*```", content, re.DOTALL | re.IGNORECASE)
     for block in json_blocks:
         try:
@@ -174,7 +174,6 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
     if tool_calls:
         return tool_calls
 
-    # 3. Existing XML fallback (<tools>...</tools>)
     matches = re.findall(r"<(?:tools|tool_call)>(.*?)</(?:tools|tool_call)>", content, re.DOTALL | re.IGNORECASE)
     for m in matches:
         try:
@@ -186,7 +185,6 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
     if tool_calls:
         return tool_calls
 
-    # 4. Smart bracket extraction (find outermost [ ... ] or { ... })
     for start_char, end_char in [('[', ']'), ('{', '}')]:
         start_idx = content.find(start_char)
         if start_idx != -1:
@@ -207,31 +205,27 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
         "updateRelatedRecord", "deleteRelatedRecord", "uploadRecordAttachment"
     }
 
-    # 5. Markdown list format fallback (e.g. - `soqlQuery` -> `SELECT ...`)
     md_list_matches = re.finditer(r"[-*]\s*`?([a-zA-Z0-9_]+)`?\s*(?:->|:|=>)\s*`?(.*?)`?(?:\n|$)", content)
     for m in md_list_matches:
         fn_name = m.group(1).strip()
         fn_arg = m.group(2).strip()
         if fn_name in known_tools:
-            # Smart guess for argument key based on tool name
             arg_key = "q"
             if fn_name == "getObjectSchema":
                 arg_key = "sobject-name"
             elif "Record" in fn_name or "Attachment" in fn_name:
                 arg_key = "id"
-            
+
             tool_calls.append({
                 "id": f"text_tc_{len(tool_calls)+1}",
                 "name": fn_name,
                 "arguments": {arg_key: fn_arg},
             })
-            
+
     if tool_calls:
         return tool_calls
 
-    # 6. Bare tool name or function call fallback (e.g. "getUserInfo", "getUserInfo()", "soqlQuery(q=...)")
     cleaned_content = content.strip().strip("`'\" \n\r\t")
-    # Check bare tool name or bare tool()
     bare_name = cleaned_content.rstrip("()").strip()
     if bare_name in known_tools:
         tool_calls.append({
@@ -241,7 +235,6 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
         })
         return tool_calls
 
-    # Check function-call syntax like soqlQuery(q="SELECT ...")
     fn_match = re.match(r"^(\w+)\s*\((.*)\)$", cleaned_content, re.DOTALL)
     if fn_match:
         fn_name = fn_match.group(1).strip()
@@ -249,7 +242,6 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
         if fn_name in known_tools:
             parsed_args = {}
             if fn_args_raw:
-                # Try JSON format or key=value format
                 try:
                     parsed_args = json.loads("{" + fn_args_raw + "}")
                 except Exception:
@@ -265,9 +257,48 @@ def _extract_text_tool_calls(content: str) -> list[dict[str, Any]]:
     return tool_calls
 
 
+# ---------------------------------------------------------------------------
+# Helpers for classifying OpenAI / httpx exceptions
+# ---------------------------------------------------------------------------
+
+def _is_model_not_found(exc: Exception) -> bool:
+    """Return True when the error means the model is not available on the server."""
+    if isinstance(exc, NotFoundError):
+        return True
+    name = type(exc).__name__
+    if "NotFoundError" in name:
+        return True
+    msg = str(exc).lower()
+    return ("404" in msg and ("model" in msg or "not found" in msg)) or "model_not_found" in msg
+
+
+def _is_connection_error(exc: Exception) -> bool:
+    """Return True for network-level / transport errors."""
+    if isinstance(exc, (APIConnectionError, httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout)):
+        return True
+    msg = str(exc).lower()
+    return any(kw in msg for kw in ["connect", "timeout", "timed out", "dns", "unreachable", "tunnel", "refused"])
+
+
+def _is_tools_unsupported(exc: Exception) -> bool:
+    """Return True when the server explicitly rejects native tool calling."""
+    msg = str(exc).lower()
+    return "does not support tools" in msg or "tools" in msg and "not support" in msg
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    if isinstance(exc, RateLimitError):
+        return True
+    return "rate limit" in str(exc).lower() or "429" in str(exc)
+
+
+# ---------------------------------------------------------------------------
+# QwenLLM
+# ---------------------------------------------------------------------------
+
 class QwenLLM(BaseLLM):
     """
-    Qwen3 model accessed via any OpenAI-compatible API.
+    Qwen model accessed via any OpenAI-compatible API.
     Tested with: Groq (free), DashScope, Ollama, OpenRouter.
     """
 
@@ -305,13 +336,17 @@ class QwenLLM(BaseLLM):
 
             recreate = False
             if new_url and new_url != self.base_url:
-                logger.info(f"🔄 Auto-updating QWEN_BASE_URL: {self.base_url} -> {new_url}")
+                logger.info(f"Auto-updating QWEN_BASE_URL: {self.base_url} -> {new_url}")
                 self.base_url = new_url
                 recreate = True
 
             if new_model and new_model != self.model:
-                logger.info(f"🔄 Auto-updating QWEN_MODEL: {self.model} -> {new_model}")
+                logger.info(f"Auto-updating QWEN_MODEL: {self.model} -> {new_model}")
                 self.model = new_model
+                recreate = True
+
+            if new_key and new_key != self._client.api_key:
+                logger.info("Auto-updating QWEN_API_KEY")
                 recreate = True
 
             if recreate:
@@ -337,7 +372,10 @@ class QwenLLM(BaseLLM):
             models_resp = await self._client.models.list()
             available = [m.id for m in models_resp.data if m.id]
             if available and self.model not in available:
-                logger.warning(f"⚠️ Model '{self.model}' not found in server models {available}. Auto-switching to '{available[0]}'")
+                logger.warning(
+                    f"Model '{self.model}' not found in server models {available}. "
+                    f"Auto-switching to '{available[0]}'"
+                )
                 self.model = available[0]
                 return True
         except Exception as e:
@@ -348,16 +386,17 @@ class QwenLLM(BaseLLM):
         self,
         messages: list[dict[str, Any]],
         temperature: float = 0.0,
-        max_tokens: int = 8192,  # Raised: 3072 was cutting multi-query tables mid-row
+        max_tokens: int = 8192,
     ) -> str:
         """Send a simple chat completion request (no tools)."""
         self._check_and_update_base_url()
-        extra_body = {}
-        if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
-            extra_body["options"] = {"num_ctx": 16384, "num_predict": max_tokens, "temperature": 0.0, "num_gpu": 100}
+        extra_body: dict = {}
+        if "qwen3" in self.model.lower() or "qwen/qwen3" in self.model.lower():
+            extra_body["enable_thinking"] = False
 
         for attempt in range(2):
             try:
+                logger.debug(f"Qwen chat request started (attempt {attempt + 1})")
                 response = await self._client.chat.completions.create(
                     model=self.model,
                     messages=messages,
@@ -365,43 +404,70 @@ class QwenLLM(BaseLLM):
                     max_tokens=max_tokens,
                     extra_body=extra_body if extra_body else None,
                 )
+
+                if not response.choices:
+                    raise LLMModelError(f"Empty choices in API response (HTTP 200 but no choices returned)")
+
                 content = response.choices[0].message.content or ""
                 content = strip_thinking(content)
-                logger.debug(f"Chat response (truncated): {content[:200]}")
+                logger.debug(f"Qwen chat response received ({len(content)} chars)")
                 return content
 
             except Exception as e:
-                # If model not found (404), try auto-discovering the active model on server
-                if attempt == 0 and ("404" in str(e) or "not found" in str(e).lower() or "NotFoundError" in type(e).__name__):
+                # Only retry on model-not-found (404)
+                if attempt == 0 and _is_model_not_found(e):
                     switched = await self._auto_fallback_model()
                     if switched:
                         continue
+
+                # Classify the error — do NOT hide real exceptions as connection errors
+                if isinstance(e, (LLMModelError,)):
+                    raise
+
+                if _is_connection_error(e):
+                    logger.error(
+                        f"Qwen chat connection error: {type(e).__name__} - {e}. "
+                        f"Check if URL is reachable: {self.base_url}"
+                    )
+                    raise LLMConnectionError(
+                        f"Failed to connect to LLM at '{self.base_url}' "
+                        f"({type(e).__name__}: {e}). "
+                        "If using Kaggle/Ngrok, check if your tunnel URL has expired "
+                        "or update QWEN_BASE_URL in .env."
+                    ) from e
+
+                if isinstance(e, APIStatusError):
+                    logger.error(
+                        f"Qwen chat API error (HTTP {e.status_code}): {type(e).__name__} - {e}"
+                    )
+                    raise LLMModelError(
+                        f"LLM API error at '{self.base_url}' (HTTP {e.status_code}): {e}"
+                    ) from e
+
+                # Programming / parsing / unexpected errors — do NOT wrap as connection error
                 logger.error(
-                    f"Qwen chat error: {type(e).__name__} - {e}. "
-                    f"Check if URL is reachable: {self.base_url}"
+                    f"Qwen chat unexpected error: {type(e).__name__} - {e}",
+                    exc_info=True,
                 )
-                raise ConnectionError(
-                    f"Failed to connect to LLM at '{self.base_url}' ({type(e).__name__}: {e}). "
-                    "If using Kaggle/Ngrok, check if your tunnel URL has expired or update QWEN_BASE_URL in .env."
-                ) from e
+                raise
 
     async def chat_with_tools(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
         temperature: float = 0.0,
-        max_tokens: int = 8192,  # Raised: 3072 was cutting multi-query tables mid-row
+        max_tokens: int = 8192,
     ) -> dict[str, Any]:
         """
         Send a chat completion with tool/function calling.
         Returns parsed response with content, tool_calls, and finish_reason.
         """
         self._check_and_update_base_url()
-        extra_body = {}
-        if any(k in self.base_url for k in ["localhost", "ngrok", "trycloudflare", "127.0.0.1"]):
-            extra_body["options"] = {"num_ctx": 16384, "num_predict": max_tokens, "temperature": 0.0, "num_gpu": 100}
+        extra_body: dict = {}
+        if "qwen3" in self.model.lower() or "qwen/qwen3" in self.model.lower():
+            extra_body["enable_thinking"] = False
 
-        # Sanitize None content to empty string for Ollama/GGUF template compatibility
+        # Sanitize None content to empty string for template compatibility
         clean_messages = []
         for m in messages:
             msg_copy = dict(m)
@@ -410,70 +476,178 @@ class QwenLLM(BaseLLM):
             clean_messages.append(msg_copy)
 
         for attempt in range(2):
+            response = None
+            used_fallback = False
+
             try:
-                response = await self._client.chat.completions.create(
-                    model=self.model,
-                    messages=clean_messages,
-                    tools=tools if tools else None,
-                    temperature=0.0,
-                    max_tokens=max_tokens,
-                    extra_body=extra_body if extra_body else None,
-                )
+                # --- Step 1: Try native tool calling ---
+                logger.debug(f"Qwen request started (attempt {attempt + 1})")
+                try:
+                    response = await self._client.chat.completions.create(
+                        model=self.model,
+                        messages=clean_messages,
+                        tools=tools if tools else None,
+                        temperature=0.0,
+                        max_tokens=max_tokens,
+                        extra_body=extra_body if extra_body else None,
+                    )
+                    logger.debug("Qwen response received (native tools)")
+                except Exception as native_err:
+                    # Only fall back when the server explicitly rejects tool calling
+                    if _is_tools_unsupported(native_err) and tools:
+                        logger.warning(
+                            f"Native tool calling unsupported on {self.model}; "
+                            f"using prompt-based fallback"
+                        )
+                        tools_schema_str = json.dumps(tools, indent=2)
+                        fallback_msg = (
+                            "\n\nYou have access to the following JSON tools. "
+                            "To use a tool, output a raw JSON array like: "
+                            '[{{"name": "toolName", "arguments": {{...}}}}].\n'
+                            f"Tools:\n{tools_schema_str}"
+                        )
+                        fallback_messages = list(clean_messages)
+                        if fallback_messages and fallback_messages[0]["role"] == "system":
+                            fallback_messages[0]["content"] += fallback_msg
+                        else:
+                            fallback_messages.insert(
+                                0, {"role": "system", "content": fallback_msg}
+                            )
+                        response = await self._client.chat.completions.create(
+                            model=self.model,
+                            messages=fallback_messages,
+                            tools=None,
+                            temperature=0.0,
+                            max_tokens=max_tokens,
+                            extra_body=extra_body if extra_body else None,
+                        )
+                        used_fallback = True
+                        logger.debug("Qwen response received (prompt-based fallback)")
+                    else:
+                        # Not a tools-unsupported error — let the outer handler deal with it
+                        raise
+
+                # --- Step 2: Validate the response ---
+                if response is None:
+                    raise LLMModelError("No response object returned from API")
+
+                if not response.choices:
+                    raise LLMModelError(
+                        f"Empty choices in API response (HTTP 200 but no choices returned)"
+                    )
 
                 choice = response.choices[0]
                 message = choice.message
+
+                if message is None:
+                    raise LLMModelError("Message object is None in API response")
+
                 result: dict[str, Any] = {
-                    "content": strip_thinking(message.content) if message.content else message.content,
+                    "content": strip_thinking(message.content) if message.content else "",
                     "tool_calls": [],
                     "finish_reason": choice.finish_reason,
                 }
 
-                # Parse native tool calls if present
+                # --- Step 3: Parse native tool calls if present ---
                 if message.tool_calls:
+                    logger.info(
+                        f"Native tool calls detected: "
+                        f"{[tc.function.name for tc in message.tool_calls]}"
+                    )
                     for tc in message.tool_calls:
                         try:
                             arguments = json.loads(tc.function.arguments)
                         except (json.JSONDecodeError, TypeError):
                             arguments = tc.function.arguments
+                            logger.warning(
+                                f"Tool call '{tc.function.name}' arguments not valid JSON; "
+                                f"passing raw string"
+                            )
 
                         result["tool_calls"].append({
                             "id": tc.id,
                             "name": tc.function.name,
                             "arguments": arguments,
                         })
+
                 elif result["content"]:
-                    # Fallback: Extract embedded XML/JSON tool calls from Qwen3 GGUF text output
+                    # --- Step 4: Fallback — extract embedded tool calls from text ---
                     extracted = _extract_text_tool_calls(result["content"])
                     if extracted:
+                        if used_fallback:
+                            logger.info(
+                                f"Fallback tool calls extracted: "
+                                f"{[tc['name'] for tc in extracted]}"
+                            )
+                        else:
+                            logger.info(
+                                f"Text-embedded tool calls extracted: "
+                                f"{[tc['name'] for tc in extracted]}"
+                            )
                         result["tool_calls"].extend(extracted)
                         result["content"] = strip_raw_tool_json(result["content"])
 
-                # Clean any leftover raw JSON tool call syntax from text response
+                # Final content sanitization
                 if result["content"]:
                     result["content"] = strip_raw_tool_json(result["content"])
 
                 if result["tool_calls"]:
                     logger.info(
                         f"Tool calls requested: "
-                        f"{[tc['name'] for tc in result['tool_calls']]}"
+                        f"{[tc['name'] for tc in result['tool_calls']]} "
+                        f"(finish_reason={result['finish_reason']})"
+                    )
+                else:
+                    logger.debug(
+                        f"No tool calls in response "
+                        f"(content_len={len(result['content'])}, "
+                        f"finish_reason={result['finish_reason']})"
                     )
 
                 return result
 
             except Exception as e:
-                # If model not found (404), try auto-discovering the active model on server
-                if attempt == 0 and ("404" in str(e) or "not found" in str(e).lower() or "NotFoundError" in type(e).__name__):
+                # --- Outer error handler: classify and re-raise ---
+
+                # Only retry on model-not-found (404)
+                if attempt == 0 and _is_model_not_found(e):
                     switched = await self._auto_fallback_model()
                     if switched:
                         continue
+
+                # Already a typed error from inner code — just re-raise
+                if isinstance(e, (LLMModelError, LLMConnectionError, LLMToolError)):
+                    raise
+
+                # Network / transport errors
+                if _is_connection_error(e):
+                    logger.error(
+                        f"Qwen chat_with_tools connection error: {type(e).__name__} - {e}. "
+                        f"Check if URL is reachable: {self.base_url}"
+                    )
+                    raise LLMConnectionError(
+                        f"Failed to connect to LLM at '{self.base_url}' "
+                        f"({type(e).__name__}: {e}). "
+                        "If using Kaggle/Ngrok, check if your tunnel URL has expired "
+                        "or update QWEN_BASE_URL in .env."
+                    ) from e
+
+                # HTTP / API status errors (4xx, 5xx)
+                if isinstance(e, APIStatusError):
+                    logger.error(
+                        f"Qwen chat_with_tools API error (HTTP {e.status_code}): "
+                        f"{type(e).__name__} - {e}"
+                    )
+                    raise LLMModelError(
+                        f"LLM API error at '{self.base_url}' (HTTP {e.status_code}): {e}"
+                    ) from e
+
+                # Programming / parsing / unexpected errors — NEVER wrap as connection error
                 logger.error(
-                    f"Qwen chat_with_tools error: {type(e).__name__} - {e}. "
-                    f"Check if URL is reachable: {self.base_url}"
+                    f"Qwen chat_with_tools unexpected error: {type(e).__name__} - {e}",
+                    exc_info=True,
                 )
-                raise ConnectionError(
-                    f"Failed to connect to LLM at '{self.base_url}' ({type(e).__name__}: {e}). "
-                    "If using Kaggle/Ngrok, check if your tunnel URL has expired or update QWEN_BASE_URL in .env."
-                ) from e
+                raise
 
     async def close(self) -> None:
         """Close the underlying HTTP client."""

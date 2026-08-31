@@ -37,7 +37,7 @@ Connect any Salesforce Org from the sidebar (**Connect Salesforce Org**):
 Salesforce Connected Apps are **org-local** — the server's built-in Consumer Key only works inside its own org. To 1-Click connect *your own* org:
 
 1. In **your** org: `Setup → App Manager → New Connected App` → enable **OAuth Settings**
-2. Callback URL: `https://<this-app-host>/api/auth/callback` · Scopes: `api`, `refresh_token`, `id`
+2. Callback URL: `https://<this-app-host>/api/auth/callback` · Scopes: `api`, `refresh_token`, `id` → also enable **`sfap:mcp:all`** and **`sfap:mcp:remote`** (unlock the hosted Salesforce MCP server tools)
 3. Expand **“Connect your own org”** in the dialog and paste that app's Consumer Key + Secret
 
 Connecting a foreign org without these credentials now **fails fast** with step-by-step instructions instead of a cryptic `invalid_client_id`.
@@ -92,11 +92,13 @@ salesforce-qwen-agent/
 │   ├── prompts.py        # System prompts & safety templates
 │   ├── memory.py         # Conversation history
 │   └── planner.py        # Task planning & safety checks
-├── mcp/
-│   ├── client.py         # Salesforce MCP/REST client
+├── sfmcp/
+│   ├── client.py         # Salesforce MCP (mcp SDK) / REST client
 │   ├── registry.py       # Tool registry & format conversion
 │   ├── executor.py       # Tool execution & error handling
-│   └── session_manager.py # Per-user OAuth session isolation
+│   ├── session_manager.py # Per-user OAuth session isolation
+│   └── crypto/
+│       └── envelope.py   # Envelope encryption (KEK/DEK) token vault
 ├── tools/
 │   └── salesforce.py     # 11 tool definitions
 ├── static/
@@ -230,10 +232,27 @@ python -m pytest tests/ -v
 | `QWEN_MODEL` | `qwen3-235b-a22b` | Qwen3 model name |
 | `SALESFORCE_INSTANCE_URL` | — | Host of the org owning the server-side Connected App (default 1-Click target) |
 | `SALESFORCE_CLIENT_ID` / `SALESFORCE_CLIENT_SECRET` | built-in fallback | Server-default Connected App credentials |
+| `SALESFORCE_OAUTH_SCOPE` | `sfap:mcp:all sfap:mcp:remote api refresh_token id` | Scopes requested during `/api/auth/login` |
 | `SALESFORCE_REDIRECT_URI` | request origin | Explicit OAuth callback override (must be whitelisted in the Connected App) |
+| `SALESFORCE_AUTH_HOST` | `login` | Host for OAuth token/refresh endpoints (e.g. `test.salesforce.com` for sandboxes) |
+| `SF_TOKEN_KEK` | auto-generate `.sf_kek` | Static key-encryption-key for the encrypted token vault (32-byte, base64 or hex) |
 | `APP_PORT` | `8000` | Server port |
 | `MAX_CONVERSATION_HISTORY` | `20` | Messages to keep in memory |
 | `MAX_TOOL_CALLS_PER_TURN` | `10` | Max tool calls per user message |
+
+---
+
+## 🔐 Token Security (Envelope Encryption)
+
+OAuth tokens are **never stored in plaintext** — in memory or on disk:
+
+- Per-session credentials are wrapped with a **static KEK** (from `SF_TOKEN_KEK` or auto-generated `.sf_kek`) and a **per-record random DEK** using **AES-256-GCM** (mcp-bridge style envelope encryption in `sfmcp/crypto/envelope.py`).
+- An encrypted on-disk mirror (`mcp_tokens.enc`) lets tokens survive restarts without ever touching disk as plaintext.
+- The in-memory `UserSessionManager` entry stores only the vault reference, not raw tokens.
+- Tokens are **auto-refreshed** via the OAuth `refresh_token` grant when near expiry; the MCP session is re-established with the fresh bearer token.
+- Where the MCP server is unreachable or the token lacks MCP scopes, the client **falls back to the direct REST API** so the assistant keeps working.
+
+> Make sure the **Connected App's Refresh Token Policy is "valid until revoked"**, otherwise auto-refresh stops after the original token window.
 
 ---
 

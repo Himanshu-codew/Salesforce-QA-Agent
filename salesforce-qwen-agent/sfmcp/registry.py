@@ -46,6 +46,11 @@ class ToolRegistry:
                 self._initialized = True
                 return
             except Exception as e:
+                # In strict mode a discovery failure is fatal and must surface
+                # rather than being hidden by the local-definitions fallback.
+                if getattr(mcp_client, "mcp_required", False):
+                    logger.error(f"MCP discovery failed in required mode: {e}")
+                    raise
                 logger.warning(f"MCP tool discovery failed: {e}")
 
         # Fallback: use local tool definitions
@@ -54,6 +59,14 @@ class ToolRegistry:
             f"Registry initialized with {len(self._tools)} local tool definitions."
         )
         self._initialized = True
+
+    @staticmethod
+    def _normalize_tool_name(name: str) -> str:
+        """
+        Strip an MCP namespace prefix so the LLM sees plain names.
+        e.g. 'default_api:soqlQuery' -> 'soqlQuery'.
+        """
+        return name.rsplit(":", 1)[-1] if name and ":" in name else name
 
     def _load_mcp_tools(self, mcp_tools: list[dict[str, Any]]) -> None:
         """Load tools from MCP server response and convert to OpenAI format."""
@@ -65,9 +78,11 @@ class ToolRegistry:
                 self._tools[name] = tool
                 self._openai_format.append(tool)
             elif "name" in tool:
-                # MCP native format — convert
-                name = tool["name"]
-                openai_tool = self._mcp_to_openai(tool)
+                # MCP native format — convert, normalizing namespaced names
+                normalized = dict(tool)
+                normalized["name"] = self._normalize_tool_name(tool["name"])
+                name = normalized["name"]
+                openai_tool = self._mcp_to_openai(normalized)
                 self._tools[name] = openai_tool
                 self._openai_format.append(openai_tool)
 
@@ -107,12 +122,14 @@ class ToolRegistry:
         return self._openai_format
 
     def get_tool(self, name: str) -> dict[str, Any] | None:
-        """Look up a tool by name."""
-        return self._tools.get(name)
+        """Look up a tool by name (tolerant of namespace prefixes)."""
+        return self._tools.get(name) or self._tools.get(self._normalize_tool_name(name))
 
     def has_tool(self, name: str) -> bool:
-        """Check if a tool exists in the registry."""
-        return name in self._tools
+        """Check if a tool exists in the registry (tolerant of namespace prefixes)."""
+        if name in self._tools:
+            return True
+        return self._normalize_tool_name(name) in self._tools
 
     def list_tool_names(self) -> list[str]:
         """Return all registered tool names."""

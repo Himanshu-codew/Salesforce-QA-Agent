@@ -7,9 +7,10 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
-from mcp.client import SalesforceMCPClient
-from mcp.registry import ToolRegistry
-from mcp.executor import ToolExecutor
+from sfmcp.client import SalesforceMCPClient
+from sfmcp.crypto.envelope import token_vault
+from sfmcp.registry import ToolRegistry
+from sfmcp.executor import ToolExecutor
 from agent.agent import SalesforceAgent
 from llm.base import BaseLLM
 
@@ -104,25 +105,51 @@ class UserSessionManager:
         refresh_token: str,
         instance_url: str,
         user_info: Dict[str, Any],
+        expires_at: Optional[float] = 0.0,
+        oauth_scope: Optional[str] = None,
     ) -> SalesforceAgent:
         """
         Register a newly authenticated Salesforce user session from OAuth flow.
         Creates an isolated MCP client, ToolExecutor, and SalesforceAgent for this user.
+        Credentials are stored envelope-encrypted in the TokenVault (no plaintext in memory).
         """
         logger.info(f"🔑 Registering OAuth session '{session_id}' for user: {user_info.get('display_name')} ({instance_url})")
 
-        # 1. Create session-specific MCP client with user's access token
+        auth_host = os.getenv("SALESFORCE_AUTH_HOST", "login").strip()
+        client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
+        client_secret = os.getenv("SALESFORCE_CLIENT_SECRET", "")
+        oauth_scope = oauth_scope or os.getenv("SALESFORCE_OAUTH_SCOPE", "")
+
+        # 1. Persist credentials encrypted (memory + local file mirror)
+        token_vault.put(
+            session_id,
+            access_token=access_token,
+            refresh_token=refresh_token or None,
+            instance_url=instance_url,
+            expires_at=float(expires_at or 0.0),
+            client_id=client_id or None,
+            client_secret=client_secret or None,
+            oauth_scope=oauth_scope or None,
+            auth_host=auth_host,
+        )
+
+        # 2. Create session-specific MCP client with user's access token
         user_mcp_client = SalesforceMCPClient(
             mcp_url=os.getenv("SALESFORCE_MCP_URL", ""),
             instance_url=instance_url,
-            client_id=os.getenv("SALESFORCE_CLIENT_ID", ""),
-            client_secret=os.getenv("SALESFORCE_CLIENT_SECRET", ""),
+            client_id=client_id,
+            client_secret=client_secret,
             username=user_info.get("username", ""),
             password="",
             security_token="",
-            domain="login",
+            domain=auth_host,
             access_token=access_token,
             refresh_token=refresh_token,
+            expires_at=expires_at or 0.0,
+            oauth_scope=oauth_scope,
+            auth_host=auth_host,
+            token_vault=token_vault,
+            session_id=session_id,
         )
 
         try:
@@ -131,11 +158,11 @@ class UserSessionManager:
         except Exception as e:
             logger.warning(f"⚠️ User MCP connection notice for session '{session_id}': {e}")
 
-        # 2. Use existing registry or create tool executor
+        # 3. Use existing registry or create tool executor
         registry = self._default_tool_registry or ToolRegistry()
         executor = ToolExecutor(user_mcp_client, registry)
 
-        # 3. Create isolated agent for this user
+        # 4. Create isolated agent for this user
         user_agent = SalesforceAgent(
             llm=self._llm,
             executor=executor,
@@ -143,14 +170,13 @@ class UserSessionManager:
             max_history=int(os.getenv("MAX_CONVERSATION_HISTORY", "20")),
         )
 
-        # 4. Save session state
+        # 5. Save session state (no plaintext tokens in memory)
         self._sessions[session_id] = {
             "session_id": session_id,
             "authenticated": True,
             "credentials": {
-                "access_token": access_token,
-                "refresh_token": refresh_token,
                 "instance_url": instance_url,
+                "vault_id": session_id,
             },
             "user_info": user_info,
             "mcp_client": user_mcp_client,
@@ -170,6 +196,10 @@ class UserSessionManager:
                     await client.disconnect()
                 except Exception as e:
                     logger.warning(f"Error disconnecting MCP client on logout ({session_id}): {e}")
+            try:
+                token_vault.delete(session_id)
+            except Exception as e:
+                logger.warning(f"Error deleting vault record on logout ({session_id}): {e}")
             logger.info(f"🔒 User session '{session_id}' logged out and disconnected.")
             return True
         return False

@@ -10,7 +10,7 @@ import re
 from typing import Any, AsyncGenerator
 
 from llm.base import BaseLLM
-from mcp.executor import ToolExecutor
+from sfmcp.executor import ToolExecutor
 from tools.salesforce import get_tool_definitions
 from .memory import ConversationMemory
 from .planner import TaskPlanner
@@ -530,6 +530,332 @@ def sanitize_response_output(text: str) -> str:
     # 8. If the result is empty or only whitespace/braces, return a generic fallback
     if not cleaned or re.fullmatch(r"[\{\}\[\]\`\s]*", cleaned):
         return ""
+
+    return cleaned
+
+
+# ──────────────────────────────────────────────────────────────
+# LAST-MILE USER OUTPUT GUARD
+# Guarantees the user-facing chatbot NEVER exposes raw tool-call
+# JSON, tool schemas, XML function calls, debug logs, or parser
+# output. Applied at the delivery boundary (app.py) as a hard
+# security barrier — the final answer returned to the user is
+# always clean natural language (or a clean fallback message).
+# ──────────────────────────────────────────────────────────────
+
+# Tool call JSON key signatures used to detect leaked raw tool payloads.
+_CLEAN_LINE_ONLY_MARKERS = {"{", "}", "]", "[", "```", "```json", "```tool_call",
+                            "}}", "}}}", "`]", "{}", "[]", "```xml", "<tool_call>"}
+
+# Qwen/adapter native tool-call markers that must never reach the user.
+_RAW_TOOL_MARKERS = [
+    "tool_calls", "[TOOL_CALLS]", "<tool_call>", "</tool_call>",
+    "<tools>", "</tools>", "<function_call>", "</function_call>",
+    "function_calls", "[reference_table]", "[PRE-BUILT",
+]
+
+
+def _looks_like_tool_json(text: str) -> bool:
+    """Return True if text contains a leaked raw tool/tech artifact."""
+    if not text:
+        return False
+    lower = text.lower()
+    # Debug / exception / internal markers can never be shown to the user.
+    if any(k in lower for k in (
+        "[rag debug", "[mcp]", "traceback", "\"error\":", "'error':",
+        "raise runtimeerror", "theme error", "not found. available:", "parser output",
+    )):
+        return True
+    # A JSON/XML block carrying a known tool name invocation.
+    if any(kw in lower for kw in (
+        '"name"', "'name'", '"arguments"', '"function"',
+        '"parameters"', '"toolname"', 'soqlquery', 'getobjectschema',
+        'createsobjectrecord', 'updatesobjectrecord', 'deletesobjectrecord',
+        'getrelatedrecords', 'listrecentsobjectrecords', 'uploadrecordattachment',
+        '<tool_call>', '<tools>', '[tool_calls]',
+    )):
+        # Only flag JSON-ish/XML-ish structures (contains braces or angle tags),
+        # not natural sentences that merely word-match a tool name.
+        if ("{" in text or "}" in text or "[" in text or "]" in text
+                or "<" in text or ">" in text):
+            return True
+    return False
+
+
+# ──────────────────────────────────────────────────────────────
+# MARKDOWN HEALER
+# Bulletproofs UI rendering against slightly-malformed LLM output.
+# Runs at the delivery boundary (inside finalize_user_response) so the
+# user ALWAYS receives valid GFM: matched asterisks, well-spaced bullets,
+# and intact GFM tables with blank-line separation. Falls back to a
+# strict GFM-table rebuilder for [reference_table] content that the LLM
+# tried to rewrite with broken pipes.
+# ──────────────────────────────────────────────────────────────
+
+def _is_table_row(line: str) -> bool:
+    """True if a line looks like a GFM table row (even if outer pipes were dropped)."""
+    s = line.strip()
+    if not s or "|" not in s:
+        return False
+    if _is_table_separator(s):
+        return True
+    body = s
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|"):
+        body = body[:-1]
+    cells = [c.strip() for c in body.split("|")]
+    cells = [c for c in cells if c != ""]
+    return len(cells) >= 2
+
+
+def _heal_bullets(text: str) -> str:
+    """Normalize `*`/`+` bullet markers to `- ` with proper spacing."""
+    out = []
+    for line in text.split("\n"):
+        # A single `*` or `+` at line start is a bullet (exclude `**bold**`).
+        m = re.match(r"^(\s*)[*+](?![\*\+])\s*(.*)$", line)
+        if m and "|" not in line:
+            indent, content = m.group(1), m.group(2)
+            marker = "- "
+            if content:
+                out.append(f"{indent}{marker}{content}" if not content.startswith("*") else f"{indent}*{content}")
+            else:
+                out.append(f"{indent}{marker}".rstrip())
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def _heal_asterisks_line(line: str) -> str:
+    """Balance asterisks in a single line so bold/italic never render raw."""
+    if "*" not in line:
+        return line
+    # Protect code spans so we never touch asterisks inside `...`.
+    protected = []
+
+    def _proto(m):
+        protected.append(m.group(0))
+        return f"\u0000{len(protected) - 1}\u0000"
+
+    line = re.sub(r"`[^`]*`", _proto, line)
+
+    # Protect well-formed bold pairs **x**.
+    def _proto_bold(m):
+        protected.append(m.group(0))
+        return f"\u0000{len(protected) - 1}\u0000"
+
+    line = re.sub(r"\*\*[^*]+?\*\*", _proto_bold, line)
+
+    # Collapse empty/mangled asterisk runs (****, ***) down to nothing.
+    line = re.sub(r"\*{4,}", "", line)
+    line = re.sub(r"\*{3}", "", line)
+
+    # Any remaining `**` is an UNMATCHED bold marker (matched pairs were already
+    # protected) — strip it so it never renders as literal `**`.
+    line = re.sub(r"\*\*", "", line)
+
+    # Drop trailing standalone asterisk(s) and a leading orphan asterisk.
+    line = re.sub(r"\*+\s*$", "", line)
+    line = re.sub(r"^\s*\*+(?![\s\*])", " ", line)
+
+    # Balance any remaining single asterisks as italics: drop the odd count's
+    # last one so a lone `*` never reaches the UI as literal text.
+    scopes = []
+    i = 0
+    n = len(line)
+    while i < n:
+        if line[i] == "*":
+            j = i
+            while j < n and line[j] == "*":
+                j += 1
+            if j - i == 1:
+                scopes.append((i, j))
+            i = j
+        else:
+            i += 1
+    if len(scopes) % 2 == 1:
+        idx, _ = scopes[-1]
+        line = line[:idx] + line[idx + 1:]
+
+    # Restore protected tokens.
+    for i, token in enumerate(protected):
+        line = line.replace(f"\u0000{i}\u0000", token)
+    return line
+
+
+def _is_table_separator(line: str) -> bool:
+    line = line.strip()
+    if not line or "|" not in line:
+        return False
+    cells = [c.strip() for c in line.strip("|").split("|")]
+    return bool(cells) and all(re.fullmatch(r":?-{2,}:?", c or "---") for c in cells)
+
+
+def _cells_of(line: str) -> list:
+    """Split a pipe table line into trimmed cells (works with/without outer pipes)."""
+    s = line.strip()
+    if s.startswith("|"):
+        s = s[1:]
+    if s.endswith("|"):
+        s = s[:-1]
+    return [c.strip() for c in s.split("|")]
+
+
+def _rebuild_gfm_table(rows: list) -> str:
+    """Rebuild strict GFM table from header + optional separator + body rows."""
+    if not rows:
+        return ""
+    table_cells = [_cells_of(r) for r in rows]
+    # Normalize column count.
+    ncols = max(len(r) for r in table_cells)
+    table_cells = [r + [""] * (ncols - len(r)) for r in table_cells]
+    # Ignore a separator row (all dashes) already present after the header.
+    body = list(table_cells)
+    if len(body) >= 2:
+        if all(re.fullmatch(r":?-{2,}:?", (c or "---")) for c in body[1]):
+            body.pop(1)
+    header = body[0]
+    data = body[1:]
+    sep = ["---"] * ncols
+    lines = ["| " + " | ".join(header) + " |",
+             "| " + " | ".join(sep) + " |"]
+    for rec in data:
+        lines.append("| " + " | ".join(rec) + " |")
+    return "\n".join(lines)
+
+
+def heal_markdown(text: str) -> str:
+    """
+    Bulletproof markdown for UI rendering.
+
+    1. Guarantees contiguous GFM tables (from [reference_table] or raw LLM
+       tables) are reconstructed with strict pipes and blank-line separation,
+       even if the LLM dropped outer pipes or mangled the separator row.
+    2. Normalizes `*`/`+` bullets to `- ` with proper spacing.
+    3. Balances/removes unmatched asterisks so bold/italic never leak raw `*`.
+    """
+    if not text:
+        return text
+
+    lines = text.split("\n")
+    result = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        if _is_table_row(line):
+            # Gather a contiguous table block (header/separator/body rows).
+            block = []
+            j = i
+            while j < n:
+                if _is_table_row(lines[j]):
+                    block.append(lines[j])
+                    j += 1
+                else:
+                    break
+            # Only treat as a real table if the block has >=2 rows; otherwise
+            # it's ambiguous prose (e.g. "usa | 10"). Preserve as-is.
+            if len(block) >= 2:
+                result.append("")
+                rebuilt = _rebuild_gfm_table(block)
+                if rebuilt:
+                    result.append(rebuilt)
+                result.append("")
+            else:
+                result.append(line)
+            i = j
+            continue
+        result.append(line)
+        i += 1
+
+    assembled = "\n".join(result)
+
+    # Bullet + asterisk healing on non-table content.
+    out = []
+    for line in assembled.split("\n"):
+        if _is_table_row(line):
+            out.append(line)
+            continue
+        out.append(_heal_asterisks_line(_heal_bullets(line)))
+    healed = "\n".join(out)
+
+    # Collapse extra blank lines / tidy.
+    healed = re.sub(r"\n{3,}", "\n\n", healed)
+    healed = healed.replace("\n \n", "\n\n")
+    return healed.strip()
+
+
+def finalize_user_response(text: str) -> str:
+    """
+    STRICT final barrier before any string is delivered to the user.
+
+    Runs the existing sanitizer, then strips any residual raw tool-call
+    JSON/XML/schema/debug artifacts. If the cleaned result is empty or
+    still contains raw tool-call syntax, returns a clean natural-language
+    fallback so the user NEVER sees parser output.
+
+    Safe for Markdown tables / hierarchical cards / natural language.
+    """
+    if not text:
+        return "I processed your request. How else can I assist you?"
+
+    cleaned = sanitize_response_output(text)
+
+    # 1. Remove stray coding-fence / structure lines that are NOT part of content.
+    lines = []
+    for line in cleaned.split("\n"):
+        stripped = line.strip()
+        if stripped in _CLEAN_LINE_ONLY_MARKERS:
+            continue
+        # Skip lines that are pure JSON key:value pairs (tool schema / result dumps).
+        if re.fullmatch(r'"?(name|type|function|arguments|parameters|properties|'
+                        r'required|tool_calls|records|totalSize|attributes|id)"?\s*[:,]', stripped):
+            continue
+        lines.append(line)
+    cleaned = "\n".join(lines).strip()
+
+    # 2. Remove residual XML tool-call wrappers and their inner content.
+    cleaned = re.sub(
+        r"<(?:tool_call|tools|function_call|assistant_tool_call)>[\s\S]*?"
+        r"</(?:tool_call|tools|function_call|assistant_tool_call)>",
+        "", cleaned, flags=re.IGNORECASE,
+    )
+    # Strip any orphaned XML tool tags left behind (e.g. a lone closing `</tools>`).
+    cleaned = re.sub(
+        r"</?(?:tool_call|tools|function_call|assistant_tool_call|br|pre|code)[^>]*>",
+        "", cleaned, flags=re.IGNORECASE,
+    )
+    # 3. Remove complete JSON arrays that are tool-call payloads
+    #    e.g. [ { "name": "soqlQuery", "arguments": {...} } ]
+    cleaned = re.sub(
+        r"\[\s*\{(?:[^{}]*|\{[^{}]*\})*\}?\s*\]", "", cleaned, flags=re.DOTALL,
+    )
+    # 4. Remove a raw JSON object that carries tool-call keys.
+    cleaned = re.sub(
+        r"\{(?:[^{}]|\{[^{}]*\})*:\s*(?:[^{}]|\{[^{}]*\})*\}", "", cleaned,
+        flags=re.DOTALL,
+    )
+    # 4b. Remove orphaned bracket residue left after the strips above
+    #     (e.g. `[}]`, `[{`, `]}`, stray single braces). Strip any run of 2+.
+    bracket_run = re.compile(r"[\[\]\{\}]{2,}")
+    cleaned = bracket_run.sub("", cleaned)
+    # Remove single brackets/braces that stand alone between spaces or newlines.
+    cleaned = re.sub(r"(?:^|[\s])\[[\s\]]", " ", cleaned)
+    cleaned = re.sub(r"(?:^|[\s])\][\s$]", " ", cleaned)
+
+    # 5. Heal malformed markdown so tables/cards/bullets always render:
+    #    fix unmatched asterisks, normalize bullet spacing, and guarantee
+    #    GFM tables are preserved with blank-line separation.
+    cleaned = heal_markdown(cleaned)
+
+    # 6. Collapse blank lines.
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+    # 7. If raw tool-call syntax survived or nothing usable remains, fall back.
+    if not cleaned or re.fullmatch(r"[\{\}\[\]\`\s]*", cleaned) or _looks_like_tool_json(cleaned):
+        logger.warning("Last-mile guard replaced leaked tool-call content with a clean fallback.")
+        return "I processed your request. How else can I assist you?"
 
     return cleaned
 

@@ -44,10 +44,11 @@ logger = logging.getLogger("salesforce-agent")
 
 # ── Import application modules ──
 from llm.qwen import QwenLLM
-from mcp.client import SalesforceMCPClient
-from mcp.registry import ToolRegistry
-from mcp.executor import ToolExecutor
-from agent.agent import SalesforceAgent
+from sfmcp.client import SalesforceMCPClient
+from sfmcp.registry import ToolRegistry
+from sfmcp.executor import ToolExecutor
+from agent.multi_agent import Orchestrator as SalesforceAgent
+from agent.agent import finalize_user_response
 from utils.file_parser import parse_uploaded_file
 
 # ── Upload directory setup ──
@@ -64,6 +65,7 @@ agent: SalesforceAgent | None = None
 
 def create_mcp_client() -> SalesforceMCPClient:
     """Create and configure the Salesforce MCP Client."""
+    from sfmcp.crypto.envelope import token_vault
     return SalesforceMCPClient(
         mcp_url=os.getenv("SALESFORCE_MCP_URL", ""),
         instance_url=os.getenv("SALESFORCE_INSTANCE_URL", ""),
@@ -75,6 +77,10 @@ def create_mcp_client() -> SalesforceMCPClient:
         domain=os.getenv("SALESFORCE_DOMAIN", "login"),
         access_token=os.getenv("SALESFORCE_ACCESS_TOKEN"),
         refresh_token=os.getenv("SALESFORCE_REFRESH_TOKEN"),
+        oauth_scope=os.getenv("SALESFORCE_OAUTH_SCOPE", ""),
+        auth_host=os.getenv("SALESFORCE_AUTH_HOST", "login"),
+        token_vault=token_vault,
+        session_id="default",
     )
 
 
@@ -142,7 +148,7 @@ async def lifespan(app: FastAPI):
     )
 
     # 6. Initialize User Session Manager
-    from mcp.session_manager import session_manager
+    from sfmcp.session_manager import session_manager
     session_manager.initialize_defaults(
         default_mcp_client=mcp_client,
         default_tool_registry=tool_registry,
@@ -194,7 +200,7 @@ app.mount("/static", StaticFiles(directory=static_dir), name="static")
 # ═══════════════════════════════════════════
 # OAuth 2.0 Multi-User Authentication Routes
 # ═══════════════════════════════════════════
-from mcp.session_manager import session_manager
+from sfmcp.session_manager import session_manager
 
 # Pending OAuth flows awaiting callback: state -> flow metadata.
 # Binds each authorization code to the exact auth host + Connected App
@@ -405,7 +411,8 @@ async def oauth_login(
                     "<li><b>Setup → App Manager → New Connected App</b> (any name).</li>"
                     "<li>Enable <b>OAuth Settings</b>. Callback URL: "
                     f"<code>{xml_escape(redirect_uri)}</code></li>"
-                    "<li>Scopes: <code>api</code>, <code>refresh_token</code>, <code>id</code>.</li>"
+                    "<li>Scopes: <code>api</code>, <code>refresh_token</code>, <code>id</code>, "
+                    "<code>sfap:mcp:all</code>, <code>sfap:mcp:remote</code> (the latter two unlock the model's MCP tools).</li>"
                     "<li>Save, copy the <b>Consumer Key &amp; Consumer Secret</b>.</li>"
                     "</ol>"
                     "Then expand <b>“Connect your own org”</b> in the Connect dialog, paste them "
@@ -434,6 +441,10 @@ async def oauth_login(
 
     verifier, challenge = _generate_pkce_pair()
     state = secrets.token_urlsafe(24)
+    oauth_scope = os.getenv(
+        "SALESFORCE_OAUTH_SCOPE",
+        "sfap:mcp:all sfap:mcp:remote api refresh_token id",
+    )
     _oauth_pending_flows[state] = {
         "session_id": session_id,
         "auth_host": auth_host,
@@ -441,6 +452,7 @@ async def oauth_login(
         "client_secret": effective_client_secret,
         "redirect_uri": redirect_uri,
         "code_verifier": verifier,
+        "scope": oauth_scope,
         "created_at": time.time(),
     }
     _prune_expired_states()
@@ -453,6 +465,7 @@ async def oauth_login(
                 "client_id": effective_client_id,
                 "redirect_uri": redirect_uri,
                 "state": state,
+                "scope": oauth_scope,
                 "code_challenge": challenge,
                 "code_challenge_method": "S256",
             }
@@ -494,7 +507,8 @@ async def oauth_callback(request: Request):
                 "(SALESFORCE_CLIENT_ID / SALESFORCE_INSTANCE_URL) point at two different orgs.</p>"
                 "<p><b>Fix:</b> In YOUR org go to <b>Setup → App Manager → New Connected App</b>, enable OAuth with "
                 f"callback <code>{callback_hint}</code> and scopes "
-                "<code>api, refresh_token, id</code>, then paste that app's Consumer Key &amp; Secret under "
+                "<code>api, refresh_token, id</code> plus <code>sfap:mcp:all</code>/<code>sfap:mcp:remote</code> "
+                "(the latter two unlock the model's MCP tools), then paste that app's Consumer Key &amp; Secret under "
                 "<b>“Connect your own org”</b> in the Connect dialog and retry. For the server-default org, "
                 "update SALESFORCE_CLIENT_ID/SECRET and SALESFORCE_INSTANCE_URL together on Render.</p>"
             )
@@ -580,6 +594,8 @@ async def oauth_callback(request: Request):
                 refresh_token=refresh_token,
                 instance_url=instance_url,
                 user_info=user_info,
+                expires_at=time.time() + int(token_data.get("expires_in", 3600)),
+                oauth_scope=flow.get("scope"),
             )
 
             script_session_id = json.dumps(session_id)
@@ -874,6 +890,10 @@ async def health_check():
     return {
         "status": "healthy",
         "mcp_connected": mcp_client.is_connected if mcp_client else False,
+        "mcp_required": getattr(mcp_client, "mcp_required", False) if mcp_client else False,
+        "degraded": bool(
+            mcp_client and getattr(mcp_client, "mcp_required", False) and not mcp_client.is_connected
+        ),
         "tools_registered": len(tool_registry) if tool_registry else 0,
         "connected_app": {
             "valid": connected_app_status["valid"],
@@ -972,6 +992,12 @@ async def chat_endpoint(request: ChatRequest):
         elif event["type"] == "tool_call":
             tool_calls.append(event["data"])
 
+    # LAST-MILE USER OUTPUT GUARD: deliver only clean natural language.
+    if response_text:
+        response_text = finalize_user_response(response_text)
+    else:
+        response_text = "I processed your request. How else can I assist you?"
+
     return {
         "response": response_text,
         "tool_calls": tool_calls,
@@ -1040,6 +1066,13 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                         user_message, session_id
                     ):
                         try:
+                            # LAST-MILE USER OUTPUT GUARD: only natural-language
+                            # content is delivered to the user. Raw tool-call JSON,
+                            # schemas, XML, and debug/parser output are stripped here
+                            # regardless of what the agent yielded.
+                            if event.get("type") in ("response", "confirmation", "error"):
+                                event = dict(event)
+                                event["data"] = finalize_user_response(str(event.get("data", "")))
                             await websocket.send_json(event)
                         except (RuntimeError, WebSocketDisconnect) as send_err:
                             logger.warning(f"Client disconnected during event delivery ({session_id}): {send_err}")
@@ -1049,7 +1082,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     try:
                         await websocket.send_json({
                             "type": "error",
-                            "data": f"An error occurred: {str(e)}",
+                            "data": "I ran into an unexpected issue while processing your request. Please try again.",
                         })
                     except Exception:
                         pass
