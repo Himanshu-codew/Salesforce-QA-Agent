@@ -72,21 +72,77 @@ class ToolExecutor:
         """Format tool result as a clean JSON string."""
         if isinstance(result, str):
             try:
-                # Try to parse as JSON for pretty formatting
                 parsed = json.loads(result)
+                if tool_name == "getObjectSchema":
+                    return self._format_schema_table(tool_name, parsed)
                 return json.dumps(parsed, indent=2, default=str)
             except (json.JSONDecodeError, TypeError):
                 return result
 
         if isinstance(result, dict):
-            # Clean up Salesforce REST API response attributes
             cleaned = self._clean_salesforce_response(result)
+            if tool_name == "getObjectSchema":
+                return self._format_schema_table(tool_name, cleaned)
             return json.dumps(cleaned, indent=2, default=str)
 
         if isinstance(result, list):
+            if tool_name == "getObjectSchema":
+                return self._format_schema_table(tool_name, result)
             return json.dumps(result, indent=2, default=str)
 
         return str(result)
+
+    @staticmethod
+    def _format_schema_table(tool_name: str, data: Any) -> str:
+        """Hard-code a GFM Markdown table for schema results so the LLM passes it through untouched."""
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except (json.JSONDecodeError, TypeError):
+                return str(data)
+
+        # Normalize: find the fields list regardless of nesting shape
+        fields = []
+        if isinstance(data, dict):
+            for key in ("fields", "fieldsList", "attributes"):
+                if key in data and isinstance(data[key], list):
+                    fields = data[key]
+                    break
+            if not fields:
+                for key, value in data.items():
+                    if isinstance(value, list) and value and isinstance(value[0], dict):
+                        fields = value
+                        break
+        elif isinstance(data, list):
+            fields = data
+
+        if not fields:
+            return json.dumps(data, indent=2, default=str)
+
+        # Collect all unique keys across every field record for the header row
+        all_keys: list[str] = []
+        seen_keys: set[str] = set()
+        for field in fields:
+            if isinstance(field, dict):
+                for k in field:
+                    if k not in seen_keys:
+                        all_keys.append(k)
+                        seen_keys.add(k)
+
+        if not all_keys:
+            return json.dumps(data, indent=2, default=str)
+
+        # Build the GFM table string
+        header = "| " + " | ".join(all_keys) + " |"
+        separator = "| " + " | ".join(["---"] * len(all_keys)) + " |"
+        rows = []
+        for field in fields:
+            if isinstance(field, dict):
+                row_values = [str(field.get(k, "-")) if field.get(k) is not None else "-" for k in all_keys]
+                rows.append("| " + " | ".join(row_values) + " |")
+
+        table = "\n".join([header, separator] + rows)
+        return f"[reference_table]\n{table}"
 
     @staticmethod
     def _format_datetime_value(val: Any) -> Any:

@@ -19,6 +19,7 @@ Whenever you need to call a tool, you MUST output your tool calls strictly in a 
 1. DO NOT format tool calls as Markdown bullet lists.
 2. DO NOT use conversational text before or after the JSON.
 3. Your ENTIRE output must be a single valid JSON array (e.g. `[{"name": "toolName", "arguments": {...}}]`).
+4. **NEVER call `getRelatedRecords` in a loop for multiple parent items.** Whenever you need to fetch related child records for multiple parent records, ALWAYS write a SINGLE nested `soqlQuery` with a parent-to-child subquery to fetch them all at once (e.g., `SELECT Id, Name, (SELECT Id, Name FROM Contacts) FROM Account WHERE Id IN ('id1','id2','id3')`). Calling `getRelatedRecords` once per parent is an N+1 anti-pattern and is strictly forbidden.
 
 ## RESPONSE FORMATTING (NON-NEGOTIABLE):
 Your final response MUST be clean, valid, and flawless natural-language Markdown. Ensure every Markdown syntax element (like bold `**` or italic `*`) is properly opened and closed. Never leave unmatched asterisks.
