@@ -183,6 +183,12 @@ class SalesforceMCPClient:
             "password": f"{self.password}{self.security_token}",
         }
 
+        # The hosted MCP server requires OAuth tokens carrying sfap:mcp:* scope.
+        # Pass the configured scope through on the initial grant so the returned
+        # token is MCP-capable (REST-only session tokens are rejected with 401).
+        if self.oauth_scope:
+            payload["scope"] = self.oauth_scope
+
         try:
             response = await self._http_client.post(
                 token_url,
@@ -251,6 +257,9 @@ class SalesforceMCPClient:
             "client_id": self.client_id,
             "client_secret": self.client_secret,
         }
+        # Preserve MCP scope on refresh so a refreshed token stays MCP-capable.
+        if self.oauth_scope:
+            payload["scope"] = self.oauth_scope
         try:
             response = await self._http_client.post(
                 self._token_url(),

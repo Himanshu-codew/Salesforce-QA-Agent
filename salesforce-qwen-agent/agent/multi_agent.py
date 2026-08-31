@@ -8,7 +8,13 @@ from typing import Any, AsyncGenerator
 
 from llm.base import BaseLLM
 from sfmcp.executor import ToolExecutor
-from .multi_agent_prompts import PLANNER_PROMPT, DATA_AGENT_PROMPT, ACTION_AGENT_PROMPT, SYNTHESIZER_PROMPT
+from .multi_agent_prompts import (
+    PLANNER_PROMPT,
+    DATA_AGENT_PROMPT,
+    ACTION_AGENT_PROMPT,
+    SYNTHESIZER_PROMPT,
+    GENERAL_ANSWER_PROMPT,
+)
 from .memory import ConversationMemory
 from .planner import TaskPlanner
 from .rag import ToolRAGRetriever
@@ -78,20 +84,43 @@ class Orchestrator:
                 
         logger.info(f"📩 [USER MESSAGE] ({session_id}): {user_message}")
         memory.add_user_message(user_message)
-        
+        logger.info(f"[ORCHESTRATOR] Original query: {user_message}")
+
         # 1. PLANNER STAGE
         yield {"type": "thinking", "data": "[Planner] Decomposing your request..."}
         plan = await self._generate_plan(user_message, memory)
-        
+
+        # ── EMPTY PLAN != ERROR ──
+        # An empty plan means the Planner found NO Salesforce/agent task.
+        # This is NORMAL for greetings, casual chat, thanks, and general
+        # knowledge questions. It is NOT a misunderstanding.
         if not plan:
-            # Fallback if planning fails
-            yield {"type": "response", "data": "I couldn't understand how to break down your request."}
-            return
-            
+            # Use semantic RAG to decide Salesforce vs General deterministically.
+            tools = self.rag_retriever.get_relevant_tools(user_message, top_k=6)
+            if not tools:
+                logger.info("[PLANNER] Decision: General — no Salesforce tools above RAG threshold. Routing original query to Qwen.")
+                response = await self._answer_general(user_message, memory)
+                memory.add_assistant_message(response)
+                yield {"type": "response", "data": response}
+                return
+            # Salesforce intent exists but the Planner produced no discrete
+            # subtasks. Fall through to a single implicit task so real
+            # Salesforce queries are never dropped just because the parser failed.
+            logger.info("[PLANNER] Empty plan, but Salesforce intent detected via RAG. Using single implicit task.")
+            plan = [
+                {
+                    "task_id": 1,
+                    "description": user_message,
+                    "agent": "DataAgent",
+                    "depends_on": [],
+                }
+            ]
+
         yield {"type": "thinking", "data": f"[Planner] Generated {len(plan)} sub-tasks."}
         
         # 2. EXECUTION STAGE
         tools = self.rag_retriever.get_relevant_tools(user_message, top_k=6)
+        logger.info(f"[RAG] Selected tools: {[t['function']['name'] for t in tools]}")
         all_results = []
         task_outputs = {}
         
@@ -193,3 +222,21 @@ class Orchestrator:
         except Exception as e:
             logger.error(f"Synthesizer failed: {e}")
             return "An error occurred while formatting the response."
+
+    async def _answer_general(self, user_query: str, memory: ConversationMemory) -> str:
+        """
+        Answer a general / non-Salesforce query directly with the LLM.
+        Preserves the ORIGINAL user query — never replaces it with planner
+        output, an empty plan, or tool-selection JSON.
+        """
+        logger.info(f"[QWEN] General response request sent for query: {user_query}")
+        try:
+            msgs = [{"role": "system", "content": GENERAL_ANSWER_PROMPT}]
+            msgs.append({"role": "user", "content": user_query})
+            res = await self.llm.chat(messages=msgs, temperature=0.3)
+            answer = res.strip()
+            logger.info(f"[QWEN] General response received ({len(answer)} chars).")
+            return answer
+        except Exception as e:
+            logger.error(f"[QWEN] General response failed: {e}")
+            return "Hi! How can I help you with your Salesforce data today?"
