@@ -973,35 +973,45 @@ async def chat_endpoint(request: ChatRequest):
         else:
             user_message = f"[Attached File: {filename} ({summary})]\n{preview}\n\nPlease analyze this file and proceed as requested."
 
-    events = []
+    response_text = ""
+    error_code = ""
+    error_message = ""
+
     async for event in target_agent.process_message(
         user_message, request.session_id
     ):
-        events.append(event)
-
-    response_text = ""
-    tool_calls = []
-
-    for event in events:
-        if event["type"] == "response":
-            response_text = event["data"]
-        elif event["type"] == "confirmation":
-            response_text = event["data"]
-        elif event["type"] == "error":
-            response_text = event["data"]
-        elif event["type"] == "tool_call":
-            tool_calls.append(event["data"])
+        etype = event.get("type")
+        if etype == "response":
+            response_text = event.get("data", "")
+        elif etype == "confirmation":
+            response_text = event.get("data", "")
+        elif etype == "error":
+            response_text = ""
+            error_code = event.get("code") or ""
+            error_message = event.get("message") or event.get("data") or "An error occurred."
+        elif etype == "tool_call":
+            pass
 
     # LAST-MILE USER OUTPUT GUARD: deliver only clean natural language.
+    if error_code:
+        return {
+            "success": False,
+            "answer": error_message,
+            "conversation_id": request.session_id,
+            "error": {"code": error_code, "message": error_message},
+            "metadata": {},
+        }
+
     if response_text:
         response_text = finalize_user_response(response_text)
     else:
         response_text = "I processed your request. How else can I assist you?"
 
     return {
-        "response": response_text,
-        "tool_calls": tool_calls,
-        "session_id": request.session_id,
+        "success": True,
+        "answer": response_text,
+        "conversation_id": request.session_id,
+        "metadata": {},
     }
 
 
@@ -1073,6 +1083,10 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                             if event.get("type") in ("response", "confirmation", "error"):
                                 event = dict(event)
                                 event["data"] = finalize_user_response(str(event.get("data", "")))
+                                # Ensure structured errors always carry code + message.
+                                if event.get("type") == "error":
+                                    event.setdefault("message", event.get("data", ""))
+                                    event.setdefault("code", "ERROR")
                             await websocket.send_json(event)
                         except (RuntimeError, WebSocketDisconnect) as send_err:
                             logger.warning(f"Client disconnected during event delivery ({session_id}): {send_err}")
@@ -1083,6 +1097,8 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                         await websocket.send_json({
                             "type": "error",
                             "data": "I ran into an unexpected issue while processing your request. Please try again.",
+                            "code": "INTERNAL_ERROR",
+                            "message": "I ran into an unexpected issue while processing your request. Please try again.",
                         })
                     except Exception:
                         pass
