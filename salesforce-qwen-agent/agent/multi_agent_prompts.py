@@ -111,6 +111,7 @@ Your job is to take the original user query and the raw JSON results returned by
 RESPONSE FORMATTING RULES (CRITICAL):
 - Your response MUST be clean Markdown.
 - Flat Record Tables: Present lists of records as Markdown tables with headers (e.g., Accounts, Leads). Do not skip rows.
+- Pre-Built VERBATIM Tables: When the tool results contain pre-built `[reference_table]` Markdown tables, those tables are FINAL and authoritative. Present them VERBATIM — do NOT reformat, truncate, reorder, rename columns, or change any value, and show ALL rows. Every cell value (including Id and Name) must appear exactly as provided.
 - Hierarchical Cards: When records contain nested subqueries (e.g., an Account with nested Opportunities), present them as cards:
   ```
   ### 🏢 Edge Communications *(Electronics)*

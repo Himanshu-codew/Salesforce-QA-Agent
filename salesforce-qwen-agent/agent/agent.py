@@ -6,18 +6,195 @@ the LLM (Qwen3), MCP executor, memory, and planner.
 import asyncio
 import json
 import logging
+import os
 import re
 from typing import Any, AsyncGenerator
 
 from llm.base import BaseLLM
 from sfmcp.executor import ToolExecutor
-from tools.salesforce import get_tool_definitions
+from tools.salesforce import get_tool_definitions, is_read_only
 from .memory import ConversationMemory
 from .planner import TaskPlanner
 from .prompts import SYSTEM_PROMPT, ERROR_MESSAGES
 from .rag import ToolRAGRetriever
 
 logger = logging.getLogger(__name__)
+
+
+# ──────────────────────────────────────────────────────────────
+# Bounded-latency / resilience configuration (agent.agent path)
+#
+# These reuse the SAME environment variables and defaults as the Orchestrator
+# (agent/multi_agent.py) so there is a single source of truth through the env.
+# agent.agent cannot import them from multi_agent directly (that would create a
+# circular import), so they are re-read here with identical names/values.
+# ──────────────────────────────────────────────────────────────
+AGENT_LLM_TIMEOUT = float(os.getenv("LLM_STAGE_TIMEOUT", "90.0"))
+AGENT_EXECUTOR_TIMEOUT = float(os.getenv("EXECUTOR_TIMEOUT", "90.0"))
+RAG_TIMEOUT = float(os.getenv("RAG_TIMEOUT", "120.0"))
+
+
+class AgentTimeoutError(Exception):
+    """A controlled timeout failure for the agent.agent (SalesforceAgent) path.
+
+    Is raised only after an `asyncio.wait_for` bound fires. It is NOT a
+    Salesforce result and MUST NOT be let through as successful synthesis input.
+    """
+
+    def __init__(self, stage: str):
+        super().__init__(f"The '{stage}' step timed out. Please try again.")
+        self.stage = stage
+
+
+async def _bounded_call(awaitable: Any, timeout: float, stage: str) -> Any:
+    """Run an awaitable under `asyncio.wait_for`, raising a controlled timeout.
+
+    - On `asyncio.TimeoutError` -> raises `AgentTimeoutError(stage)`.
+    - `asyncio.CancelledError` is a BaseException and is NOT caught here, so it
+      propagates naturally to the caller / task cancellation.
+    """
+    try:
+        return await asyncio.wait_for(awaitable, timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.error(f"[TIMEOUT] SalesforceAgent '{stage}' exceeded {timeout:.0f}s.")
+        raise AgentTimeoutError(stage) from None
+
+
+def _timeout_error_event(stage: str) -> dict[str, Any]:
+    """Build the agent.agent structured error event for a timeout."""
+    return {
+        "type": "error",
+        "code": "TIMEOUT",
+        "message": f"The '{stage}' step timed out. Please try a simpler or more specific query.",
+        "data": f"The '{stage}' step timed out. Please try again.",
+    }
+
+
+# ──────────────────────────────────────────────────────────────
+# D1: Executor error-envelope detection.
+#
+# ToolExecutor.execute() converts every failure into a JSON string envelope
+# (see sfmcp/executor.py), e.g.:
+#   {"error": "..."}
+#   {"error": "...", "tool": "..."}
+#   {"error": "...", "tool": "...", "suggestion": "..."}
+#
+# A top-level non-empty string "error" key is exclusive to the executor's
+# failure envelope — a normal successful Salesforce result never carries one.
+# We detect it here (without requiring the "tool" field, because tool-not-found
+# errors omit it) and surface a controlled SALESFORCE_FAILED event instead of
+# letting the envelope reach memory / tool_results_fetched / synthesis as
+# ordinary data.
+# ──────────────────────────────────────────────────────────────
+SALESFORCE_FAILED = "SALESFORCE_FAILED"
+
+
+def _executor_error_message(result: Any) -> str | None:
+    """
+    Detect the executor's failure envelope ({"error": ..., ...}) and return a
+    human-readable message, or None when the result is a normal tool result.
+
+    Never throws on malformed/non-JSON input. Does NOT require the "tool"
+    field (tool-not-found envelopes omit it).
+    """
+    if not isinstance(result, str):
+        return None
+    try:
+        parsed = json.loads(result)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    error = parsed.get("error")
+    if not isinstance(error, str) or not error.strip():
+        return None
+    suggestion = parsed.get("suggestion")
+    if isinstance(suggestion, str) and suggestion.strip():
+        return f"{error} Suggestion: {suggestion}"
+    return error
+
+
+def _salesforce_failed_event(message: str) -> dict[str, Any]:
+    """Build the agent.agent structured error event for an executor failure."""
+    return {
+        "type": "error",
+        "code": SALESFORCE_FAILED,
+        "message": message,
+        "data": message,
+    }
+
+
+# ──────────────────────────────────────────────────────────────
+# Intent-Aware Tool Filtering (read-only fast path)
+# Shared write-intent keyword list. Reused by the loop's batch-mode
+# detection so there is a single source of truth for read/write intent.
+# READ_ONLY_MODE is NOT touched here — it remains the final execution gate.
+# ──────────────────────────────────────────────────────────────
+_WRITE_KEYWORDS = [
+    "create", "add", "insert", "new", "make", "banao", "daalo",
+    "update", "edit", "change", "modify", "badlo", "set",
+    "delete", "remove", "hatao", "mitao", "drop",
+]
+
+
+def _has_write_intent(user_message: str) -> bool:
+    """Return True when a message clearly requests a create/update/delete/upload action."""
+    if not user_message:
+        return False
+    lowered = user_message.lower()
+    return any(kw in lowered for kw in _WRITE_KEYWORDS)
+
+
+# ──────────────────────────────────────────────────────────────
+# Salesforce / data-intent detection.
+# Reuses the same keyword set as the Turn-1 Data Query Interceptor so there is
+# a single source of truth. Used by E5 to (a) decide RAG-empty/timeout fallback
+# to the complete read-only tool registry and (b) guard against ungrounded
+# answers for Salesforce-specific requests.
+# ──────────────────────────────────────────────────────────────
+_DATA_INTENT_KEYWORDS = [
+    "account", "accounts", "lead", "leads", "contact", "contacts",
+    "opportunity", "opportunities", "case", "cases", "task", "tasks",
+    "event", "events", "user", "who am i", "schema", "fields",
+    "show", "list", "select", "find", "search", "count", "how many",
+    "delete", "remove", "update", "edit", "create", "banao", "dikhao",
+    "hatao", "badlo", "kitne", "saare",
+]
+
+
+def _has_salesforce_intent(user_message: str) -> bool:
+    """Return True when a message clearly requests Salesforce data/action access."""
+    if not user_message:
+        return False
+    lowered = user_message.lower()
+    return any(kw in lowered for kw in _DATA_INTENT_KEYWORDS)
+
+
+def filter_tools_for_query(tools: list[dict[str, Any]], user_message: str) -> list[dict[str, Any]]:
+    """
+    Intent-aware tool-schema filtering for the ACTIVE /chat path.
+
+    For clearly read-only requests, mutation/destructive tools are removed from
+    the schema passed to Qwen so the model cannot propose them (e.g. RAG returning
+    createSobjectRecord for "How many Account records do we have?"). Genuine write
+    or compound requests keep the full tool set, preserving mutation semantics.
+
+    READ_ONLY_MODE is intentionally neither read nor modified here: planner.py and
+    executor.py remain the authoritative final safety gate.
+    """
+    if _has_write_intent(user_message):
+        return tools
+    removed = [
+        t["function"].get("name", "")
+        for t in tools
+        if not is_read_only(t.get("function", {}).get("name", ""))
+    ]
+    if removed:
+        logger.info(
+            f"[READ-ONLY FILTER] Pure-read query; removed mutation/destructive "
+            f"tools from Qwen schema: {removed}"
+        )
+    return [t for t in tools if is_read_only(t.get("function", {}).get("name", ""))]
 
 
 # ──────────────────────────────────────────────────────────────
@@ -374,7 +551,18 @@ def _format_parent_with_children(record: dict, total_size: int) -> str:
     return "\n".join(card_lines)
 
 
-def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery") -> str | None:
+def _is_soql_count(soql_query: str) -> bool:
+    """Return True when the given SOQL is an aggregate COUNT query."""
+    if not soql_query:
+        return False
+    return bool(re.search(r"\bCOUNT\s*\(", soql_query, re.IGNORECASE))
+
+
+def format_sf_records_as_markdown(
+    result_json: str,
+    tool_name: str = "soqlQuery",
+    soql_query: str = "",
+) -> str | None:
     """
     Parse a Salesforce soqlQuery JSON result and return formatted markdown.
 
@@ -394,10 +582,19 @@ def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery"
     except Exception:
         return None
 
+    if not isinstance(data, dict):
+        return None
+
     records = data.get("records", [])
     total_size = data.get("totalSize", len(records))
 
     if not records:
+        # A COUNT query can legitimately return {"totalSize": 0, "records": []}
+        # (e.g. SELECT COUNT(Id) FROM Account with zero rows). Surface it as the
+        # project's count line so the direct-response fast path triggers instead
+        # of a second LLM synthesis call. Value comes straight from totalSize.
+        if _is_soql_count(soql_query):
+            return f"**Total Count:** {int(total_size):,}"
         return None
 
     first = records[0]
@@ -460,7 +657,7 @@ def format_sf_records_as_markdown(result_json: str, tool_name: str = "soqlQuery"
             cells.append(_fmt_value(_get_nested(rec, col)))
         rows.append("| " + " | ".join(cells) + " |")
 
-    total_line = f"\n**Total: {total_size} record(s)**"
+    total_line = f"\n**Total: {int(total_size)} record(s)**"
     return "\n".join([header, sep] + rows) + total_line
 
 
@@ -703,13 +900,22 @@ def _cells_of(line: str) -> list:
 
 
 def _rebuild_gfm_table(rows: list) -> str:
-    """Rebuild strict GFM table from header + optional separator + body rows."""
+    """Rebuild strict GFM table from header + optional separator + body rows.
+
+    The HEADER row defines the table's column schema. Every body row is
+    normalized to exactly that many cells (short rows padded with empty cells,
+    over-wide rows truncated). This guarantees every row has the same number of
+    cells as the header, so fields like Id and Name always stay in their own
+    aligned columns even when a body cell contains an embedded ``|`` or the
+    synthesizer merged two cells into one.
+    """
     if not rows:
         return ""
     table_cells = [_cells_of(r) for r in rows]
-    # Normalize column count.
-    ncols = max(len(r) for r in table_cells)
-    table_cells = [r + [""] * (ncols - len(r)) for r in table_cells]
+    # The header defines the column count, not the widest body row.
+    ncols = len(table_cells[0])
+    if ncols == 0:
+        return ""
     # Ignore a separator row (all dashes) already present after the header.
     body = list(table_cells)
     if len(body) >= 2:
@@ -721,7 +927,8 @@ def _rebuild_gfm_table(rows: list) -> str:
     lines = ["| " + " | ".join(header) + " |",
              "| " + " | ".join(sep) + " |"]
     for rec in data:
-        lines.append("| " + " | ".join(rec) + " |")
+        normalized = (list(rec) + [""] * ncols)[:ncols]
+        lines.append("| " + " | ".join(normalized) + " |")
     return "\n".join(lines)
 
 
@@ -935,6 +1142,46 @@ class SalesforceAgent:
             self._memories[session_id]._trim()
         return self._memories[session_id]
 
+    async def _get_effective_tools(self, user_message: str, session_id: str = "default") -> list[dict[str, Any]]:
+        """E5: fetch tools via RAG with a bounded timeout, falling back safely.
+
+        - RAG is run off the event loop and bounded by RAG_TIMEOUT so an
+          embedding/vector hang can never block the loop indefinitely.
+        - On RAG timeout / empty result / residual exception, a Salesforce/data
+          request falls back to the COMPLETE read-only-safe tool registry
+          (same authoritative source as ENABLE_RAG_TOOLS=false) and then passes
+          through filter_tools_for_query so read-only queries never gain
+          mutation tools and write queries keep their required tools.
+        - Clearly general/non-Salesforce queries are left with RAG's result
+          (possibly []) so the existing general-answer behavior is preserved.
+        """
+        if self.planner.has_pending_confirmation(session_id):
+            return get_tool_definitions()
+        try:
+            tools = await asyncio.wait_for(
+                asyncio.to_thread(self.rag_retriever.get_relevant_tools, user_message, 6),
+                timeout=RAG_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "[RAG] Timeout retrieving tools (agent.agent). "
+                f"stage=semantic-rag-tool-retrieval timeout_s={RAG_TIMEOUT:.1f} "
+                "mcp_reached=False rest_fallback=False "
+                "root_cause='embedding model cold-load or vector query hung'"
+            )
+            tools = []
+        except Exception as e:
+            logger.error(f"[RAG] Retrieval raised unexpectedly (agent.agent): {e}. Returning no tools.")
+            tools = []
+
+        if not tools and _has_salesforce_intent(user_message):
+            logger.warning(
+                "[RAG] Empty/timeout/failed retrieval for a Salesforce/data query; "
+                "falling back to the complete read-only-safe tool registry."
+            )
+            tools = get_tool_definitions()
+        return filter_tools_for_query(tools, user_message)
+
     async def process_message(
         self,
         user_message: str,
@@ -953,12 +1200,24 @@ class SalesforceAgent:
         memory = self._get_memory(session_id)
         memory.max_messages = self._max_history
         memory._trim()
-        # RAG Tool Retrieval: Dynamically fetch top-K relevant tools for prompt optimization
-        tools = self.rag_retriever.get_relevant_tools(user_message, top_k=6)
+        # E5: RAG Tool Retrieval with bounded timeout + safe Salesforce fallback.
+        # filter_tools_for_query is applied inside _get_effective_tools. When a
+        # pending confirmation exists it returns the full registry so compound
+        # WRITE flows keep the full tool set; READ_ONLY_MODE still gates execution.
+        tools = await self._get_effective_tools(user_message, session_id)
 
         # ── Check for pending confirmations ──
         if self.planner.has_pending_confirmation(session_id):
             pending = self.planner.process_confirmation(user_message, session_id)
+            # F5: expiry must be handled BEFORE the truthy-confirmed branch so an
+            # expired "yes"/"ok" can never reach the executor.
+            if pending and pending.get("status") == "expired":
+                msg = pending.get("message", "This confirmation has expired. No action was executed.")
+                logger.info(f"[F5] Expired confirmation for session '{session_id}': {msg}")
+                memory.add_user_message(user_message)
+                memory.add_assistant_message(msg)
+                yield {"type": "response", "data": msg}
+                return
             if pending:
                 # User confirmed — execute the pending destructive action
                 yield {"type": "thinking", "data": "Executing confirmed operation..."}
@@ -972,7 +1231,27 @@ class SalesforceAgent:
                     "data": {"name": tool_name, "arguments": arguments},
                 }
 
-                result = await self.executor.execute(tool_name, arguments)
+                try:
+                    result = await _bounded_call(
+                        self.executor.execute(tool_name, arguments),
+                        AGENT_EXECUTOR_TIMEOUT,
+                        "Salesforce confirmed-operation execution",
+                    )
+                except AgentTimeoutError:
+                    error_event = _timeout_error_event("Salesforce confirmed-operation execution")
+                    logger.error(f"[TIMEOUT] {error_event['message']}")
+                    memory.add_assistant_message(error_event["message"])
+                    yield error_event
+                    return
+
+                # ── D1: a confirmed operation that fails is NOT a successful result.
+                # Never store it in memory as a tool result or let it reach synthesis. ──
+                err_msg = _executor_error_message(result)
+                if err_msg:
+                    logger.error(f"[SALESFORCE_FAILED] Confirmed {tool_name} failed: {err_msg}")
+                    memory.add_assistant_message(f"{tool_name} failed: {err_msg}")
+                    yield _salesforce_failed_event(f"Salesforce call '{tool_name}' failed: {err_msg}")
+                    return
 
                 yield {
                     "type": "tool_result",
@@ -1037,12 +1316,8 @@ class SalesforceAgent:
 
                 # ── SPEED FIX: On Turn 1 of multi-query, inject batch instruction ──
                 # ONLY for pure READ queries — create/update/delete are sequential by nature.
-                _write_keywords = [
-                    "create", "add", "insert", "new", "make", "banao", "daalo",
-                    "update", "edit", "change", "modify", "badlo",
-                    "delete", "remove", "hatao", "mitao", "drop",
-                ]
-                _is_read_only = not any(kw in user_msg_lower for kw in _write_keywords)
+                # Intent classification is shared with filter_tools_for_query (see `_write_keywords`).
+                _is_read_only = not _has_write_intent(user_msg_lower)
 
                 if iteration == 1 and _is_multi and _is_read_only:
                     batch_hint = (
@@ -1054,12 +1329,22 @@ class SalesforceAgent:
                     )
                     messages = messages + [{"role": "user", "content": batch_hint}]
 
-                llm_result = await self.llm.chat_with_tools(
-                    messages=messages,
-                    tools=tools,
-                    temperature=0.0,  # Zero temp = fastest, most deterministic
+                llm_result = await _bounded_call(
+                    self.llm.chat_with_tools(
+                        messages=messages,
+                        tools=tools,
+                        temperature=0.0,  # Zero temp = fastest, most deterministic
+                    ),
+                    AGENT_LLM_TIMEOUT,
+                    "LLM tool-call generation",
                 )
 
+            except AgentTimeoutError as e:
+                error_event = _timeout_error_event(e.stage)
+                logger.error(f"[TIMEOUT] {error_event['message']}")
+                memory.add_assistant_message(error_event["message"])
+                yield error_event
+                return
             except Exception as e:
                 error_msg = ERROR_MESSAGES["llm_error"].format(error=str(e))
                 logger.error(f"LLM error: {e}")
@@ -1087,14 +1372,7 @@ class SalesforceAgent:
             # 2. Mandatory Turn 1 Data Query Interceptor
             if not llm_result.get("tool_calls") and iteration == 1 and tools:
                 user_msg_lower = user_message.lower()
-                data_intent_keywords = [
-                    "account", "accounts", "lead", "leads", "contact", "contacts",
-                    "opportunity", "opportunities", "case", "cases", "task", "tasks",
-                    "event", "events", "user", "who am i", "schema", "fields",
-                    "show", "list", "select", "find", "search", "count", "how many",
-                    "delete", "remove", "update", "edit", "create", "banao", "dikhao",
-                    "hatao", "badlo", "kitne", "saare"
-                ]
+                data_intent_keywords = _DATA_INTENT_KEYWORDS
                 if any(kw in user_msg_lower for kw in data_intent_keywords):
                     logger.warning(
                         f"⚠️ [INTERCEPTOR] LLM returned text without tool call on Turn 1 for query: '{user_message[:40]}...'. "
@@ -1109,13 +1387,23 @@ class SalesforceAgent:
                         )
                     })
                     try:
-                        retry_result = await self.llm.chat_with_tools(
-                            messages=interceptor_messages,
-                            tools=tools,
-                            temperature=0.0,
+                        retry_result = await _bounded_call(
+                            self.llm.chat_with_tools(
+                                messages=interceptor_messages,
+                                tools=tools,
+                                temperature=0.0,
+                            ),
+                            AGENT_LLM_TIMEOUT,
+                            "LLM interceptor retry",
                         )
                         if retry_result.get("tool_calls"):
                             llm_result = retry_result
+                    except AgentTimeoutError:
+                        error_event = _timeout_error_event("LLM interceptor retry")
+                        logger.error(f"[TIMEOUT] {error_event['message']}")
+                        memory.add_assistant_message(error_event["message"])
+                        yield error_event
+                        return
                     except Exception as retry_err:
                         logger.error(f"Interceptor retry error: {retry_err}")
 
@@ -1154,13 +1442,23 @@ class SalesforceAgent:
                             ),
                         })
                         try:
-                            retry_result = await self.llm.chat_with_tools(
-                                messages=interceptor_messages,
-                                tools=tools,
-                                temperature=0.0,
+                            retry_result = await _bounded_call(
+                                self.llm.chat_with_tools(
+                                    messages=interceptor_messages,
+                                    tools=tools,
+                                    temperature=0.0,
+                                ),
+                                AGENT_LLM_TIMEOUT,
+                                "LLM compound retry",
                             )
                             if retry_result.get("tool_calls"):
                                 llm_result = retry_result
+                        except AgentTimeoutError:
+                            error_event = _timeout_error_event("LLM compound retry")
+                            logger.error(f"[TIMEOUT] {error_event['message']}")
+                            memory.add_assistant_message(error_event["message"])
+                            yield error_event
+                            return
                         except Exception as interceptor_err:
                             logger.error(f"Compound query interceptor error: {interceptor_err}")
 
@@ -1199,16 +1497,42 @@ class SalesforceAgent:
                     # Execute ALL safe calls in parallel
                     async def _run_tool(tc: dict) -> tuple[dict, str]:
                         try:
-                            result = await self.executor.execute(tc["name"], tc["arguments"])
+                            result = await _bounded_call(
+                                self.executor.execute(tc["name"], tc["arguments"]),
+                                AGENT_EXECUTOR_TIMEOUT,
+                                f"Salesforce tool '{tc['name']}' execution",
+                            )
                             logger.info(f"✅ [TOOL FINISHED]: {tc['name']} (Result len: {len(result)} chars)")
+                        except AgentTimeoutError:
+                            # A timeout MUST NOT become a synthetic tool "result".
+                            # Propagate so the enclosing handler aborts cleanly.
+                            raise
                         except Exception as e:
                             result = json.dumps({"error": str(e), "tool": tc["name"]})
                             logger.error(f"❌ Tool execution error ({tc['name']}): {e}")
                         return tc, result
 
-                    parallel_results = await asyncio.gather(*[_run_tool(tc) for tc in safe_calls])
+                    try:
+                        parallel_results = await asyncio.gather(*[_run_tool(tc) for tc in safe_calls])
+                    except AgentTimeoutError:
+                        error_event = _timeout_error_event("Salesforce tool execution")
+                        logger.error(f"[TIMEOUT] {error_event['message']}")
+                        memory.add_assistant_message(error_event["message"])
+                        yield error_event
+                        return
 
                     for tc, result in parallel_results:
+                        # ── D1: reject executor error envelopes before they can be
+                        # formatted / stored / synthesized as normal Salesforce data ──
+                        err_msg = _executor_error_message(result)
+                        if err_msg:
+                            logger.error(f"[SALESFORCE_FAILED] Tool '{tc['name']}' failed: {err_msg}")
+                            memory.add_assistant_message(
+                                f"Tool '{tc['name']}' failed: {err_msg}"
+                            )
+                            yield _salesforce_failed_event(f"Salesforce call '{tc['name']}' failed: {err_msg}")
+                            return
+
                         # ── SOQL Error Auto-Correction (max 1 retry — keeps it fast) ──
                         if tc["name"] == "soqlQuery":
                             result_lower = result.lower()
@@ -1235,10 +1559,14 @@ class SalesforceAgent:
                                         ),
                                     })
                                     try:
-                                        fix_result = await self.llm.chat_with_tools(
-                                            messages=fix_messages,
-                                            tools=tools,
-                                            temperature=0.0,
+                                        fix_result = await _bounded_call(
+                                            self.llm.chat_with_tools(
+                                                messages=fix_messages,
+                                                tools=tools,
+                                                temperature=0.0,
+                                            ),
+                                            AGENT_LLM_TIMEOUT,
+                                            "SOQL auto-fix LLM",
                                         )
                                         if fix_result.get("tool_calls"):
                                             fixed_tc = fix_result["tool_calls"][0]
@@ -1246,16 +1574,40 @@ class SalesforceAgent:
                                                 "type": "tool_call",
                                                 "data": {"name": fixed_tc["name"], "arguments": fixed_tc["arguments"]},
                                             }
-                                            result = await self.executor.execute(
-                                                fixed_tc["name"], fixed_tc["arguments"]
+                                            result = await _bounded_call(
+                                                self.executor.execute(
+                                                    fixed_tc["name"], fixed_tc["arguments"]
+                                                ),
+                                                AGENT_EXECUTOR_TIMEOUT,
+                                                "SOQL auto-fix execution",
                                             )
                                             memory.add_tool_result(tc["id"], tc["name"], result)
+                                    except AgentTimeoutError:
+                                        error_event = _timeout_error_event("SOQL auto-fix")
+                                        logger.error(f"[TIMEOUT] {error_event['message']}")
+                                        memory.add_assistant_message(error_event["message"])
+                                        yield error_event
+                                        return
                                     except Exception as retry_err:
                                         logger.error(f"SOQL retry error: {retry_err}")
 
+                        # ── D1: after SOQL auto-fix retry, the final result must not be
+                        # an executor error envelope masquerading as Salesforce data ──
+                        err_msg = _executor_error_message(result)
+                        if err_msg:
+                            logger.error(f"[SALESFORCE_FAILED] Tool '{tc['name']}' failed (after retry): {err_msg}")
+                            memory.add_assistant_message(
+                                f"Tool '{tc['name']}' failed: {err_msg}"
+                            )
+                            yield _salesforce_failed_event(f"Salesforce call '{tc['name']}' failed: {err_msg}")
+                            return
+
                         # ── PYTHON TABLE FORMATTING: Flat SOQL → markdown table, COUNT → count line ──
                         # Hierarchical/subquery results return None → raw JSON goes to LLM for card formatting.
-                        py_table = format_sf_records_as_markdown(result, tc["name"])
+                        py_table = format_sf_records_as_markdown(
+                            result, tc["name"],
+                            soql_query=tc.get("arguments", {}).get("q", tc.get("arguments", {}).get("query", "")),
+                        )
                         if py_table:
                             # Store raw result for hallucination checking
                             tool_results_fetched[tc["id"]] = result
@@ -1387,6 +1739,25 @@ class SalesforceAgent:
 
             # ── Case 2: LLM returns a final text response ──
             elif llm_result["content"] and llm_result["content"].strip():
+                # ── E5 GROUNDED-ANSWER GUARD ──
+                # A Salesforce/data request MUST NOT finish with a success=true
+                # natural-language answer when no real Salesforce tool result was
+                # fetched during the turn — otherwise Qwen could answer from its
+                # own knowledge. Clearly general/non-Salesforce queries are
+                # unaffected (no data intent => no guard). Reuses the D1
+                # controlled error shape (SALESFORCE_FAILED).
+                if _has_salesforce_intent(user_message) and not tool_results_fetched:
+                    logger.error(
+                        "[SALESFORCE_FAILED] Salesforce/data request completed with no "
+                        "Salesforce tool result; refusing to return an ungrounded answer."
+                    )
+                    msg = (
+                        "I could not access Salesforce data for that request, so I won't "
+                        "guess at an answer. Please try again."
+                    )
+                    memory.add_assistant_message(msg)
+                    yield _salesforce_failed_event(msg)
+                    return
                 response = sanitize_response_output(llm_result["content"].strip())
                 if not response:
                     # LLM returned only artifacts — ask for a proper summary
@@ -1445,7 +1816,11 @@ class SalesforceAgent:
                             "role": "user",
                             "content": "Please provide a clear, concise natural language summary of the action or tool results completed above for the user. Format as clean Markdown with tables or bullet points. Do NOT output raw JSON."
                         })
-                        summary = await self.llm.chat(messages)
+                        summary = await _bounded_call(
+                            self.llm.chat(messages),
+                            AGENT_LLM_TIMEOUT,
+                            "summary generation",
+                        )
                         if summary and summary.strip():
                             fallback = sanitize_response_output(summary.strip())
                             if not fallback:
@@ -1456,6 +1831,21 @@ class SalesforceAgent:
                         fallback = "✅ Operation completed successfully in Salesforce!"
                 else:
                     fallback = "I processed your request. How else can I assist you with your Salesforce data?"
+
+                # E5 grounded-answer guard: a Salesforce/data request with no real
+                # tool result must not end in a success=true ungrounded answer.
+                if _has_salesforce_intent(user_message) and not tool_results_fetched:
+                    logger.error(
+                        "[SALESFORCE_FAILED] Salesforce/data request produced no tool "
+                        "result; refusing an ungrounded fallback answer."
+                    )
+                    msg = (
+                        "I could not access Salesforce data for that request, so I won't "
+                        "guess at an answer. Please try again."
+                    )
+                    memory.add_assistant_message(msg)
+                    yield _salesforce_failed_event(msg)
+                    return
 
                 logger.info(f"🤖 [ASSISTANT FALLBACK RESPONSE]: {fallback[:150]}...")
                 memory.add_assistant_message(fallback)
@@ -1482,7 +1872,11 @@ class SalesforceAgent:
                         "say so explicitly. Output ONLY verified data."
                     ),
                 })
-                summary = await self.llm.chat(format_messages)
+                summary = await _bounded_call(
+                    self.llm.chat(format_messages),
+                    AGENT_LLM_TIMEOUT,
+                    "final-format summary generation",
+                )
                 sanitized = sanitize_response_output(summary.strip()) if summary else ""
                 if sanitized:
                     real_data_msg += sanitized

@@ -34,7 +34,13 @@ import os
 import threading
 from typing import Any
 
-from tools.salesforce import get_tool_definitions
+from tools.salesforce import (
+    get_tool_definitions,
+    is_read_only,
+    is_mutating,
+    is_destructive,
+    READ_ONLY_TOOLS as _READ_ONLY_TOOLS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -82,10 +88,11 @@ def _chunks_for_tool(definition: dict[str, Any]) -> list[tuple[str, str]]:
                 "soqlQuery executes a Salesforce SOQL SELECT query to read, filter, "
                 "search or count Salesforce records from objects like Account, Opportunity, "
                 "Lead, Contact, Case, Task, Event. Use it when the user wants to query, "
-                "show, select, list, search, count, filter, or find Salesforce records "
-                "matching specific criteria like Amount greater than 50000, StageName equals "
-                "Closed Won, Status not equal to something. Supports WHERE, ORDER BY, LIMIT, "
-                "COUNT, GROUP BY, HAVING. Raw numbers only, no $ or commas."
+                "show, select, list, search, count, filter, find, or see ALL records of an "
+                "object, such as: show me all Accounts, list all Accounts, display every "
+                "Opportunity, get all Leads, show me Accounts, tell me about Accounts. "
+                "Example: SELECT Id, Name, Industry, Type FROM Account. Supports WHERE, "
+                "ORDER BY, LIMIT, COUNT, GROUP BY, HAVING. Raw numbers only, no $ or commas."
             )),
             ("filter", (
                 "soqlQuery filters records in Salesforce using a WHERE clause, for example "
@@ -97,6 +104,14 @@ def _chunks_for_tool(definition: dict[str, Any]) -> list[tuple[str, str]]:
                 "soqlQuery counts Salesforce records using COUNT(Id) or COUNT(), for example "
                 "how many leads, how many accounts, total opportunities. Use for aggregate "
                 "counting and summary queries like how many, total number, count of."
+            )),
+            ("all-records", (
+                "soqlQuery lists or shows ALL records of a Salesforce object (read-only). "
+                "When the user wants to see every record or all records of an object such as "
+                "Account without specifying criteria, use soqlQuery with a query like "
+                "SELECT Id, Name, Industry, Type FROM Account LIMIT 200. This is the correct "
+                "read-only tool for: show all Accounts, list all accounts, every account, "
+                "all opportunities, all leads, all cases, all contacts, see the accounts."
             )),
         ])
     elif name == "getRelatedRecords":
@@ -203,6 +218,29 @@ def _build_documents(tool_defs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "definition": definition,
             })
     return docs
+
+
+# ──────────────────────────────────────────────────────────────
+# Warm-up (cold-start prevention)
+# ──────────────────────────────────────────────────────────────
+
+def warm_up():
+    """
+    Load the embedding model and build the vector index eagerly so the FIRST
+    user request does not consume the RAG timeout while downloading/loading
+    the model. Safe to call at startup; caches the shareable singletons.
+    """
+    try:
+        tool_defs = get_tool_definitions()
+        collection, dimension = _ensure_vector_index(tool_defs)
+        logger.info(
+            f"[RAG] Warm-up complete: embedding_model='{os.getenv('RAG_EMBEDDING_MODEL', _EMBEDDING_MODEL_DEFAULT)}', "
+            f"chroma_collection_count={collection.count()}, embedding_dim={dimension}."
+        )
+        return True
+    except Exception as e:
+        logger.warning(f"[RAG] Warm-up failed (will retry on first request): {e}")
+        return False
 
 
 # ──────────────────────────────────────────────────────────────
@@ -351,6 +389,40 @@ class ToolRAGRetriever:
             ranked = ranked[: max(1, total_k)]
             selected_names = [tool for tool, _ in ranked if _[0] >= self.min_score]
             selected = [self.tool_map[n] for n in selected_names if n in self.tool_map]
+
+            # ── Read-only safety bias ──
+            # For clearly read-only queries (e.g. "show me all Accounts"), never
+            # let create/update tools crowd out the correct read-only query tool.
+            # This only re-ranks the ALREADY-relevant top-K candidates by giving
+            # read-only tools priority; it never manufactures tools or forces a
+            # mutating request onto a read tool.
+            actual_lower = actual_query.lower()
+            read_only_intent = any(
+                kw in actual_lower for kw in (
+                    "show", "list", "display", "get ", "see ", "tell me about",
+                    "view", "find ", "search", "fetch", "retrieve", "how many",
+                    "all accounts", "all leads", "all opportunities", "all cases",
+                    "all contacts", "which accounts", "what accounts",
+                )
+            )
+            if read_only_intent and any(
+                is_mutating(t["function"]["name"]) or is_destructive(t["function"]["name"])
+                for t in selected
+            ):
+                logger.debug("[RAG DEBUG] Read-only intent detected; re-ranking to prefer read-only tools.")
+                # Rank all top-K candidates (already threshold-filtered) read-only first.
+                ordered = sorted(
+                    ranked,
+                    key=lambda kv: (
+                        kv[0] not in _READ_ONLY_TOOLS,  # read-only first
+                        -kv[1][0],                        # then by descending score
+                    ),
+                )
+                ordered_names = [tool for tool, _ in ordered]
+                deduped = list(dict.fromkeys(ordered_names))
+                selected = [self.tool_map[n] for n in deduped]
+                logger.debug(f"[RAG DEBUG] After read-only bias, selected tools: {[t['function']['name'] for t in selected]}")
+                selected_names = [t["function"]["name"] for t in selected]
 
             # ── Debug logging (never logs secrets/tokens) ──
             logger.debug(f"[RAG DEBUG] Query: {actual_query!r}")

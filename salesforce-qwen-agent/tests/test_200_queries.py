@@ -319,6 +319,12 @@ def sanitize_val(val):
     return ILLEGAL_CHARACTERS_RE.sub("", str(val))
 
 
+def _token_summary(r: dict) -> str:
+    """Format token usage as 'prompt/completion/total'."""
+    t = r.get("tokens") or {}
+    return f"{t.get('prompt', 0)}/{t.get('completion', 0)}/{t.get('total', 0)}"
+
+
 def generate_reports(results: list):
     """Generate Excel (.xlsx), CSV (.csv), and HTML (.html) reports."""
     total = len(results)
@@ -355,7 +361,8 @@ def generate_reports(results: list):
         "Query ID", "Category", "User Query",
         "Expected Behavior", "Bot Response (First 500 chars)",
         "Tool Calls Made", "Status", "Evaluation Reason",
-        "Response Time (s)",
+        "Response Time (s)", "Model", "Transport",
+        "Tokens (prompt/completion/total)", "Total Latency (ms)",
     ]
 
     for col_idx, h in enumerate(headers, 1):
@@ -380,6 +387,10 @@ def generate_reports(results: list):
             sanitize_val(r.get("status", "")),
             sanitize_val(r.get("reason", "")),
             r.get("response_time", 0.0),
+            sanitize_val(r.get("model", "")),
+            sanitize_val(r.get("transport", "")),
+            sanitize_val(_token_summary(r)),
+            r.get("total_latency_ms", 0.0),
         ]
 
         for col_idx, val in enumerate(row_vals, 1):
@@ -400,7 +411,7 @@ def generate_reports(results: list):
             status_cell.fill = review_fill
             status_cell.font = review_font
 
-    widths = [12, 28, 45, 45, 55, 22, 12, 40, 16]
+    widths = [12, 28, 45, 45, 55, 22, 12, 40, 16, 18, 12, 24, 18]
     for col_idx, width in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = width
 
@@ -500,6 +511,10 @@ def generate_reports(results: list):
                 r.get("status", ""),
                 r.get("reason", ""),
                 r.get("response_time", 0.0),
+                r.get("model", ""),
+                r.get("transport", ""),
+                _token_summary(r),
+                r.get("total_latency_ms", 0.0),
             ])
     print(f" CSV saved:   {OUTPUT_CSV_FILE}")
 
@@ -509,6 +524,8 @@ def generate_reports(results: list):
 
 def generate_html_report(results: list, total: int, passed: int, failed: int, review: int):
     """Build standalone interactive HTML dashboard for the 200 queries."""
+    pass_rate = (passed / total * 100) if total > 0 else 0.0
+
     cat_stats = {}
     for r in results:
         c = r["category"]
@@ -677,14 +694,14 @@ def generate_html_report(results: list, total: int, passed: int, failed: int, re
     <div class="container">
         <header>
             <div>
-                <h1>⚡ Salesforce Chatbot — 200 Test Queries <span class="badge-100">100% PASS</span></h1>
+                <h1>⚡ Salesforce Chatbot — 200 Test Queries <span class="badge-100">{pass_rate:.0f}% PASS</span></h1>
                 <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0.25rem;">
                     Full CRM coverage across 11 functional domains: Search, Analytics, Creation, Updates, Users, Cases, Opportunities, Tasks, Metadata, Admin, and Multi-Step
                 </p>
             </div>
             <div style="text-align: right;">
                 <div style="font-size: 0.85rem; color: var(--text-muted);">Target: http://localhost:8000/chat</div>
-                <div style="font-size: 0.85rem; color: #38bdf8; font-weight: 600;">200/200 Tests Verified</div>
+                <div style="font-size: 0.85rem; color: #38bdf8; font-weight: 600;">{passed}/{total} Tests Verified</div>
             </div>
         </header>
 
@@ -703,7 +720,7 @@ def generate_html_report(results: list, total: int, passed: int, failed: int, re
             </div>
             <div class="kpi-card">
                 <div class="kpi-title">Pass Rate</div>
-                <div class="kpi-val val-pass">100.0%</div>
+                <div class="kpi-val val-pass">{pass_rate:.1f}%</div>
             </div>
         </div>
 
@@ -715,7 +732,7 @@ def generate_html_report(results: list, total: int, passed: int, failed: int, re
         html += f"""
             <div class="cat-card" onclick="filterCategory('{cname}')">
                 <span class="cat-name">{cname}</span>
-                <span class="cat-score">{stats['passed']}/{stats['total']} (100%)</span>
+                <span class="cat-score">{stats['passed']}/{stats['total']} ({((stats['passed'] / stats['total'] * 100) if stats['total'] else 0):.0f}%)</span>
             </div>
         """
 
@@ -798,9 +815,9 @@ async def send_chat_query(client: httpx.AsyncClient, query: str, session_id: str
         )
         if response.status_code == 200:
             return response.json()
-        return {"response": f"HTTP Error {response.status_code}", "tool_calls": []}
+        return {"answer": f"HTTP Error {response.status_code}", "metadata": {}}
     except Exception as e:
-        return {"response": f"Error: {str(e)}", "tool_calls": []}
+        return {"answer": f"Error: {str(e)}", "metadata": {}}
 
 
 async def run_200_test_suite():
@@ -830,9 +847,9 @@ async def run_200_test_suite():
             res = await send_chat_query(client, query, session_id)
             elapsed = round(time.time() - start, 2)
 
-            resp_text = res.get("response", "")
-            tc_made = res.get("tool_calls", [])
-
+            resp_text = res.get("answer") or res.get("response", "")
+            metadata = res.get("metadata") or {}
+            tc_made = metadata.get("tool_calls") or []
             status, reason = evaluate_query_result(resp_text, tc_made, pass_kw, fail_kw)
 
             tc_names = ", ".join([tc.get("name", "?") for tc in tc_made]) if tc_made else "None"
@@ -847,6 +864,11 @@ async def run_200_test_suite():
                 "status": status,
                 "reason": reason,
                 "response_time": elapsed,
+                "model": metadata.get("model", ""),
+                "transport": metadata.get("transport", ""),
+                "tokens": metadata.get("tokens") or {},
+                "latency_ms": metadata.get("latency_ms") or {},
+                "total_latency_ms": metadata.get("total_ms", 0.0),
             })
 
             print(f"{status:6s} | {elapsed:5.1f}s | {reason[:45]}")

@@ -104,16 +104,17 @@ class ToolRegistry:
         OpenAI format:
             {"type": "function", "function": {"name": "...", "description": "...", "parameters": {...}}}
         """
+        schema = mcp_tool.get("input_schema") or mcp_tool.get("inputSchema") or {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        }
         return {
             "type": "function",
             "function": {
                 "name": mcp_tool["name"],
                 "description": mcp_tool.get("description", ""),
-                "parameters": mcp_tool.get("inputSchema", {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                }),
+                "parameters": schema,
             },
         }
 

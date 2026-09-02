@@ -92,6 +92,11 @@ class SalesforceMCPClient:
         self._connected = False
         self._name_map: dict[str, str] = {}
         self._schema_cache: dict[str, Any] = {}
+        # Tracks whether MCP has been successfully initialized at least once.
+        # Unlike `_connected` (which is cleared when the idle session is closed
+        # after tool discovery), this stays True so /health can accurately
+        # report that live call_tool() reconnects and executes via MCP.
+        self.mcp_transport = "REST"
 
         self._http_client = httpx.AsyncClient(timeout=60.0)
         self._session_vault_id: str | None = None
@@ -286,10 +291,10 @@ class SalesforceMCPClient:
 
     async def _ensure_fresh_token(self) -> None:
         """Refresh proactively if the current token is missing/expired. Never raises."""
-        # Prefer a live sfap:mcp-scoped OAuth token already stored in the vault
+        # Prefer a live MCP-capable OAuth token already stored in the vault
         # (produced by the interactive /api/auth/login flow). Only fall back to
         # SOAP/password auth when no valid scoped token exists, because SOAP
-        # session tokens lack the sfap:mcp:* scope the hosted MCP server requires.
+        # session tokens lack the MCP scopes the hosted server requires.
         if self._needs_mcp_token():
             self._load_mcp_scoped_token_from_vault()
         if self._refresh_token and (
@@ -307,14 +312,27 @@ class SalesforceMCPClient:
         """True when the current token is missing/expired and would need replacement."""
         return not self._access_token or not self._expires_at or time.time() > self._expires_at - 30
 
+    @staticmethod
+    def _scope_has_mcp_capability(scope: str) -> bool:
+        """Return True if *scope* carries any MCP-authorizing OAuth scope string."""
+        s = scope.lower()
+        # Legacy format (e.g. "sfap:mcp:all sfap:mcp:remote api ...")
+        if "sfap:mcp" in s:
+            return True
+        # Current Salesforce format (e.g. "api sfap_api mcp_api ...")
+        if "sfap_api" in s or "mcp_api" in s:
+            return True
+        return False
+
     def _load_mcp_scoped_token_from_vault(self) -> bool:
         """
-        Load a live sfap:mcp-scoped OAuth token from the token vault.
+        Load a live MCP-capable OAuth token from the token vault.
 
         The interactive /api/auth/login flow stores a token carrying the
-        sfap:mcp:* scope required by the hosted MCP server. When present and
-        not expired, this token is used for MCP instead of a SOAP session
-        token (which has no sfap:mcp scope and is rejected with 401).
+        scopes required by the hosted MCP server (sfap_api, mcp_api, or the
+        legacy sfap:mcp:* names). When present and not expired, this token is
+        used for MCP instead of a SOAP session token (which lacks the MCP
+        scopes and is rejected with 401).
         """
         if not self.token_vault:
             return False
@@ -324,7 +342,7 @@ class SalesforceMCPClient:
                 if not rec:
                     continue
                 scope = rec.get("oauth_scope") or ""
-                if "sfap:mcp" not in scope:
+                if not self._scope_has_mcp_capability(scope):
                     continue
                 token = rec.get("access_token") or ""
                 if not token:
@@ -335,9 +353,29 @@ class SalesforceMCPClient:
                 # break REST fallback too, so skip them.
                 expires_at = float(rec.get("expires_at") or 0.0)
                 if expires_at <= 0 or time.time() > expires_at - 30:
+                    # The MCP-capable access token is expired, but this record is
+                    # still a valid OAuth session: it carries a long-lived refresh
+                    # token + client credentials + the MCP scope. Load those so the
+                    # caller's _try_oauth_refresh() can refresh MCP-capably (and
+                    # _persist_tokens() handles refresh-token rotation). We must NOT
+                    # adopt the stale access_token here (that would break REST
+                    # fallback), hence we only populate the refresh path.
+                    if self._session_vault_id is None:
+                        self._session_vault_id = sid
+                    refresh_tok = rec.get("refresh_token")
+                    if refresh_tok:
+                        self._refresh_token = refresh_tok
+                    self.oauth_scope = self.oauth_scope or scope
+                    if rec.get("instance_url"):
+                        self.instance_url = rec["instance_url"]
+                    self.auth_host = rec.get("auth_host") or self.auth_host
+                    if rec.get("client_id"):
+                        self.client_id = rec["client_id"]
+                    if rec.get("client_secret"):
+                        self.client_secret = rec["client_secret"]
                     logger.info(
-                        f"Vault session '{sid}' scoped token is missing/expired "
-                        f"(expires_at={expires_at:.0f}); skipping."
+                        f"Vault session '{sid}' MCP token expired (expires_at={expires_at:.0f}) "
+                        f"but has a refresh token; queued for OAuth refresh."
                     )
                     continue
                 self._access_token = token
@@ -347,7 +385,7 @@ class SalesforceMCPClient:
                 self._expires_at = expires_at
                 self._session_vault_id = sid
                 logger.info(
-                    f"Using sfap:mcp-scoped OAuth token from vault session '{sid}' for MCP."
+                    f"Using MCP-capable OAuth token from vault session '{sid}' (scope={scope!r})."
                 )
                 return True
         except Exception as e:
@@ -405,6 +443,7 @@ class SalesforceMCPClient:
             await self._session.__aenter__()
             await self._session.initialize()
             self._connected = True
+            self.mcp_transport = "MCP"
             self._name_map = {}
             logger.info("[MCP] MCP SDK session initialized; is_connected=True. Transport: MCP")
         except Exception as e:
@@ -464,6 +503,12 @@ class SalesforceMCPClient:
 
         plain_name = tool_name.rsplit(":", 1)[-1]
 
+        # MCP is the primary path. On an auth/session/transient failure we give
+        # MCP ONE clean reconnect before EVER falling back to REST, so a normal
+        # Salesforce query does not spuriously route to REST just because the
+        # idle Streamable HTTP session was dropped or a token lapsed. REST is
+        # only used when MCP genuinely cannot complete the call.
+        reconnect_retried = False
         for attempt in range(2):
             await self._ensure_connected()
             if self._session is not None:
@@ -475,13 +520,25 @@ class SalesforceMCPClient:
                         raise RuntimeError(
                             f"MCP tool {tool_name} returned an error: {self._format_mcp_result(result)}"
                         )
+                    self.mcp_transport = "MCP"
                     return self._format_mcp_result(result)
                 except Exception as e:
                     status_code = getattr(getattr(e, "response", None), "status_code", None)
-                    if status_code == 401 and attempt == 0:
-                        logger.warning("MCP session returned 401; refreshing token and retrying.")
+                    is_auth = status_code == 401 or "Unauthorized" in str(e)
+                    if is_auth and not reconnect_retried:
+                        logger.warning("MCP session returned 401; refreshing token and retrying MCP once.")
                         await self._close_mcp_session()
-                        await self._try_oauth_refresh()
+                        if await self._try_oauth_refresh():
+                            reconnect_retried = True
+                            continue
+                    if not is_auth and not reconnect_retried:
+                        # Transient non-auth failure (dropped idle session, network
+                        # blip, timeout): perform one clean MCP reconnect + retry
+                        # before falling back to REST.
+                        logger.warning(f"MCP tool call failed ({e}); reconnecting MCP once before REST.")
+                        await self._close_mcp_session()
+                        self.mcp_transport = "MCP"
+                        reconnect_retried = True
                         continue
                     if self.mcp_required:
                         raise RuntimeError(
@@ -490,6 +547,16 @@ class SalesforceMCPClient:
                         ) from e
                     logger.warning(f"MCP tool call failed ({e}); falling back to REST API.")
                     break
+            else:
+                # _ensure_connected() left us without a live session (e.g. MCP init
+                # rejected with 401 before initialize). Refresh the token and retry
+                # MCP connection once before REST.
+                if not reconnect_retried:
+                    logger.warning("No live MCP session; refreshing token and retrying MCP connection once.")
+                    await self._try_oauth_refresh()
+                    await self._close_mcp_session()
+                    reconnect_retried = True
+                    continue
             break
 
         if self.mcp_required and self._session is None:
@@ -528,6 +595,7 @@ class SalesforceMCPClient:
         Fallback: execute the tool via direct Salesforce REST API
         when MCP endpoint is unreachable.
         """
+        self.mcp_transport = "REST"
         base = self.instance_url.rstrip("/")
         api_version = "v62.0"
 
@@ -843,11 +911,15 @@ class SalesforceMCPClient:
                 tools = []
                 for tool in result.tools:
                     name = tool.name or ""
-                    input_schema = dict(tool.inputSchema or {"type": "object", "properties": {}})
+                    # The installed MCP SDK (mcp_types) exposes the schema on the
+                    # snake_case attribute `input_schema`. Accept the camelCase
+                    # alias too for forward-compatibility across SDK versions.
+                    raw_schema = getattr(tool, "input_schema", None) or getattr(tool, "inputSchema", None) or {}
+                    input_schema = dict(raw_schema) or {"type": "object", "properties": {}}
                     tools.append({
                         "name": name,
                         "description": tool.description or "",
-                        "inputSchema": input_schema,
+                        "input_schema": input_schema,
                     })
                     plain = name.rsplit(":", 1)[-1] or name
                     self._name_map[plain] = name

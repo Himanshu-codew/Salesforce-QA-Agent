@@ -136,6 +136,13 @@ async def lifespan(app: FastAPI):
     llm = create_llm()
     logger.info("✅ Qwen3 LLM client initialized.")
 
+    # 3b. Warm the semantic RAG embedding model + vector index ahead of the
+    #     first user request so the first query does not consume the RAG
+    #     timeout while downloading/loading the sentence-transformers model.
+    from agent.rag import warm_up
+    _warm_task = asyncio.create_task(asyncio.to_thread(warm_up))
+    logger.info("RAG warm-up scheduled in background (embedding model + ChromaDB index).")
+
     # 4. Initialize Tool Executor
     tool_executor = ToolExecutor(mcp_client, tool_registry)
 
@@ -443,7 +450,7 @@ async def oauth_login(
     state = secrets.token_urlsafe(24)
     oauth_scope = os.getenv(
         "SALESFORCE_OAUTH_SCOPE",
-        "sfap:mcp:all sfap:mcp:remote api refresh_token id",
+        "api sfap_api refresh_token offline_access mcp_api",
     )
     _oauth_pending_flows[state] = {
         "session_id": session_id,
@@ -887,12 +894,43 @@ async def health_check():
         round(time.time() - connected_app_status["checked_at"], 1)
         if connected_app_status["checked_at"] else None
     )
+    # MCP is intentionally session-scoped: each authenticated user gets an
+    # isolated SalesforceMCPClient (see register_oauth_session), which is the
+    # client that actually executes soqlQuery/etc. The server-level default
+    # `mcp_client` is a separate instance whose idle Streamable HTTP session is
+    # closed after tool discovery (is_connected=False), so it does NOT reflect
+    # the real MCP state of an active authenticated user. Report from the
+    # session_manager's per-session clients, falling back to the global default
+    # when no user session exists.
+    mcp_status = session_manager.get_mcp_status()
+    if mcp_status["total_sessions"] > 0:
+        mcp_connected = mcp_status["any_connected"]
+        mcp_available = mcp_status["any_mcp"]
+        mcp_transport = "MCP" if mcp_available else "REST"
+        mcp_src = "session"
+    else:
+        # No authenticated user session yet: report the server default client.
+        mcp_connected = mcp_client.is_connected if mcp_client else False
+        mcp_available = bool(
+            mcp_client
+            and getattr(mcp_client, "mcp_transport", "REST") == "MCP"
+        )
+        mcp_transport = (
+            getattr(mcp_client, "mcp_transport", "REST") if mcp_client else "N/A"
+        )
+        mcp_src = "global-default"
     return {
         "status": "healthy",
-        "mcp_connected": mcp_client.is_connected if mcp_client else False,
-        "mcp_required": getattr(mcp_client, "mcp_required", False) if mcp_client else False,
+        "mcp_connected": mcp_connected,
+        "mcp_available": mcp_available,
+        "mcp_transport": mcp_transport,
+        "mcp_source": mcp_src,
+        "mcp_sessions": mcp_status["connected_sessions"],
+        "mcp_required": (
+            getattr(mcp_client, "mcp_required", False) if mcp_client else False
+        ),
         "degraded": bool(
-            mcp_client and getattr(mcp_client, "mcp_required", False) and not mcp_client.is_connected
+            mcp_client and getattr(mcp_client, "mcp_required", False) and not mcp_connected
         ),
         "tools_registered": len(tool_registry) if tool_registry else 0,
         "connected_app": {
@@ -941,6 +979,13 @@ class ChatRequest(BaseModel):
     file_info: dict | None = None
 
 
+# ── Defense-in-depth overall bound for a single chat turn ──
+# Reuses the same env var / default as the Orchestrator (agent/multi_agent.py).
+# Per-stage LLM/executor timeouts are enforced inside the agent itself; this is
+# a global ceiling so a single /chat request can never hang indefinitely.
+CHAT_OVERALL_TIMEOUT = float(os.getenv("OVERALL_PROCESS_TIMEOUT", "300"))
+
+
 # ── Session active uploaded files mapping ──
 session_files: dict[str, dict] = {}
 
@@ -976,10 +1021,11 @@ async def chat_endpoint(request: ChatRequest):
     response_text = ""
     error_code = ""
     error_message = ""
+    tool_calls_seen: list[dict] = []
+    metrics: dict = {}
 
-    async for event in target_agent.process_message(
-        user_message, request.session_id
-    ):
+    def _handle_event(event: dict) -> None:
+        nonlocal response_text, error_code, error_message, metrics
         etype = event.get("type")
         if etype == "response":
             response_text = event.get("data", "")
@@ -990,7 +1036,32 @@ async def chat_endpoint(request: ChatRequest):
             error_code = event.get("code") or ""
             error_message = event.get("message") or event.get("data") or "An error occurred."
         elif etype == "tool_call":
-            pass
+            tc = event.get("data") or {}
+            tool_calls_seen.append({
+                "name": tc.get("name"),
+                "arguments": tc.get("arguments"),
+            })
+        elif etype == "metrics":
+            metrics.update(event.get("data") or {})
+
+    async def _run_agent_turn() -> None:
+        async for event in target_agent.process_message(
+            user_message, request.session_id
+        ):
+            _handle_event(event)
+
+    try:
+        await asyncio.wait_for(_run_agent_turn(), timeout=CHAT_OVERALL_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.error(
+            f"[TIMEOUT] Overall /chat turn exceeded {CHAT_OVERALL_TIMEOUT}s for session {request.session_id}"
+        )
+        error_code = "TIMEOUT"
+        error_message = (
+            f"Request timed out after {int(CHAT_OVERALL_TIMEOUT)} seconds. "
+            "Please retry with a simpler query."
+        )
+        response_text = ""
 
     # LAST-MILE USER OUTPUT GUARD: deliver only clean natural language.
     if error_code:
@@ -999,7 +1070,7 @@ async def chat_endpoint(request: ChatRequest):
             "answer": error_message,
             "conversation_id": request.session_id,
             "error": {"code": error_code, "message": error_message},
-            "metadata": {},
+            "metadata": metrics,
         }
 
     if response_text:
@@ -1007,11 +1078,14 @@ async def chat_endpoint(request: ChatRequest):
     else:
         response_text = "I processed your request. How else can I assist you?"
 
+    metadata = dict(metrics)
+    metadata["tool_calls"] = metrics.get("tool_calls") or tool_calls_seen
+
     return {
         "success": True,
         "answer": response_text,
         "conversation_id": request.session_id,
-        "metadata": {},
+        "metadata": metadata,
     }
 
 

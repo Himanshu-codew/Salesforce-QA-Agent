@@ -5,12 +5,24 @@ and multi-step task decomposition.
 """
 
 import logging
+import os
+import time
 from typing import Any
 
 from tools.salesforce import is_destructive, is_mutating, DESTRUCTIVE_TOOLS
 from .prompts import DELETE_CONFIRMATION_PROMPT
 
 logger = logging.getLogger(__name__)
+
+# Hard safety gate for evaluation/baseline runs. When enabled, NO create,
+# update, upload, or delete tool may execute — the orchestrator blocks the call
+# before it reaches Salesforce. Controlled by READ_ONLY_MODE=true.
+READ_ONLY_MODE = os.getenv("READ_ONLY_MODE", "false").lower() in ("true", "1", "yes", "on")
+
+# F5: configurable TTL for pending destructive-action confirmations. Uses the
+# SAME env-convention as the rest of the agent (monotonic clock, safe default).
+# A stale "yes" received after this window expires is never executed.
+PENDING_CONFIRMATION_TTL = float(os.getenv("PENDING_CONFIRMATION_TTL", "300.0"))
 
 
 class TaskPlanner:
@@ -44,7 +56,22 @@ class TaskPlanner:
             "requires_confirmation": False,
             "confirmation_message": "",
             "pending_action": None,
+            "blocked_message": "",
         }
+
+        if READ_ONLY_MODE and (is_mutating(tool_name) or is_destructive(tool_name)):
+            # Evaluation / baseline mode: refuse every mutation attempt outright.
+            result["safe"] = False
+            result["blocked_message"] = (
+                "I'm running in read-only mode for this evaluation, so I can't "
+                "create, update, upload, or delete any records. I can still run "
+                "search and read queries, or help you plan the change."
+            )
+            logger.info(
+                f"Read-only mode blocked tool call: {tool_name} "
+                f"(args={str(arguments)[:160]})"
+            )
+            return result
 
         if is_destructive(tool_name):
             # Destructive operations ALWAYS require confirmation
@@ -56,10 +83,31 @@ class TaskPlanner:
                 record_id=record_id,
             )
 
+            # F5 exact-action binding: the FIRST destructive action that becomes
+            # pending must remain the action awaiting confirmation. Additional
+            # destructive calls in the same turn must NOT overwrite it.
+            existing = self._pending_confirmations.get(session_id)
+            if existing is not None:
+                pending = existing
+                confirmation_msg = pending.get("confirmation_message") or confirmation_msg
+                result["safe"] = False
+                result["requires_confirmation"] = True
+                result["confirmation_message"] = confirmation_msg
+                result["pending_action"] = pending
+                logger.info(
+                    f"Additional destructive call {tool_name}({sobject_name}, {record_id}) "
+                    f"ignored for confirmation; already pending "
+                    f"{pending.get('tool_name')}({pending.get('arguments', {}).get('sobject-name')}, "
+                    f"{pending.get('arguments', {}).get('id')}) for session '{session_id}'"
+                )
+                return result
+
             pending = {
                 "tool_name": tool_name,
                 "arguments": arguments,
                 "type": "delete",
+                "created_at": time.monotonic(),
+                "confirmation_message": confirmation_msg,
             }
             self._pending_confirmations[session_id] = pending
 
@@ -93,6 +141,22 @@ class TaskPlanner:
         pending = self._pending_confirmations.get(session_id)
         if not pending:
             return None
+
+        # F5 TTL: a stale confirmation must never be executed. Missing
+        # created_at is treated as not-yet-expired (backward-compatible with
+        # any legacy in-memory state) rather than crashing.
+        created_at = pending.get("created_at")
+        if created_at is not None and (time.monotonic() - created_at) >= PENDING_CONFIRMATION_TTL:
+            del self._pending_confirmations[session_id]
+            logger.info(
+                f"Pending destructive confirmation for '{pending.get('tool_name')}' "
+                f"expired for session '{session_id}'; no action executed."
+            )
+            return {
+                "status": "expired",
+                "tool_name": pending.get("tool_name", ""),
+                "message": "This confirmation has expired. No action was executed.",
+            }
 
         # Check if user confirmed
         response_lower = user_response.strip().lower()

@@ -324,6 +324,39 @@ class QwenLLM(BaseLLM):
             default_headers=_get_headers(base_url),
         )
         logger.info(f"QwenLLM initialized with model={model}, base_url={base_url}, timeout={timeout_sec}s")
+        # Updated on every `chat` call so callers can detect a truncated
+        # (finish_reason == "length") generation instead of receiving a silently
+        # incomplete "half" reply. Defaults to None (no truncation observed).
+        self.last_finish_reason: str | None = None
+        self._usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "calls": 0,
+        }
+
+    def reset_usage(self) -> None:
+        """Reset the cumulative usage counters (e.g. at the start of an eval run)."""
+        self._usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+            "calls": 0,
+        }
+
+    def usage_snapshot(self) -> dict[str, int]:
+        """Return a copy of the cumulative usage counters."""
+        return dict(self._usage)
+
+    def _record_usage(self, response: Any) -> None:
+        """Accumulate prompt/completion token usage from an OpenAI-compatible response."""
+        usage = getattr(response, "usage", None)
+        if not usage:
+            return
+        self._usage["prompt_tokens"] += int(getattr(usage, "prompt_tokens", 0) or 0)
+        self._usage["completion_tokens"] += int(getattr(usage, "completion_tokens", 0) or 0)
+        self._usage["total_tokens"] += int(getattr(usage, "total_tokens", 0) or 0)
+        self._usage["calls"] += 1
 
     def _check_and_update_base_url(self) -> None:
         """Dynamically reload .env and update base_url, model, or api_key if changed in .env."""
@@ -410,6 +443,10 @@ class QwenLLM(BaseLLM):
 
                 content = response.choices[0].message.content or ""
                 content = strip_thinking(content)
+                self._record_usage(response)
+                self.last_finish_reason = str(
+                    getattr(response.choices[0], "finish_reason", "") or ""
+                )
                 logger.debug(f"Qwen chat response received ({len(content)} chars)")
                 return content
 
@@ -604,6 +641,7 @@ class QwenLLM(BaseLLM):
                         f"finish_reason={result['finish_reason']})"
                     )
 
+                self._record_usage(response)
                 return result
 
             except Exception as e:

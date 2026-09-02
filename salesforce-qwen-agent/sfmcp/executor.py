@@ -5,12 +5,18 @@ Provides validation, error handling, retry logic, and result formatting.
 
 import json
 import logging
+import os
 from typing import Any
 
 from .client import SalesforceMCPClient
 from .registry import ToolRegistry
+from tools.salesforce import is_mutating, is_destructive
 
 logger = logging.getLogger(__name__)
+
+# Defense-in-depth: even if a caller bypasses the orchestrator safety planner,
+# no mutating/destructive tool may run while READ_ONLY_MODE is enabled.
+READ_ONLY_MODE = os.getenv("READ_ONLY_MODE", "false").lower() in ("true", "1", "yes", "on")
 
 
 class ToolExecutor:
@@ -45,6 +51,20 @@ class ToolExecutor:
             error = f"Tool '{tool_name}' not found. Available: {available}"
             logger.error(error)
             return json.dumps({"error": error})
+
+        if READ_ONLY_MODE and (is_mutating(tool_name) or is_destructive(tool_name)):
+            logger.warning(
+                f"Read-only mode blocked tool execution: {tool_name} "
+                f"(args={_truncate_args(arguments)})"
+            )
+            return json.dumps({
+                "error": (
+                    f"Tool '{tool_name}' is blocked by READ_ONLY_MODE. "
+                    "Create, update, upload, and delete operations are disabled "
+                    "during this evaluation run."
+                ),
+                "tool": tool_name,
+            })
 
         logger.info(f"Executing tool: {tool_name} with args: {_truncate_args(arguments)}")
 

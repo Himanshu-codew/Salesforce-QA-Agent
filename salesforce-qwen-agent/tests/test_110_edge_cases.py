@@ -878,26 +878,26 @@ async def send_query(client: httpx.AsyncClient, query: str, session_id: str) -> 
             return response.json()
         else:
             return {
-                "response": f"HTTP Error {response.status_code}: {response.text}",
-                "tool_calls": [],
+                "answer": f"HTTP Error {response.status_code}: {response.text}",
+                "metadata": {},
                 "session_id": session_id,
             }
     except httpx.TimeoutException:
         return {
-            "response": "TIMEOUT: Bot did not respond within the time limit.",
-            "tool_calls": [],
+            "answer": "TIMEOUT: Bot did not respond within the time limit.",
+            "metadata": {},
             "session_id": session_id,
         }
     except httpx.ConnectError:
         return {
-            "response": "CONNECTION ERROR: Could not connect to chatbot. Is it running on localhost:8000?",
-            "tool_calls": [],
+            "answer": "CONNECTION ERROR: Could not connect to chatbot. Is it running on localhost:8000?",
+            "metadata": {},
             "session_id": session_id,
         }
     except Exception as e:
         return {
-            "response": f"EXCEPTION: {str(e)}",
-            "tool_calls": [],
+            "answer": f"EXCEPTION: {str(e)}",
+            "metadata": {},
             "session_id": session_id,
         }
 
@@ -947,8 +947,13 @@ def evaluate_result(response_text: str, tool_calls: list, pass_keywords: list, f
     return "FAIL", "Response too short or unrelated"
 
 
+def token_summary(r: dict) -> str:
+    """Format token usage as 'prompt/completion/total'."""
+    t = r.get("tokens") or {}
+    return f"{t.get('prompt', 0)}/{t.get('completion', 0)}/{t.get('total', 0)}"
+
+
 def sanitize_excel_value(val: Any) -> Any:
-    """Sanitize values for openpyxl to prevent XML corruption."""
     if val is None:
         return ""
     if isinstance(val, (int, float, bool)):
@@ -990,7 +995,8 @@ def create_excel(results: list, output_path: Path):
         "Test ID", "Tool Name", "Category", "User Query",
         "Expected Behavior", "Bot Response (First 500 chars)",
         "Tool Calls Made", "Status", "Evaluation Reason",
-        "Response Time (s)",
+        "Response Time (s)", "Model", "Transport",
+        "Tokens (prompt/completion/total)", "Total Latency (ms)",
     ]
     for col_idx, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col_idx, value=header)
@@ -1016,6 +1022,10 @@ def create_excel(results: list, output_path: Path):
             sanitize_excel_value(result.get("status", "")),
             sanitize_excel_value(result.get("reason", "")),
             result.get("response_time", 0.0),
+            sanitize_excel_value(result.get("model", "")),
+            sanitize_excel_value(result.get("transport", "")),
+            sanitize_excel_value(token_summary(result)),
+            result.get("total_latency_ms", 0.0),
         ]
         for col_idx, value in enumerate(values, 1):
             cell = ws.cell(row=row_idx, column=col_idx, value=value)
@@ -1037,7 +1047,7 @@ def create_excel(results: list, output_path: Path):
             status_cell.font = review_font
 
     # ── Column Widths ──
-    widths = [10, 22, 22, 45, 45, 55, 20, 12, 40, 16]
+    widths = [10, 22, 22, 45, 45, 55, 20, 12, 40, 16, 18, 12, 24, 18]
     for col_idx, width in enumerate(widths, 1):
         col_letter = get_column_letter(col_idx)
         ws.column_dimensions[col_letter].width = width
@@ -1150,6 +1160,10 @@ def create_excel(results: list, output_path: Path):
                     r.get("status", ""),
                     r.get("reason", ""),
                     r.get("response_time", 0.0),
+                    r.get("model", ""),
+                    r.get("transport", ""),
+                    token_summary(r),
+                    r.get("total_latency_ms", 0.0),
                 ])
         print(f" CSV file saved to: {csv_path}")
     except Exception as e:
@@ -1187,8 +1201,9 @@ async def run_all_tests():
             result = await send_query(client, query, session_id)
             elapsed = round(time.time() - start_time, 2)
 
-            response_text = result.get("response", "")
-            tool_calls_made = result.get("tool_calls", [])
+            response_text = result.get("answer") or result.get("response", "")
+            metadata = result.get("metadata") or {}
+            tool_calls_made = metadata.get("tool_calls") or []
 
             status, reason = evaluate_result(response_text, tool_calls_made, pass_kw, fail_kw)
 
@@ -1206,6 +1221,11 @@ async def run_all_tests():
                 "status": status,
                 "reason": reason,
                 "response_time": elapsed,
+                "model": metadata.get("model", ""),
+                "transport": metadata.get("transport", ""),
+                "tokens": metadata.get("tokens") or {},
+                "latency_ms": metadata.get("latency_ms") or {},
+                "total_latency_ms": metadata.get("total_ms", 0.0),
             })
 
             status_icon = "PASS" if status == "PASS" else ("FAIL" if status == "FAIL" else "REVIEW")

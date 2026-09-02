@@ -186,6 +186,42 @@ class UserSessionManager:
 
         return user_agent
 
+    def get_mcp_status(self) -> Dict[str, Any]:
+        """
+        Aggregate the real MCP connection state across all authenticated user
+        sessions. MCP is intentionally session-scoped: each authenticated user
+        gets an isolated SalesforceMCPClient (see register_oauth_session). The
+        server-level default client is a SEPARATE instance whose idle session is
+        closed after tool discovery, so it does not reflect whether an actual
+        user's SOQL/query path is live over MCP. This method reports that.
+        """
+        connected_sessions: list[str] = []
+        mcp_sessions: list[str] = []
+        using_rest_or_unconnected: list[str] = []
+        for sid, session in self._sessions.items():
+            if not session.get("authenticated"):
+                continue
+            client = session.get("mcp_client")
+            if client is None:
+                using_rest_or_unconnected.append(sid)
+                continue
+            transport = getattr(client, "mcp_transport", "REST")
+            if transport == "MCP":
+                mcp_sessions.append(sid)
+            if getattr(client, "is_connected", False):
+                connected_sessions.append(sid)
+            else:
+                using_rest_or_unconnected.append(sid)
+        return {
+            "any_connected": bool(connected_sessions),
+            "any_mcp": bool(mcp_sessions),
+            "any_live": bool(connected_sessions) or bool(mcp_sessions),
+            "connected_sessions": connected_sessions,
+            "mcp_sessions": mcp_sessions,
+            "unconnected_sessions": using_rest_or_unconnected,
+            "total_sessions": len(self._sessions),
+        }
+
     async def logout_session(self, session_id: str = "default") -> bool:
         """Disconnect and clear a user session."""
         session = self._sessions.pop(session_id, None)
@@ -200,6 +236,17 @@ class UserSessionManager:
                 token_vault.delete(session_id)
             except Exception as e:
                 logger.warning(f"Error deleting vault record on logout ({session_id}): {e}")
+            # F5: clear any pending destructive-action confirmation before logout so a
+            # recycled session_id can never confirm a stale action. Uses whichever
+            # planner instance the session's agent owns (Orchestrator or SalesforceAgent).
+            agent = session.get("agent")
+            planner = getattr(agent, "planner", None) or getattr(agent, "safety_planner", None)
+            if planner is not None and hasattr(planner, "clear_pending"):
+                try:
+                    planner.clear_pending(session_id)
+                    logger.info(f"[F5] Cleared pending confirmation for logged-out session '{session_id}'.")
+                except Exception as e:
+                    logger.warning(f"Error clearing pending confirmation on logout ({session_id}): {e}")
             logger.info(f"🔒 User session '{session_id}' logged out and disconnected.")
             return True
         return False
