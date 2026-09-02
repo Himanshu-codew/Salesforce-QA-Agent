@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Any, AsyncGenerator
 
@@ -173,6 +174,50 @@ def _executor_error_message(result: str, tool_name: str) -> str | None:
             return f"{error} Suggestion: {suggestion}"
         return error
     return None
+
+
+_COUNT_INTENT_PATTERN = re.compile(
+    r"\b(how many|count|total count|total number|number of|total records)\b",
+    re.IGNORECASE,
+)
+
+
+def _has_count_intent(user_text: str) -> bool:
+    """Return True when the USER's request asks for a record count/total.
+
+    This is a general intent classifier (not a special-case on any concrete
+    phrasing). It uses word-boundary matching so "count" does NOT match the
+    substring inside "accounts"/"counting". It is used to avoid an UNREQUESTED
+    aggregate COUNT tool call when the user only asked to list records: the
+    Salesforce tool schema advertises COUNT support, so a worker LLM can
+    autonomously add ``SELECT COUNT(...)`` on top of a plain list query, which
+    then surfaces as a duplicate ``Total`` block in the synthesized answer.
+    Genuine count requests and explicit list+count requests continue to run
+    their COUNT unchanged.
+    """
+    if not isinstance(user_text, str):
+        return False
+    return _COUNT_INTENT_PATTERN.search(user_text) is not None
+
+
+def _has_non_count_query(tool_calls: list[dict[str, Any]]) -> bool:
+    """Return True if the task's tool-call list includes a non-Count soqlQuery.
+
+    Used to determine whether an aggregate COUNT call is truly redundant with a
+    list/select query the same task already requested. Arguments are read
+    tolerantly (dict or raw-string) so malformed calls never raise here.
+    """
+    for tc in tool_calls or []:
+        try:
+            name, args, _err = _normalize_tool_call(tc)
+        except Exception:
+            continue
+        if name != "soqlQuery":
+            continue
+        soql = args.get("q", "") if isinstance(args, dict) else ""
+        if soql and not _is_soql_count(str(soql)):
+            return True
+    return False
 
 
 def _normalize_zero_count_result(tool_name: str, result: str, arguments: dict[str, Any]) -> str:
@@ -565,6 +610,30 @@ class Orchestrator:
                 tc_name, tc_args, tc_error = _normalize_tool_call(tc)
                 if tc_error:
                     raise AgentError(ERR_INVALID_TOOL, tc_error)
+
+                # Fidelity: never run an aggregate COUNT tool call that the user did
+                # not ask for AND that is redundant with a list/select query the same
+                # task already requested. A plain list request ("list...", "show...")
+                # carries no count intent, but the worker LLM can autonomously add a
+                # SELECT COUNT(...) on top of its list query (the soqlQuery schema
+                # advertises COUNT support), which then surfaces as a duplicate "Total"
+                # block in the synthesized answer. Skip such a redundant call so only
+                # the requested list query executes. Standalone COUNT calls (genuine
+                # count requests, or a COUNT with no sibling list query), and explicit
+                # list+count requests (count intent detected), are left untouched.
+                soql = tc_args.get("q", "") if isinstance(tc_args, dict) else ""
+                if (
+                    tc_name == "soqlQuery"
+                    and _is_soql_count(str(soql))
+                    and not _has_count_intent(user_message)
+                    and _has_non_count_query(tool_calls)
+                ):
+                    logger.info(
+                        f"[DUPLICATE-COUNT-GUARD] Skipping redundant COUNT tool call for "
+                        f"session '{session_id}': query='{soql}'. User request had no count "
+                        f"intent and a list/select query is already requested."
+                    )
+                    continue
 
                 safety = self.safety_planner.check_tool_safety(tc_name, tc_args, session_id)
                 if safety.get("requires_confirmation"):
