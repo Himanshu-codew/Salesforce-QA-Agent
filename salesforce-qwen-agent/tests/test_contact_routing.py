@@ -135,7 +135,11 @@ def test_prompt_routes_record_requests_to_soql_find():
 
 def test_prompt_allows_getuserinfo_but_requires_followup_query():
     assert "SUPPORTING step" in prompts.DATA_AGENT_PROMPT
-    assert "MUST then follow it with the appropriate `soqlQuery`/`find`" in prompts.DATA_AGENT_PROMPT
+    # getUserInfo may only be a support step; the record query must follow with a
+    # literal inlined owner ID (never binding syntax), and getUserInfo alone is never
+    # a valid answer. (Phrasing updated with the binding-syntax fix.)
+    assert "inline" in prompts.DATA_AGENT_PROMPT
+    assert "`getUserInfo` alone is never a valid final answer" in prompts.DATA_AGENT_PROMPT
 
 
 def test_prompt_keeps_identity_questions_on_getuserinfo():
@@ -246,6 +250,65 @@ def test_what_is_my_profile_uses_getuserinfo():
     orch = _build(llm, exec_)
     _run(orch, "What is my profile?")
     assert [n for n, _ in exec_.executed] == ["getUserInfo"]
+
+
+# ---------------------------------------------------------------------------
+# SOQL binding-syntax guard (raw soqlQuery has no bind-variable substitution)
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_forbids_binding_syntax():
+    assert "variable binding syntax" in prompts.DATA_AGENT_PROMPT
+    assert ":$User.Id" in prompts.DATA_AGENT_PROMPT
+    assert ":param" in prompts.DATA_AGENT_PROMPT
+    assert "${...}" in prompts.DATA_AGENT_PROMPT
+    assert "does NOT substitute bind variables" in prompts.DATA_AGENT_PROMPT
+    assert "MALFORMED_QUERY" in prompts.DATA_AGENT_PROMPT
+
+
+def test_prompt_requires_literal_id_for_ownership_reads():
+    assert "getUserInfo" in prompts.DATA_AGENT_PROMPT
+    assert "LITERAL Salesforce ID" in prompts.DATA_AGENT_PROMPT
+    assert "WHERE OwnerId = '005..." in prompts.DATA_AGENT_PROMPT
+    # Raw-soql section forbids bind vars; it must not invite `:$User.Id` as an option.
+    soql_section = prompts.DATA_AGENT_PROMPT.split("TOOL PURPOSE RULES")[0]
+    assert "you must call `getUserInfo` first" not in soql_section
+
+
+def test_ownership_filtered_read_inlines_literal_user_id():
+    # A correct ownership read resolves the user via getUserInfo (supporting step)
+    # then issues soqlQuery with the literal OwnerId — never binding syntax.
+    llm = _RunLLM([
+        {"id": "g1", "name": "getUserInfo", "arguments": {}},
+        _tc("soqlQuery", "SELECT Id, Name FROM Contact WHERE OwnerId = '005000000000000001' LIMIT 200"),
+    ])
+
+    class _ExecOwned(_Exec):
+        async def execute(self, name, arguments):
+            self.executed.append((name, arguments))
+            if name == "getUserInfo":
+                return json.dumps({"id": "005000000000000001", "display_name": "Himanshu"})
+            return json.dumps({"totalSize": 2, "records": [{"Id": "003A", "Name": "Ada"}], "done": True})
+
+    exec_ = _ExecOwned()
+    orch = _build(llm, exec_)
+    events = _run(orch, "Show my Contacts.")
+    assert orch._generate_plan.call_count == 0
+    names = [n for n, _ in exec_.executed]
+    assert "getUserInfo" in names
+    assert "soqlQuery" in names
+    executed_qs = [a.get("q") for n, a in exec_.executed if n == "soqlQuery"]
+    assert any("WHERE OwnerId = '005000000000000001'" in q for q in executed_qs)
+    # No binding syntax may be present in any emitted query.
+    for q in executed_qs:
+        assert ":$User" not in q
+        assert ":param" not in q
+        assert "${" not in q
+
+
+def test_prompt_steers_contact_reads_off_binding_syntax():
+    assert "NEVER use `:$User.Id`" in prompts.DATA_AGENT_PROMPT
+    assert ":id" in prompts.DATA_AGENT_PROMPT
 
 
 if __name__ == "__main__":
