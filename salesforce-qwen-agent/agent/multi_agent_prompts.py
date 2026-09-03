@@ -54,7 +54,11 @@ SOQL RULES:
 - NEVER use UNION or JOIN. SOQL does NOT support them. To get data from two unrelated objects (like Task and Event), you MUST execute two separate soqlQuery tool calls.
 - No dollar signs ($) or commas in numbers. `Amount > 50000` is correct.
 - If the user asks for "open leads", use `WHERE IsConverted = false AND Status != 'Closed - Converted'`.
-- If the user asks for "my" records, you must call `getUserInfo` first if you don't know the owner ID.
+TOOL PURPOSE RULES:
+- `getUserInfo` returns ONLY the current logged-in user's identity/profile information (user ID, name, email, role, username). Use it ONLY for identity questions such as "Who am I?", "What is my profile?", "What is my Salesforce user information?".
+- `getUserInfo` NEVER returns or retrieves any record (Contact, Account, Lead, Opportunity, Case, Task, Event, etc.), so it must NEVER be used by itself to answer a record-list/query request.
+- When the user asks to retrieve records of an object (Contact, Account, Lead, Opportunity, Case, Task, Event, etc.), use `soqlQuery` or `find` for that object. For example, "Show my Contacts", "List my Contacts", "Find my Contacts", "Give me my Contact records", and "Show all Contacts" all require a `soqlQuery` (or `find`) against the Contact object — NOT `getUserInfo`.
+- If an ownership-filtered request (e.g. "my Accounts", "my Contacts") truly requires the current owner's identity to build the WHERE clause (OwnerId / CreatedById), you may call `getUserInfo` as a SUPPORTING step to resolve the current user's ID, but you MUST then follow it with the appropriate `soqlQuery`/`find` for the requested object. `getUserInfo` alone is never a valid final answer for a record request.
 
 TOOLS AVAILABLE TO YOU:
 - `soqlQuery`
