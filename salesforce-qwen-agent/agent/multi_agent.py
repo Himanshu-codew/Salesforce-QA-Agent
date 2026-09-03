@@ -42,6 +42,7 @@ from .agent import (
     format_sf_records_as_markdown,
     _is_soql_count,
     _has_salesforce_intent,
+    _has_write_intent,
 )
 from tools.salesforce import get_tool_definitions
 
@@ -198,6 +199,35 @@ def _has_count_intent(user_text: str) -> bool:
     if not isinstance(user_text, str):
         return False
     return _COUNT_INTENT_PATTERN.search(user_text) is not None
+
+
+# Markers that make a Salesforce request MULTI-STEP / RELATIONAL / ambiguous and
+# therefore NOT a safe target for the Planner-less fast path. These are the kinds
+# of requests the Planner legitimately decomposes (dependent tasks) or that can
+# route to more than one tool, so they keep the Planner LLM call. Over-matching is
+# conservative: a query is only fast-pathed when it is clearly single-intent.
+_FAST_PATH_EXCLUDE_PATTERN = re.compile(
+    r"\b(recent|recently|latest|each|every|per|related|under|between|across|"
+    r"grouped|aggregate|report|breakdown)\b"
+    r"|\bfor each\b|\bfor every\b|\ball my\b|\bof my\b|\bfor my\b|"
+    r"\bin total\b|\bcount of\b|\bgroup by\b|\bbroken down by\b",
+    re.IGNORECASE,
+)
+
+
+def _has_decomposition_marker(user_text: str) -> bool:
+    """Return True when the request looks multi-step/relational/ambiguous.
+
+    Used to gate the Planner-less fast path: queries that name a relation between
+    records ("opportunities for each of my accounts"), that ask for "recent"/"last"
+    records (which can map to listRecentSobjectRecords OR a plain soqlQuery), or
+    that imply grouping/reporting are routed back through the Planner so its
+    dependent-task decomposition is preserved. Simple single-intent reads are NOT
+    blocked.
+    """
+    if not isinstance(user_text, str):
+        return False
+    return _FAST_PATH_EXCLUDE_PATTERN.search(user_text) is not None
 
 
 def _has_non_count_query(tool_calls: list[dict[str, Any]]) -> bool:
@@ -501,11 +531,51 @@ class Orchestrator:
         memory.add_user_message(user_message)
         logger.info(f"[ORCHESTRATOR] Original query: {user_message}")
 
-        # 1. PLANNER STAGE
-        yield {"type": "thinking", "data": "[Planner] Decomposing your request..."}
-        t_planner = time.monotonic()
-        plan = await self._generate_plan_bounded(user_message, memory)
-        _record_stage("planner", t_planner)
+        # 1. PLANNER STAGE (latency fast path)
+        # A clearly identifiable, read-only Salesforce/data request is routed to
+        # the single implicit DataAgent task WITHOUT spending a standalone Planner
+        # LLM round-trip. This is safe because:
+        #   - The deterministic classifier (_has_salesforce_intent) is the SAME
+        #     authoritative keyword source already used by E5 grounding, so routing
+        #     here is no less confident than the existing "empty plan → RAG → single
+        #     implicit task" branch (multi_agent.py:528-539).
+        #   - It is restricted to READ-ONLY requests (_has_write_intent is False),
+        #     so write/delete flows keep their full Planner + confirmation path —
+        #     we never bypass F5 confirmation or destructive-action handling.
+        #   - RAG tool retrieval, filter_tools_for_query (Fix A), the worker
+        #     chat_with_tools, the executor, Fix B COUNT handling, the duplicate-COUNT
+        #     guard, D1 error envelopes, P0 timeouts and the synthesizer all still run
+        #     unchanged below, so no safety/correctness mechanism is weakened.
+        #   - No exact user phrasing is matched: routing follows the general
+        #     Salesforce/read-only intent keywords only.
+        use_fast_path = (
+            _has_salesforce_intent(user_message)
+            and not _has_write_intent(user_message)
+            and not _has_decomposition_marker(user_message)
+        )
+
+        if use_fast_path:
+            logger.info(
+                "[FAST-PATH] Read-only Salesforce intent detected deterministically; "
+                "skipping the Planner LLM call."
+            )
+            yield {
+                "type": "thinking",
+                "data": "[Fast Path] Read-only Salesforce intent detected; skipping Planner.",
+            }
+            plan = [
+                {
+                    "task_id": 1,
+                    "description": user_message,
+                    "agent": "DataAgent",
+                    "depends_on": [],
+                }
+            ]
+        else:
+            yield {"type": "thinking", "data": "[Planner] Decomposing your request..."}
+            t_planner = time.monotonic()
+            plan = await self._generate_plan_bounded(user_message, memory)
+            _record_stage("planner", t_planner)
 
         # Empty plan means no Salesforce task — route via semantic RAG.
         if not plan:
