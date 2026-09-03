@@ -611,9 +611,14 @@ class Orchestrator:
         yield {"type": "thinking", "data": f"[Planner] Generated {len(plan)} sub-tasks."}
 
         # 2. EXECUTION STAGE
-        t_rag = time.monotonic()
-        tools = await self._get_relevant_tools_or_fallback(user_message)
-        _record_stage("rag", t_rag)
+        if use_fast_path:
+            # Simple deterministic read: skip RAG. Use the E5-compatible read-only-safe
+            # registry (filtered by Fix A) so no mutation tool can reach the worker.
+            tools = filter_tools_for_query(get_tool_definitions(), user_message)
+        else:
+            t_rag = time.monotonic()
+            tools = await self._get_relevant_tools_or_fallback(user_message)
+            _record_stage("rag", t_rag)
         # Fix A: intent-aware read-only filter. For a pure READ_REQUEST, mutation/
         # destructive tool schemas are removed BEFORE the planner/worker tool-selection
         # step so Qwen cannot be offered them. Explicit write/compound requests keep the
