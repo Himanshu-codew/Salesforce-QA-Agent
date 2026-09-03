@@ -71,6 +71,8 @@ class _Exec:
 
     async def execute(self, name, arguments):
         self.executed.append((name, arguments))
+        if name == "getUserInfo":
+            return json.dumps({"id": "005000000000000001", "display_name": "Himanshu"})
         q = arguments.get("q", "") if isinstance(arguments, dict) else ""
         if q.startswith("SELECT COUNT"):
             return json.dumps({"totalSize": 1, "records": [{"expr0": 7}]})
@@ -153,16 +155,21 @@ def test_prompt_keeps_identity_questions_on_getuserinfo():
 
 
 def test_show_my_contacts_routes_to_contact_query():
+    # Deterministic owner resolution: getUserInfo is called first, then soqlQuery
+    # is rebuilt with the validated OwnerId (never Qwen's invented id).
     llm = _RunLLM([_tc("soqlQuery", "SELECT Id, Name FROM Contact LIMIT 200")])
     exec_ = _Exec()
     orch = _build(llm, exec_)
     events = _run(orch, "Show my Contacts.")
-    # Fast path (planner skipped), worker issues a Contact query.
+    # Fast path (planner skipped) and deterministic two-step owner flow.
     assert orch._generate_plan.call_count == 0
     assert any(e.get("type") == "tool_call" for e in events)
-    assert [n for n, _ in exec_.executed] == ["soqlQuery"]
-    assert "getUserInfo" not in [n for n, _ in exec_.executed]
-    assert "FROM Contact" in _executed_queries(exec_)[0]
+    names = [n for n, _ in exec_.executed]
+    assert names[0] == "getUserInfo"
+    assert "soqlQuery" in names
+    assert "FROM Contact" in _executed_queries(exec_)[-1]
+    # OwnerId must be the validated id resolved from getUserInfo, not a placeholder.
+    assert "WHERE OwnerId = '005000000000000001'" in _executed_queries(exec_)[-1]
 
 
 def test_list_my_contacts_routes_to_contact_query():
@@ -170,9 +177,10 @@ def test_list_my_contacts_routes_to_contact_query():
     exec_ = _Exec()
     orch = _build(llm, exec_)
     _run(orch, "List my Contacts")
-    assert [n for n, _ in exec_.executed] == ["soqlQuery"]
-    assert "getUserInfo" not in [n for n, _ in exec_.executed]
-    assert "FROM Contact" in _executed_queries(exec_)[0]
+    names = [n for n, _ in exec_.executed]
+    assert names[0] == "getUserInfo"
+    assert "soqlQuery" in names
+    assert "WHERE OwnerId = '005000000000000001'" in _executed_queries(exec_)[-1]
 
 
 def test_show_all_contacts_no_redundant_count():

@@ -325,6 +325,110 @@ def _split_reference_results(
     return ref_tables, raw_remainder
 
 
+# ---------------------------------------------------------------------------
+# Deterministic "my <object>" ownership pre-resolution
+# ---------------------------------------------------------------------------
+# Objects that expose a valid OwnerId referential field usable in a raw-rest
+# soqlQuery WHERE clause. Only these are candidates for owner resolution. The
+# SELECT list is deliberately object-appropriate so a deterministic query never
+# fabricates a field that does not exist on the object.
+_OWNERSHIP_SELECT = {
+    "Contact": "SELECT Id, Name, Email, Phone",
+    "Lead": "SELECT Id, Name, Company, Phone",
+    "Opportunity": "SELECT Id, Name, Amount, StageName",
+    "Case": "SELECT Id, CaseNumber, Subject, Status",
+    "Account": "SELECT Id, Name, Phone, Industry",
+}
+_OWNERSHIP_OBJECT_PATTERN = re.compile(
+    r"\bmy\s+(contacts|leads|opportunities|cases|accounts)\b",
+    re.IGNORECASE,
+)
+_OWNERSHIP_ALIAS = {
+    "contacts": "Contact",
+    "leads": "Lead",
+    "opportunities": "Opportunity",
+    "cases": "Case",
+    "accounts": "Account",
+}
+_OWNERSHIP_LIMIT = 10
+
+
+def _detect_ownership_object(user_text: str) -> str | None:
+    """Return the Salesforce object API name for an ownership query ("my <object>").
+
+    Deterministic possessive-"my" + known-object classifier (plural object names).
+    Returns ``None`` for non-ownership requests — "Show all Contacts",
+    "How many Contacts are there?", "Show Contacts named Rahul", "Show Contacts
+    owned by <someone>" — so those keep their existing query path untouched.
+    """
+    if not isinstance(user_text, str):
+        return None
+    m = _OWNERSHIP_OBJECT_PATTERN.search(user_text)
+    if not m:
+        return None
+    obj = _OWNERSHIP_ALIAS.get(m.group(1).lower())
+    if obj not in _OWNERSHIP_SELECT:
+        return None
+    return obj
+
+
+def _validate_salesforce_user_id(raw: Any) -> str | None:
+    """Return the trimmed id iff it is a plausible Salesforce User/Owner Id.
+
+    A Salesforce id is 15 or 18 characters and a User id starts with ``005``.
+    Never exposed through the public token surface.
+    """
+    if not isinstance(raw, str):
+        return None
+    raw = raw.strip()
+    if len(raw) not in (15, 18):
+        return None
+    if not raw.startswith("005"):
+        return None
+    return raw
+
+
+def _extract_user_id(getuserinfo_result: str) -> str | None:
+    """Extract the current Salesforce User Id from a getUserInfo tool result.
+
+    Handles both the OAuth ``/services/oauth2/userinfo`` shape
+    (``{"sub": "005..."}`` / ``{"user_id": "005..."}``) and the SOQL fallback
+    shape (``{"records": [{"Id": "005..."}]}``). Returns the validated id or
+    ``None`` if it is missing/unparseable/invalid. The id is never logged.
+    """
+    if not isinstance(getuserinfo_result, str):
+        return None
+    try:
+        parsed = json.loads(getuserinfo_result)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    for key in ("user_id", "sub", "id", "Id"):
+        if key in parsed:
+            v = _validate_salesforce_user_id(parsed.get(key))
+            if v:
+                return v
+    records = parsed.get("records")
+    if isinstance(records, list) and records:
+        first = records[0]
+        if isinstance(first, dict):
+            v = _validate_salesforce_user_id(first.get("Id"))
+            if v:
+                return v
+    return None
+
+
+def _build_owner_soql(obj: str, user_id: str) -> str:
+    """Deterministically build the ownership-filtered list SOQL for an object.
+
+    The owner id is ALWAYS the validated id resolved from a getUserInfo tool
+    result (never a Qwen-invented / truncated / masked value).
+    """
+    select_fields = _OWNERSHIP_SELECT[obj]
+    return f"{select_fields} FROM {obj} WHERE OwnerId = '{user_id}' LIMIT {_OWNERSHIP_LIMIT}"
+
+
 class Orchestrator:
     """
     Orchestrates the multi-agent workflow:
@@ -436,6 +540,9 @@ class Orchestrator:
         usage_start = getattr(self.llm, "usage_snapshot", _zero_usage)()
         stage_times: dict[str, float] = {}
         request_tool_calls: list[dict[str, Any]] = []
+        # MY-RECORDS: resolved current user id for an ownership query, cached for
+        # the whole request so getUserInfo runs at most once per turn.
+        _resolved_owner_id: str | None = None
 
         def _record_stage(name: str, start: float) -> None:
             _trace(name, start)
@@ -710,6 +817,47 @@ class Orchestrator:
                     )
                     continue
 
+                # MY-RECORDS: deterministic owner pre-resolution for "my <object>"
+                # reads. When the user asks for their own records (e.g. "Show my
+                # Contacts"), the current Salesforce User id is resolved via
+                # getUserInfo and the soqlQuery is rebuilt deterministically so the
+                # OwnerId ALWAYS comes from the tool result — never from a value
+                # Qwen invented, truncated, summarized, or masked. Non-ownership
+                # queries, count requests, compound/multi-step ("for each of
+                # my...", "recent...", "grouped..."), and find calls are left
+                # untouched so relational/planner decompositions survive.
+                _own_obj = _detect_ownership_object(user_message)
+                if (
+                    tc_name == "soqlQuery"
+                    and not _has_count_intent(user_message)
+                    and _own_obj
+                    and not _has_decomposition_marker(user_message)
+                ):
+                    logger.info(f"[MY-RECORDS] Detected ownership query: object={_own_obj}")
+                    if _resolved_owner_id is None:
+                        logger.info("[MY-RECORDS] Resolving current Salesforce user via getUserInfo")
+                        try:
+                            _resolved_owner_id = await asyncio.wait_for(
+                                self._resolve_current_user_id(), timeout=EXECUTOR_TIMEOUT
+                            )
+                        except asyncio.TimeoutError:
+                            logger.error("[MY-RECORDS] getUserInfo timed out resolving the current user.")
+                            raise AgentError(
+                                ERR_MCP_SALESFORCE,
+                                "SALESFORCE_FAILED: Timed out resolving the current Salesforce user.",
+                            )
+                        if _resolved_owner_id is None:
+                            raise AgentError(
+                                ERR_MCP_SALESFORCE,
+                                "SALESFORCE_FAILED: Could not resolve the current Salesforce user ID "
+                                "for an ownership-filtered query. Please describe the records by owner "
+                                "or ask again with more detail.",
+                            )
+                        logger.info("[MY-RECORDS] Resolved Salesforce User ID successfully")
+                    logger.info("[MY-RECORDS] Building deterministic OwnerId SOQL")
+                    tc_args["q"] = _build_owner_soql(_own_obj, _resolved_owner_id)
+                    logger.info("[MY-RECORDS] Executing soqlQuery")
+
                 safety = self.safety_planner.check_tool_safety(tc_name, tc_args, session_id)
                 if safety.get("requires_confirmation"):
                     yield {"type": "response", "data": safety["confirmation_message"]}
@@ -866,6 +1014,29 @@ class Orchestrator:
 
         logger.warning("⚠️ Planner did not return a valid JSON list.")
         return []
+
+    async def _resolve_current_user_id(self) -> str | None:
+        """Resolve the current Salesforce User id via getUserInfo.
+
+        Executes ``getUserInfo`` through the executor (the same bounded path used
+        for every tool), extracts the current user's id from the result, and
+        validates it (15/18 chars, ``005`` prefix). Returns the validated id for
+        deterministic ``OwnerId`` SOQL construction, or ``None`` when it cannot be
+        obtained. The id is never logged and never surfaced to the LLM as a guess.
+        """
+        try:
+            raw = await self.executor.execute("getUserInfo", {})
+        except Exception as e:  # noqa: BLE001 - controlled error path
+            logger.error(f"[MY-RECORDS] getUserInfo failed to execute: {e}")
+            return None
+        user_id = _extract_user_id(raw)
+        if user_id is None:
+            logger.error(
+                "[MY-RECORDS] getUserInfo returned no valid Salesforce User ID; "
+                "owner-filtered query will not be generated."
+            )
+            return None
+        return user_id
 
     async def _synthesize_response(self, user_query: str, tool_results: list[dict]) -> str:
         msgs = [{"role": "system", "content": SYNTHESIZER_PROMPT}]
