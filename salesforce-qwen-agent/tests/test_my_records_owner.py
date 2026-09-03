@@ -142,6 +142,24 @@ def test_show_my_contacts_getuserinfo_first_then_deterministic_soql():
     assert "005000000000000001" in qs[0]
 
 
+def test_live_qwen_placeholder_owner_id_is_rewritten():
+    # The exact production failure: Qwen emitted
+    #   SELECT Id, Name, Email, Phone FROM Contact WHERE OwnerId = '005...' LIMIT 100
+    # (the prompt's literal example + invented/placeholder id) which Salesforce
+    # rejected with INVALID_QUERY_FILTER_OPERATOR / "invalid ID field: 005...".
+    # The deterministic interception MUST rewrite it to a validated owner id.
+    bad = "SELECT Id, Name, Email, Phone FROM Contact WHERE OwnerId = '005...' LIMIT 100"
+    llm = _RunLLM([_tc("soqlQuery", bad)])
+    exec_ = _Exec()
+    orch = _build(llm, exec_)
+    _run(orch, "Show my Contacts.")
+    qs = _executed_queries(exec_)
+    assert len(qs) == 1
+    assert qs[0] == "SELECT Id, Name, Email, Phone FROM Contact WHERE OwnerId = '005000000000000001' LIMIT 10"
+    assert "'005...'" not in qs[0]  # placeholder must never survive
+    assert "005000000000000001" in qs[0]
+
+
 def test_show_my_contacts_no_redundant_getuserinfo_call():
     # getUserInfo is resolved once and cached for the request.
     llm = _RunLLM([_tc("soqlQuery", "SELECT Id, Name FROM Contact LIMIT 200")])
