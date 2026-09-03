@@ -1093,15 +1093,76 @@ async def chat_endpoint(request: ChatRequest):
 # WebSocket Chat
 # ═══════════════════════════════════════════
 
+# How often the server pushes a heartbeat/progress frame while a long-running
+# request is in flight. Must be frequent enough that an idle proxy/edge or
+# the browser cannot terminate an otherwise-silent WebSocket. The Render/Cloudflare
+# edge and several LBs idle-timeout WebSockets when no bytes travel for a while,
+# and a slow Qwen turn can sit silent for 30+ seconds (long blocking LLM call with
+# no intermediate agent event). A concurrent heartbeat task keeps bytes flowing so
+# the connection survives until the final response is streamed.
+WS_HEARTBEAT_SECONDS = float(os.getenv("WS_HEARTBEAT_SECONDS", "12"))
+
+# Set of processes currently running per session. Guards against a client that
+# reconnects/re-sends the same message and inadvertently starts a second
+# concurrent `process_message` on the same session.
+_session_busy: dict[str, bool] = {}
+
+
+def _finalized_ws_event(event: dict) -> dict:
+    """Apply the LAST-MILE USER OUTPUT GUARD to an event before delivery.
+
+    Only natural-language content reaches the user. Raw tool-call JSON, schemas,
+    XML, and debug/parser output are stripped here regardless of what the agent
+    yielded. Structured errors always carry `code` + `message`.
+    """
+    event = dict(event)
+    if event.get("type") in ("response", "confirmation", "error"):
+        event["data"] = finalize_user_response(str(event.get("data", "")))
+        if event.get("type") == "error":
+            event.setdefault("message", event.get("data", ""))
+            event.setdefault("code", "ERROR")
+    return event
+
+
+async def _ws_produce(websocket: WebSocket, agent, session_id: str, user_message: str) -> None:
+    """Consume the agent's async event generator and forward events to the socket.
+
+    Runs as a background task while the heartbeat task concurrently keeps the
+    connection alive during long (blocking) Qwen calls. Starlette serializes
+    per-connection sends, so forwarding from this task and the heartbeat task
+    never interleave into malformed frames.
+    """
+    try:
+        async for event in agent.process_message(user_message, session_id):
+            try:
+                await websocket.send_json(_finalized_ws_event(event))
+            except (RuntimeError, WebSocketDisconnect) as send_err:
+                logger.warning(f"[WS] Client disconnected during event delivery ({session_id}): {send_err}")
+                break
+    except Exception as e:
+        logger.error(f"[WS] Agent error ({session_id}): {e}", exc_info=True)
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "data": "I ran into an unexpected issue while processing your request. Please try again.",
+                "code": "INTERNAL_ERROR",
+                "message": "I ran into an unexpected issue while processing your request. Please try again.",
+            })
+        except Exception:
+            pass
+
+
 @app.websocket("/ws/{session_id}")
 async def websocket_chat(websocket: WebSocket, session_id: str):
     """
     WebSocket endpoint for real-time chat.
-    Streams agent events (thinking, tool_call, tool_result, response)
-    as they happen for a responsive UI experience.
+    Streams agent events (thinking, tool_call, tool_result, response) as they
+    happen for a responsive UI experience, and keeps the connection alive with
+    application-level heartbeat/progress frames while a long Qwen request is
+    blocking so an idle proxy cannot terminate the socket.
     """
     await websocket.accept()
-    logger.info(f"WebSocket connected: session={session_id}")
+    logger.info(f"[WS] Connection established: session={session_id}")
 
     try:
         while True:
@@ -1141,48 +1202,93 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     await websocket.send_json({
                         "type": "error",
                         "data": "Agent not initialized. Check server logs.",
+                        "code": "ERROR",
+                        "message": "Agent not initialized. Check server logs.",
                     })
                     continue
 
-                # Stream agent events to the client
-                try:
-                    async for event in target_agent.process_message(
-                        user_message, session_id
-                    ):
+                # Do not start a second concurrent run for the same session if the
+                # client re-sent (e.g. a reconnect replay of the same message).
+                if _session_busy.get(session_id):
+                    await websocket.send_json({
+                        "type": "progress",
+                        "data": "Your previous request is still processing; please wait.",
+                    })
+                    continue
+                _session_busy[session_id] = True
+
+                logger.info(f"[WS] Qwen request started: session={session_id}")
+
+                # Producer: forwards agent events as they stream out.
+                producer = asyncio.create_task(
+                    _ws_produce(websocket, target_agent, session_id, user_message)
+                )
+
+                # Heartbeat: while the producer is running, push a progress frame
+                # every WS_HEARTBEAT_SECONDS so the connection never sits idle
+                # during a long blocking Qwen call. We must NOT wrap the producer
+                # in asyncio.wait_for (that would cancel the producer on timeout);
+                # instead we simply sleep  and re-check producer.done().
+                async def _heartbeat():
+                    logger.info(f"[WS] Long-running operation started: session={session_id}")
+                    while not producer.done():
                         try:
-                            # LAST-MILE USER OUTPUT GUARD: only natural-language
-                            # content is delivered to the user. Raw tool-call JSON,
-                            # schemas, XML, and debug/parser output are stripped here
-                            # regardless of what the agent yielded.
-                            if event.get("type") in ("response", "confirmation", "error"):
-                                event = dict(event)
-                                event["data"] = finalize_user_response(str(event.get("data", "")))
-                                # Ensure structured errors always carry code + message.
-                                if event.get("type") == "error":
-                                    event.setdefault("message", event.get("data", ""))
-                                    event.setdefault("code", "ERROR")
-                            await websocket.send_json(event)
-                        except (RuntimeError, WebSocketDisconnect) as send_err:
-                            logger.warning(f"Client disconnected during event delivery ({session_id}): {send_err}")
+                            await asyncio.sleep(WS_HEARTBEAT_SECONDS)
+                        except asyncio.CancelledError:
+                            return
+                        if producer.done():
                             break
-                except Exception as e:
-                    logger.error(f"Agent error: {e}", exc_info=True)
-                    try:
-                        await websocket.send_json({
-                            "type": "error",
-                            "data": "I ran into an unexpected issue while processing your request. Please try again.",
-                            "code": "INTERNAL_ERROR",
-                            "message": "I ran into an unexpected issue while processing your request. Please try again.",
-                        })
-                    except Exception:
-                        pass
+                        try:
+                            await websocket.send_json({
+                                "type": "progress",
+                                "data": "Working on your request...",
+                            })
+                            logger.info(f"[WS] Heartbeat sent: session={session_id}")
+                        except Exception:
+                            break
+                    logger.info(f"[WS] Qwen request completed: session={session_id}")
+
+                heartbeat = asyncio.create_task(_heartbeat())
+
+                # Wait for both to finish, but keep receiving so a disconnect,
+                # clear, or error mid-flight is surfaced instead of blocking forever.
+                try:
+                    while not producer.done() or not heartbeat.done():
+                        done, pending = await asyncio.wait(
+                            [producer, heartbeat],
+                            timeout=WS_HEARTBEAT_SECONDS,
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if producer.done() and heartbeat.done():
+                            break
+                except asyncio.CancelledError:
+                    logger.info(f"[WS] Connection cancelled during processing ({session_id})")
+                    producer.cancel()
+                    heartbeat.cancel()
+                    raise
+
+                await websocket.send_json({"type": "idle"})
+                logger.info(f"[WS] Final response sent: session={session_id}")
+
+                try:
+                    producer.result()
+                except Exception:
+                    pass
+                finally:
+                    _session_busy[session_id] = False
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected: session={session_id}")
+        logger.info(f"[WS] Connection closed: session={session_id}")
+        _session_busy.pop(session_id, None)
     except Exception as e:
-        logger.error(f"WebSocket error: {e}", exc_info=True)
+        logger.error(f"[WS] Connection error ({session_id}): {e}", exc_info=True)
     finally:
-        logger.info(f"WebSocket closed: session={session_id}")
+        _session_busy.pop(session_id, None)
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+        logger.info(f"[WS] Connection closed: session={session_id}")
 
 
 # ═══════════════════════════════════════════

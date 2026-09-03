@@ -29,6 +29,14 @@ let isProcessing = false;
 let currentAttachedFile = null;
 const sessionId = crypto.randomUUID();
 
+// Reconnect control: a single socket is ever created at a time, and reconnect
+// uses exponential backoff (capped) so we never stack multiple simultaneous
+// WebSockets or hammer the server.
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+let reconnectInFlight = false;
+const WS_MAX_BACKOFF_MS = 30000;
+
 // ─── DOM Elements ───
 const messagesContainer = document.getElementById('messagesContainer');
 const messageInput = document.getElementById('messageInput');
@@ -220,17 +228,37 @@ function clearAttachedFile() {
 
 // ─── WebSocket Connection ───
 function connectWebSocket() {
+    // Duplicate-socket guard: if a socket is already open or a connection is
+    // in flight, do not create a second one.
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
+    if (reconnectInFlight) {
+        return;
+    }
+    reconnectInFlight = true;
+
     updateConnectionStatus('connecting');
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}`;
 
     ws = new WebSocket(wsUrl);
+    reconnectInFlight = false;
 
     ws.onopen = () => {
+        reconnectAttempts = 0;
         isConnected = true;
         updateConnectionStatus('connected');
         headerSubtitle.textContent = 'Connected — Ready to help';
+        // Light client-side ping keeps the client→edge leg of the connection
+        // alive even while idle. The server parses and ignores these.
+        if (window.wsPingTimer) clearInterval(window.wsPingTimer);
+        window.wsPingTimer = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                try { ws.send(JSON.stringify({ type: 'ping' })); } catch (e) {}
+            }
+        }, 20000);
     };
 
     ws.onmessage = (event) => {
@@ -242,17 +270,36 @@ function connectWebSocket() {
         }
     };
 
+    // Browser-level WebSocket ping keeps the client→edge leg warm as well.
     ws.onclose = () => {
+        if (window.wsPingTimer) { clearInterval(window.wsPingTimer); window.wsPingTimer = null; }
         isConnected = false;
+        ws = null;
         updateConnectionStatus('disconnected');
         headerSubtitle.textContent = 'Disconnected — Reconnecting...';
-        setTimeout(connectWebSocket, 3000);
+        scheduleReconnect();
     };
 
     ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         updateConnectionStatus('disconnected');
     };
+}
+
+function scheduleReconnect() {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    // Exponential backoff with a hard cap: 3s, 6s, 12s, 24s, 30s...
+    const backoff = Math.min(3000 * Math.pow(2, reconnectAttempts), WS_MAX_BACKOFF_MS);
+    reconnectAttempts += 1;
+    // Delay until the current socket has fully closed so we never run parallel
+    // sockets against the same session.
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connectWebSocket();
+    }, backoff + (reconnectAttempts > 1 ? 1500 : 0));
 }
 
 function updateConnectionStatus(status) {
@@ -392,6 +439,14 @@ function handleServerEvent(event) {
             appendMessage('assistant', event.data);
             isProcessing = false;
             headerSubtitle.textContent = 'Ready to help';
+            break;
+
+        // Application-level heartbeat / progress — keep the connection alive
+        // during a long Qwen request. Purely cosmetic; never clears the in-flight
+        // "thinking" indicator or resets processing state.
+        case 'progress':
+        case 'idle':
+        case 'ping':
             break;
 
         default:
