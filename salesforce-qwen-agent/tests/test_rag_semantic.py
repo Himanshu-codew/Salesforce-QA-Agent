@@ -1,7 +1,9 @@
-"""Real semantic RAG acceptance tests.
+"""Semantic RAG acceptance tests.
 
-Verifies ToolRAGRetriever returns relevant tool definitions via embedding +
-vector retrieval, and returns [] for unrelated/ambiguous queries.
+Verifies ToolRAGRetriever returns relevant tool definitions via the
+lightweight tool-intent retriever (rare-term-weighted lexical overlap over the
+curated trigger documents; no embedding model), and returns [] for
+unrelated/ambiguous queries.
 """
 
 import os

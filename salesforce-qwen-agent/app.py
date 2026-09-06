@@ -138,16 +138,16 @@ async def lifespan(app: FastAPI):
     llm = create_llm()
     logger.info("✅ Qwen3 LLM client initialized.")
 
-    # 3b. Warm the semantic RAG embedding model + vector index ahead of the
-    #     first user request so the first query does not consume the RAG
-    #     timeout while downloading/loading the sentence-transformers model.
+    # 3b. Warm the lightweight RAG tool-intent index ahead of the first user
+    #     request. This is dependency-free (no embedding model / vector DB), so it
+    #     builds in microseconds and adds no meaningful memory to the process.
     from agent.rag import warm_up
     try:
         await asyncio.to_thread(warm_up)
         log_after_rag_init()
     except Exception as e:
         logger.warning(f"RAG warm-up failed in main thread: {e}")
-    logger.info("RAG warm-up scheduled in background (embedding model + ChromaDB index).")
+    logger.info("RAG tool-intent index warmed at startup (no embedding model needed).")
 
     # 4. Initialize Tool Executor
     tool_executor = ToolExecutor(mcp_client, tool_registry)

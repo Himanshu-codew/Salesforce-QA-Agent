@@ -1005,9 +1005,9 @@ class Orchestrator:
                 "[RAG] Timeout retrieving tools. "
                 f"stage=semantic-rag-tool-retrieval "
                 f"timeout_s={RAG_TIMEOUT:.1f} "
-                f"embedding_model={os.getenv('RAG_EMBEDDING_MODEL', 'paraphrase-multilingual-MiniLM-L12-v2')} "
+                f"retrieval=lightweight_lexical "
                 f"mcp_reached=False rest_fallback=False "
-                f"root_cause='embedding model cold-load or vector query hung'"
+                f"root_cause='tool-intent retrieval hung'"
             )
             raise AgentError(ERR_TIMEOUT, "Tool selection timed out during RAG warm-up. Please try again.")
         finally:
