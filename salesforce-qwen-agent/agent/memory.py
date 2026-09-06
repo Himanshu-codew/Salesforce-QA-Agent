@@ -76,17 +76,18 @@ class ConversationMemory:
         """
         Add a tool execution result to the history.
         Must follow an assistant message containing the corresponding tool call.
-        Limit raised to 25000 chars — enough for 200 full Salesforce records.
-        Truncating at 4000 was causing hallucination (LLM got partial data and invented the rest).
+        Truncated at 10000 chars — balances context fidelity against memory pressure.
+        On Render (512 MB), retaining 25 KB per tool result across 20 messages can
+        consume ~500 KB per session; 10 KB keeps the same window under ~200 KB.
         """
         clean_result = result
-        if len(clean_result) > 25000:
+        if len(clean_result) > 10000:
             # Cut at line boundary to preserve last complete record row
-            truncated_pos = clean_result.rfind("\n", 0, 25000)
-            if truncated_pos > 5000:
-                clean_result = clean_result[:truncated_pos] + "\n... [truncated at 25000 chars — query returned very large dataset]"
+            truncated_pos = clean_result.rfind("\n", 0, 10000)
+            if truncated_pos > 3000:
+                clean_result = clean_result[:truncated_pos] + "\n... [truncated at 10000 chars — query returned large dataset]"
             else:
-                clean_result = clean_result[:25000] + "\n... [truncated at 25000 chars]"
+                clean_result = clean_result[:10000] + "\n... [truncated at 10000 chars]"
 
         self._messages.append({
             "role": "tool",

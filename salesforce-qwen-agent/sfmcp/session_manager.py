@@ -5,6 +5,7 @@ user profile isolation, and session-specific Agent & MCP client routing.
 
 import logging
 import os
+import time
 from typing import Any, Dict, Optional
 
 from sfmcp.client import SalesforceMCPClient
@@ -15,6 +16,16 @@ from agent.agent import SalesforceAgent
 from llm.base import BaseLLM
 
 logger = logging.getLogger(__name__)
+
+# ── Memory-bounds for session state ──
+# Hard ceiling on concurrent authenticated sessions.  On Render (512 MB) each
+# session costs ~3-6 MB (MCPClient httpx pool + ConversationMemory + agent
+# objects).  20 sessions = ~60-120 MB — comfortably below budget with the
+# ~120 MB RAG baseline.  Excess sessions are evicted LRU.
+MAX_SESSIONS = int(os.getenv("MAX_SESSIONS", "20"))
+
+# Idle timeout: sessions with no activity for this many seconds are evicted.
+SESSION_IDLE_TIMEOUT = float(os.getenv("SESSION_IDLE_TIMEOUT", "1800"))  # 30 min
 
 
 class UserSessionManager:
@@ -29,6 +40,7 @@ class UserSessionManager:
 
     def __init__(self):
         self._sessions: Dict[str, Dict[str, Any]] = {}
+        self._session_activity: Dict[str, float] = {}  # session_id -> last activity timestamp
         self._default_mcp_client: Optional[SalesforceMCPClient] = None
         self._default_tool_registry: Optional[ToolRegistry] = None
         self._default_executor: Optional[ToolExecutor] = None
@@ -51,6 +63,76 @@ class UserSessionManager:
         self._llm = llm
         logger.info("✅ UserSessionManager initialized with default server instances.")
 
+    def touch_session(self, session_id: str) -> None:
+        """Update last activity timestamp for a session (called on each request)."""
+        self._session_activity[session_id] = time.time()
+        # Opportunistically evict idle/overflow sessions
+        self._evict_idle_sessions()
+        self._evict_lru_if_needed()
+
+    def _evict_idle_sessions(self) -> None:
+        """Evict sessions idle longer than SESSION_IDLE_TIMEOUT."""
+        now = time.time()
+        expired = [
+            sid for sid, ts in list(self._session_activity.items())
+            if now - ts > SESSION_IDLE_TIMEOUT
+        ]
+        for sid in expired:
+            if sid in self._sessions:
+                logger.info(f"[SESSION-EVICT] Evicting idle session '{sid}' (idle {now - self._session_activity.get(sid, 0):.0f}s)")
+                self._remove_session_sync(sid)
+
+    def _evict_lru_if_needed(self) -> None:
+        """If we have more than MAX_SESSIONS, evict the least-recently-used."""
+        while len(self._sessions) > MAX_SESSIONS:
+            # Find the session with the oldest activity
+            if not self._session_activity:
+                break
+            oldest_sid = min(self._session_activity, key=self._session_activity.get)
+            if oldest_sid in self._sessions:
+                logger.info(f"[SESSION-EVICT] Evicting LRU session '{oldest_sid}' (max {MAX_SESSIONS} reached)")
+                self._remove_session_sync(oldest_sid)
+            else:
+                self._session_activity.pop(oldest_sid, None)
+
+    def _remove_session_sync(self, session_id: str) -> None:
+        """Synchronously remove a session and release its resources.
+
+        For async cleanup (MCP disconnect), schedule it via the event loop.
+        This method clears the in-memory references so the GC can reclaim them.
+        """
+        session = self._sessions.pop(session_id, None)
+        self._session_activity.pop(session_id, None)
+        if not session:
+            return
+        # Clear agent's conversation memory to free tool result buffers
+        agent = session.get("agent")
+        if agent and hasattr(agent, "clear_session"):
+            try:
+                agent.clear_session(session_id)
+            except Exception:
+                pass
+        # Clear the agent's _memories dict entirely for this session
+        if agent and hasattr(agent, "_memories"):
+            agent._memories.pop(session_id, None)
+        # Disconnect MCP client asynchronously if event loop is running
+        client = session.get("mcp_client")
+        if client:
+            try:
+                import asyncio
+                loop = asyncio.get_running_loop()
+                loop.create_task(client.disconnect())
+            except (RuntimeError, ImportError):
+                # No event loop running; close the httpx client directly
+                try:
+                    import httpx
+                    if hasattr(client, "_http_client") and isinstance(client._http_client, httpx.AsyncClient):
+                        # Can't close async client synchronously; just drop the reference
+                        pass
+                except Exception:
+                    pass
+        logger.info(f"[SESSION-EVICT] Session '{session_id}' resources released.")
+
     def get_session(self, session_id: str = "default") -> Optional[Dict[str, Any]]:
         """Get raw session dictionary by session_id."""
         return self._sessions.get(session_id)
@@ -61,6 +143,7 @@ class UserSessionManager:
         If user has logged in via OAuth, returns their isolated Agent connected to THEIR org.
         Otherwise, returns the default Agent.
         """
+        self.touch_session(session_id)
         if session_id in self._sessions and "agent" in self._sessions[session_id]:
             return self._sessions[session_id]["agent"]
 
@@ -183,6 +266,7 @@ class UserSessionManager:
             "executor": executor,
             "agent": user_agent,
         }
+        self.touch_session(session_id)
 
         return user_agent
 

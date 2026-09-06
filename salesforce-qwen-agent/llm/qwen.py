@@ -384,6 +384,19 @@ class QwenLLM(BaseLLM):
 
             if recreate:
                 timeout_sec = float(os.getenv("LLM_TIMEOUT", "600.0"))
+                # Close the old httpx client to release its connection pool
+                # before creating a new one, preventing connection leaks.
+                old_http = getattr(self._client, "_client", None)
+                if old_http is not None:
+                    try:
+                        import asyncio
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(old_http.aclose())
+                    except (RuntimeError, Exception):
+                        try:
+                            old_http.close()
+                        except Exception:
+                            pass
                 http_client = httpx.AsyncClient(
                     verify=False,
                     timeout=httpx.Timeout(timeout_sec, connect=15.0),

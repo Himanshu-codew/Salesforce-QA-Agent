@@ -50,6 +50,7 @@ from sfmcp.executor import ToolExecutor
 from agent.multi_agent import Orchestrator as SalesforceAgent
 from agent.agent import finalize_user_response
 from utils.file_parser import parse_uploaded_file
+from utils.memory_diag import log_startup, log_after_rag_init, log_request_complete
 
 # ── Upload directory setup ──
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads")
@@ -118,6 +119,7 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
     logger.info("Starting Salesforce Qwen Agent...")
     logger.info("=" * 60)
+    log_startup()
 
     # 1. Initialize MCP Client
     mcp_client = create_mcp_client()
@@ -140,7 +142,11 @@ async def lifespan(app: FastAPI):
     #     first user request so the first query does not consume the RAG
     #     timeout while downloading/loading the sentence-transformers model.
     from agent.rag import warm_up
-    _warm_task = asyncio.create_task(asyncio.to_thread(warm_up))
+    try:
+        await asyncio.to_thread(warm_up)
+        log_after_rag_init()
+    except Exception as e:
+        logger.warning(f"RAG warm-up failed in main thread: {e}")
     logger.info("RAG warm-up scheduled in background (embedding model + ChromaDB index).")
 
     # 4. Initialize Tool Executor
@@ -987,6 +993,8 @@ CHAT_OVERALL_TIMEOUT = float(os.getenv("OVERALL_PROCESS_TIMEOUT", "300"))
 
 
 # ── Session active uploaded files mapping ──
+# Bounded to prevent unbounded memory growth on Render (512 MB).
+_MAX_SESSION_FILES = 20
 session_files: dict[str, dict] = {}
 
 
@@ -1005,6 +1013,9 @@ async def chat_endpoint(request: ChatRequest):
 
     if request.file_info:
         session_files[request.session_id] = request.file_info
+        # Evict oldest entries if session_files exceeds bound
+        while len(session_files) > _MAX_SESSION_FILES:
+            session_files.pop(next(iter(session_files)))
     elif request.session_id in session_files:
         request.file_info = session_files[request.session_id]
 
@@ -1080,6 +1091,8 @@ async def chat_endpoint(request: ChatRequest):
 
     metadata = dict(metrics)
     metadata["tool_calls"] = metrics.get("tool_calls") or tool_calls_seen
+
+    log_request_complete(request.session_id)
 
     return {
         "success": True,
@@ -1183,6 +1196,9 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
                 if file_info:
                     session_files[session_id] = file_info
+                    # Evict oldest entries if session_files exceeds bound
+                    while len(session_files) > _MAX_SESSION_FILES:
+                        session_files.pop(next(iter(session_files)))
                 elif session_id in session_files:
                     file_info = session_files[session_id]
 
@@ -1269,6 +1285,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
                 await websocket.send_json({"type": "idle"})
                 logger.info(f"[WS] Final response sent: session={session_id}")
+                log_request_complete(session_id)
 
                 try:
                     producer.result()

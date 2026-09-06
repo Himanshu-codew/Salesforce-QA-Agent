@@ -1133,6 +1133,12 @@ class SalesforceAgent:
 
     def _get_memory(self, session_id: str) -> ConversationMemory:
         """Get or create conversation memory for a session."""
+        # Bound memories dict to prevent unbounded growth on Render (512 MB).
+        _MAX_MEMORIES = 25
+        if session_id not in self._memories and len(self._memories) >= _MAX_MEMORIES:
+            oldest = next(iter(self._memories))
+            self._memories[oldest].clear()
+            del self._memories[oldest]
         if session_id not in self._memories:
             self._memories[session_id] = ConversationMemory(
                 max_messages=self._max_history

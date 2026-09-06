@@ -18,8 +18,9 @@ an in-memory ChromaDB collection so they are NOT recomputed on every user reques
 Configuration (environment variables, no secrets):
     RAG_EMBEDDING_MODEL   sentence-transformers model id (default multilingual MiniLM)
     RAG_TOP_K             number of candidate documents to retrieve (default 5)
-    RAG_MIN_SCORE         minimum cosine similarity for a tool to be selected (default 0.25)
+    RAG_MIN_SCORE         minimum cosine similarity for a tool to be selected (default 0.18)
     ENABLE_RAG_TOOLS      set 'false' to disable retrieval (returns all tools)
+    RAG_WARMUP_ON_STARTUP set 'true' to preload the model at startup (default: lazy-load)
 
 Selection is purely semantic. No hardcoded keyword rules override relevance.
 If nothing meets the `RAG_MIN_SCORE` threshold, no tools are returned.
@@ -44,6 +45,14 @@ from tools.salesforce import (
 
 logger = logging.getLogger(__name__)
 
+# DO NOT switch this to a smaller English-only embedding model. We tested
+# all-MiniLM-L6-v2, all-MiniLM-L12-v2, and BAAI/bge-small-en-v1.5 as drop-in
+# replacements and all of them compress semantic similarity badly for the
+# tool-retrieval task: no single RAG_MIN_SCORE threshold can both include the
+# required tool for a real SOQL query AND exclude greetings like "hi"/"help me",
+# so RAG quality regresses in both directions. The multilingual model below has
+# the separation this pipeline needs. To stay within Render's memory budget we
+# instead lazy-load it (see _get_embedder) rather than using a degraded model.
 _EMBEDDING_MODEL_DEFAULT = "paraphrase-multilingual-MiniLM-L12-v2"
 _COLLECTION_NAME = "salesforce_tool_retrieval"
 
@@ -52,6 +61,11 @@ _embedder = None
 _embedder_lock = threading.Lock()
 _index_lock = threading.Lock()
 _index = None
+
+# Cached tool definitions: built once, shared by all ToolRAGRetriever instances
+# so N sessions do not each hold their own copy.
+_cached_tool_definitions: list[dict[str, Any]] | None = None
+_cached_tool_map: dict[str, Any] | None = None
 
 
 def _tool_documents_hash(tool_defs: list[dict[str, Any]]) -> str:
@@ -226,13 +240,36 @@ def _build_documents(tool_defs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def warm_up():
     """
-    Load the embedding model and build the vector index eagerly so the FIRST
-    user request does not consume the RAG timeout while downloading/loading
-    the model. Safe to call at startup; caches the shareable singletons.
+    Optionally load the embedding model + build the vector index at startup.
+
+    BY DEFAULT this is a NO-OP: the embedding model (~470MB in torch with the
+    multilingual model it needs for good tool-retrieval separation) is NOT loaded
+    during cold start. Render's 512MB budget is too tight to reserve that memory
+    up front, and doing so was a primary contributor to full-process OOM kills.
+    Instead the model + ChromaDB index are built lazily on the FIRST semantic
+    retrieval (_get_embedder / _ensure_vector_index). The orchestrator already
+    wraps RAG in a bounded timeout and falls back to the complete read-only-safe
+    tool registry if that cold load is slow on the first request.
+
+    Set RAG_WARMUP_ON_STARTUP=true to force eager preloading (best when running
+    on a host with spare memory and you want to absorb the cold-load on boot
+    rather than on the first user request).
     """
+    if os.getenv("RAG_WARMUP_ON_STARTUP", "false").lower() not in ("true", "1", "yes"):
+        logger.info(
+            "[RAG] Lazy-load mode: skipping embedding model at startup "
+            "(set RAG_WARMUP_ON_STARTUP=true to preload). Model loads on first RAG use."
+        )
+        return True
+    if os.getenv("ENABLE_RAG_TOOLS", "true").lower() in ("false", "0", "no"):
+        logger.info("[RAG] ENABLE_RAG_TOOLS is false; skipping embedding model warm-up.")
+        return True
     try:
         tool_defs = get_tool_definitions()
+        from utils.memory_diag import log_memory
+        log_memory("before RAG embedder load")
         collection, dimension = _ensure_vector_index(tool_defs)
+        log_memory("after RAG embedder load")
         logger.info(
             f"[RAG] Warm-up complete: embedding_model='{os.getenv('RAG_EMBEDDING_MODEL', _EMBEDDING_MODEL_DEFAULT)}', "
             f"chroma_collection_count={collection.count()}, embedding_dim={dimension}."
@@ -309,8 +346,14 @@ class ToolRAGRetriever:
     """
 
     def __init__(self, default_top_k: int = 5, min_confidence: float = 0.18):
-        self.all_tools = get_tool_definitions()
-        self.tool_map = {t["function"]["name"]: t for t in self.all_tools}
+        global _cached_tool_definitions, _cached_tool_map
+        # Share a single copy of tool definitions across all retriever instances
+        # to avoid duplicating ~25-30 tool schemas per session.
+        if _cached_tool_definitions is None:
+            _cached_tool_definitions = get_tool_definitions()
+            _cached_tool_map = {t["function"]["name"]: t for t in _cached_tool_definitions}
+        self.all_tools = _cached_tool_definitions
+        self.tool_map = _cached_tool_map
         self.default_top_k = int(os.getenv("RAG_TOP_K", str(default_top_k)))
         self.min_score = float(os.getenv("RAG_MIN_SCORE", str(min_confidence)))
 

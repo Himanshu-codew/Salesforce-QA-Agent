@@ -78,7 +78,8 @@ class _Exec:
     async def execute(self, name, arguments):
         self.executed.append((name, arguments))
         if name == "getUserInfo":
-            return json.dumps({"id": self.user_id, "display_name": "Himanshu"})
+            # Real Salesforce MCP getUserInfo shape: {"identity": {"userId": "005..."}}.
+            return json.dumps({"identity": {"userId": self.user_id, "displayName": "Himanshu"}})
         q = arguments.get("q", "") if isinstance(arguments, dict) else ""
         if q.startswith("SELECT COUNT"):
             return json.dumps({"totalSize": 1, "records": [{"expr0": 7}]})
@@ -328,6 +329,37 @@ def test_extract_user_id_handles_userinfo_and_soql_shapes():
     assert _extract_user_id(json.dumps({"display_name": "H"})) is None
     assert _extract_user_id("not-json") is None
     assert _extract_user_id(None) is None
+
+
+def test_extract_user_id_handles_salesforce_mcp_identity_shape():
+    # Exact shape returned by the Salesforce MCP getUserInfo tool
+    # (confirmed live: identity.userId is the only 005-prefixed id present).
+    mcp_response = json.dumps({
+        "identity": {
+            "companyName": "Learning",
+            "displayName": "Himanshu Swami",
+            "email": "himanshuswami898@gmail.com",
+            "profileId": "00eg50000063GzFAAU",
+            "userId": "005g5000009G1fiAAC",
+            "username": "himanshuswami898.e86b4be632fc@agentforce.com",
+        },
+        "userTimeAndLocale": {
+            "humanReadableTime": "Sunday, 11:24 AM",
+            "localTimeIso": "6 Sep 2026, 06:24 PM UTC",
+            "localeCode": "en_US",
+            "timeZoneIana": "America/Los_Angeles",
+        },
+    })
+    assert _extract_user_id(mcp_response) == "005g5000009G1fiAAC"
+    # Defense-in-depth: an id nested under a non-standard key is still found.
+    assert (
+        _extract_user_id(
+            json.dumps({"wrapper": {"user": {"user_id": "005000000000000001"}}})
+        )
+        == "005000000000000001"
+    )
+    # profileId (00e prefix) must never be mistaken for the User id.
+    assert _extract_user_id(json.dumps({"identity": {"profileId": "00eg50000063GzFAAU"}})) is None
 
 
 def test_build_owner_soql():

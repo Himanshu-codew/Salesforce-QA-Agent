@@ -388,13 +388,46 @@ def _validate_salesforce_user_id(raw: Any) -> str | None:
     return raw
 
 
+_USER_ID_KEYS = ("userId", "user_id", "sub", "id", "Id")
+
+
+def _find_nested_user_id(node: Any, depth: int = 0) -> str | None:
+    """Bounded recursive search for the first validated ``005``-prefixed user id.
+
+    Mirrors the field-name priority of the explicit shapes above. Depth is
+    bounded so an adversarial/malformed getUserInfo result cannot cause deep
+    recursion. A validated ``005`` id found anywhere in the result is
+    authoritative (that prefix is only ever used by Salesforce User records).
+    """
+    if depth > 6:
+        return None
+    if isinstance(node, dict):
+        for key in _USER_ID_KEYS:
+            v = _validate_salesforce_user_id(node.get(key))
+            if v:
+                return v
+        for value in node.values():
+            found = _find_nested_user_id(value, depth + 1)
+            if found:
+                return found
+    elif isinstance(node, list):
+        for item in node:
+            found = _find_nested_user_id(item, depth + 1)
+            if found:
+                return found
+    return None
+
+
 def _extract_user_id(getuserinfo_result: str) -> str | None:
     """Extract the current Salesforce User Id from a getUserInfo tool result.
 
-    Handles both the OAuth ``/services/oauth2/userinfo`` shape
-    (``{"sub": "005..."}`` / ``{"user_id": "005..."}``) and the SOQL fallback
-    shape (``{"records": [{"Id": "005..."}]}``). Returns the validated id or
-    ``None`` if it is missing/unparseable/invalid. The id is never logged.
+    Handles the OAuth ``/services/oauth2/userinfo`` shape
+    (``{"sub": "005..."}`` / ``{"user_id": "005..."}``), the SOQL fallback
+    shape (``{"records": [{"Id": "005..."}]}``), and the Salesforce MCP
+    ``getUserInfo`` shape (``{"identity": {"userId": "005...", ...}}``). As a
+    last resort a bounded recursive scan finds the first validated ``005`` user
+    id in any nested field. Returns the validated id or ``None`` if it is
+    missing/unparseable/invalid. The id is never logged.
     """
     if not isinstance(getuserinfo_result, str):
         return None
@@ -404,11 +437,18 @@ def _extract_user_id(getuserinfo_result: str) -> str | None:
         return None
     if not isinstance(parsed, dict):
         return None
-    for key in ("user_id", "sub", "id", "Id"):
+    for key in _USER_ID_KEYS:
         if key in parsed:
             v = _validate_salesforce_user_id(parsed.get(key))
             if v:
                 return v
+    identity = parsed.get("identity")
+    if isinstance(identity, dict):
+        for key in _USER_ID_KEYS:
+            if key in identity:
+                v = _validate_salesforce_user_id(identity.get(key))
+                if v:
+                    return v
     records = parsed.get("records")
     if isinstance(records, list) and records:
         first = records[0]
@@ -416,7 +456,7 @@ def _extract_user_id(getuserinfo_result: str) -> str | None:
             v = _validate_salesforce_user_id(first.get("Id"))
             if v:
                 return v
-    return None
+    return _find_nested_user_id(parsed)
 
 
 def _build_owner_soql(obj: str, user_id: str) -> str:
@@ -455,6 +495,14 @@ class Orchestrator:
         self.rag_retriever = ToolRAGRetriever(default_top_k=6)
 
     def _get_memory(self, session_id: str) -> ConversationMemory:
+        # Bound memories dict to prevent unbounded growth on Render (512 MB).
+        # Max 25 concurrent session memories (each ~200KB with tool result truncation).
+        _MAX_MEMORIES = 25
+        if session_id not in self._memories and len(self._memories) >= _MAX_MEMORIES:
+            # Evict the oldest entry (first key in insertion order)
+            oldest = next(iter(self._memories))
+            self._memories[oldest].clear()
+            del self._memories[oldest]
         if session_id not in self._memories:
             self._memories[session_id] = ConversationMemory(max_messages=self._max_history)
         return self._memories[session_id]
@@ -1184,3 +1232,10 @@ class Orchestrator:
             ) from e
         finally:
             _set_stage(None)
+
+    def clear_session(self, session_id: str = "default") -> None:
+        """Clear conversation history and pending confirmations for a session."""
+        if session_id in self._memories:
+            self._memories[session_id].clear()
+        self.safety_planner.clear_pending(session_id)
+        logger.info(f"Orchestrator session '{session_id}' cleared.")

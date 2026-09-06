@@ -92,6 +92,8 @@ class SalesforceMCPClient:
         self._connected = False
         self._name_map: dict[str, str] = {}
         self._schema_cache: dict[str, Any] = {}
+        self._schema_cache_order: list[str] = []  # FIFO eviction order
+        self._schema_cache_max = 30  # Max cached schemas to bound memory
         # Tracks whether MCP has been successfully initialized at least once.
         # Unlike `_connected` (which is cleared when the idle session is closed
         # after tool discovery), this stays True so /health can accurately
@@ -682,6 +684,11 @@ class SalesforceMCPClient:
                         }
                         cache_key = f"schema:{obj.lower()}"
                         self._schema_cache[cache_key] = obj_schema
+                        self._schema_cache_order.append(cache_key)
+                        # FIFO eviction: drop oldest entries when cache exceeds max
+                        while len(self._schema_cache) > self._schema_cache_max and self._schema_cache_order:
+                            old_key = self._schema_cache_order.pop(0)
+                            self._schema_cache.pop(old_key, None)
                         results[obj] = obj_schema
 
                     return results
@@ -715,6 +722,8 @@ class SalesforceMCPClient:
                         "sobjects": filtered_sobjects,
                     }
                     self._schema_cache["all_sobjects"] = result_data
+                    if "all_sobjects" not in self._schema_cache_order:
+                        self._schema_cache_order.append("all_sobjects")
                     return result_data
 
             elif tool_name == "getRelatedRecords":
