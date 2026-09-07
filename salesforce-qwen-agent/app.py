@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, HTMLResponse
+from starlette.websockets import WebSocketState
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import shutil
@@ -1137,32 +1138,37 @@ def _finalized_ws_event(event: dict) -> dict:
     return event
 
 
-async def _ws_produce(websocket: WebSocket, agent, session_id: str, user_message: str) -> None:
-    """Consume the agent's async event generator and forward events to the socket.
+def _ws_is_connected(websocket: WebSocket) -> bool:
+    """Return whether Starlette still allows application->client sends."""
+    return websocket.application_state == WebSocketState.CONNECTED
 
-    Runs as a background task while the heartbeat task concurrently keeps the
-    connection alive during long (blocking) Qwen calls. Starlette serializes
-    per-connection sends, so forwarding from this task and the heartbeat task
-    never interleave into malformed frames.
-    """
+
+async def _ws_send_json(websocket: WebSocket, payload: dict) -> bool:
+    """Best-effort WebSocket send that is safe after client/server disconnects."""
+    if not _ws_is_connected(websocket):
+        return False
+    try:
+        await websocket.send_json(payload)
+        return True
+    except (RuntimeError, WebSocketDisconnect) as send_err:
+        logger.warning(f"[WS] Client disconnected during event delivery: {send_err}")
+        return False
+
+
+async def _ws_produce(websocket: WebSocket, agent, session_id: str, user_message: str) -> None:
+    """Consume the agent event stream and forward events while disconnect-safe."""
     try:
         async for event in agent.process_message(user_message, session_id):
-            try:
-                await websocket.send_json(_finalized_ws_event(event))
-            except (RuntimeError, WebSocketDisconnect) as send_err:
-                logger.warning(f"[WS] Client disconnected during event delivery ({session_id}): {send_err}")
+            if not await _ws_send_json(websocket, _finalized_ws_event(event)):
                 break
     except Exception as e:
         logger.error(f"[WS] Agent error ({session_id}): {e}", exc_info=True)
-        try:
-            await websocket.send_json({
-                "type": "error",
-                "data": "I ran into an unexpected issue while processing your request. Please try again.",
-                "code": "INTERNAL_ERROR",
-                "message": "I ran into an unexpected issue while processing your request. Please try again.",
-            })
-        except Exception:
-            pass
+        await _ws_send_json(websocket, {
+            "type": "error",
+            "data": "I ran into an unexpected issue while processing your request. Please try again.",
+            "code": "INTERNAL_ERROR",
+            "message": "I ran into an unexpected issue while processing your request. Please try again.",
+        })
 
 
 @app.websocket("/ws/{session_id}")
@@ -1254,14 +1260,12 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                             return
                         if producer.done():
                             break
-                        try:
-                            await websocket.send_json({
-                                "type": "progress",
-                                "data": "Working on your request...",
-                            })
-                            logger.info(f"[WS] Heartbeat sent: session={session_id}")
-                        except Exception:
+                        if not await _ws_send_json(websocket, {
+                            "type": "progress",
+                            "data": "Working on your request...",
+                        }):
                             break
+                        logger.info(f"[WS] Heartbeat sent: session={session_id}")
                     logger.info(f"[WS] Qwen request completed: session={session_id}")
 
                 heartbeat = asyncio.create_task(_heartbeat())
@@ -1283,7 +1287,11 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     heartbeat.cancel()
                     raise
 
-                await websocket.send_json({"type": "idle"})
+                # `idle` is cosmetic and the client ignores it. Never send it
+                # after the producer has observed a disconnect: that used to
+                # raise "Cannot call send once a close message has been sent".
+                if _ws_is_connected(websocket):
+                    await _ws_send_json(websocket, {"type": "idle"})
                 logger.info(f"[WS] Final response sent: session={session_id}")
                 log_request_complete(session_id)
 

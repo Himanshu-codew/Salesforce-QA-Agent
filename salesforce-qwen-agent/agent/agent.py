@@ -657,7 +657,9 @@ def format_sf_records_as_markdown(
             cells.append(_fmt_value(_get_nested(rec, col)))
         rows.append("| " + " | ".join(cells) + " |")
 
-    total_line = f"\n**Total: {int(total_size)} record(s)**"
+    count = int(total_size)
+    noun = "record" if count == 1 else "records"
+    total_line = f"\n**Total: {count} {noun}**"
     return "\n".join([header, sep] + rows) + total_line
 
 

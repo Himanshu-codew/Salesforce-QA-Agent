@@ -169,6 +169,21 @@ _SOQL = json.dumps({
     "records": [{"attributes": {"type": "Account"}, "Id": "001g500000V9LDcAAN", "Name": "Acme Corp"}],
 })
 
+# Subquery-bearing result: intentionally not eligible for the deterministic
+# flat-table fast path, so synthesizer truncation/retry logic remains covered.
+_HIERARCHICAL_SOQL = json.dumps({
+    "totalSize": 1,
+    "records": [{
+        "attributes": {"type": "Account"},
+        "Id": "001g500000V9LDcAAN",
+        "Name": "Acme Corp",
+        "Contacts": {
+            "totalSize": 1,
+            "records": [{"attributes": {"type": "Contact"}, "Id": "003a", "Name": "Jane"}],
+        },
+    }],
+})
+
 
 def _run(agent, message="Show me my recent Accounts"):
     events = []
@@ -181,9 +196,44 @@ def _run(agent, message="Show me my recent Accounts"):
     return events
 
 
-class TestIncompleteResponseHandling:
-    def _agent(self, llm):
+class TestDeterministicFlatResultFastPath:
+    def test_flat_salesforce_result_skips_second_qwen_synthesis_call(self):
+        llm = _TruncatingLLM(_PLAN, _FULL_SYNTH, max_tokens_first=20)
         agent = Orchestrator(llm=llm, executor=_MockExecutor(_SOQL))
+        agent.rag_retriever = _FakeRAG()
+
+        events = _run(agent)
+        responses = [e["data"] for e in events if e["type"] == "response"]
+
+        assert responses
+        deterministic = format_sf_records_as_markdown(_SOQL, tool_name="soqlQuery")
+        assert responses[0] == deterministic
+        # Planner is the only Qwen call; no final paraphrase/synthesis call.
+        assert llm.chat_calls == 1
+
+    def test_getuserinfo_plus_flat_soql_still_uses_deterministic_table(self):
+        llm = _TruncatingLLM(_PLAN, _FULL_SYNTH, max_tokens_first=20)
+        agent = Orchestrator(llm=llm, executor=_MockExecutor(_SOQL))
+        agent.rag_retriever = _FakeRAG()
+
+        async def collect():
+            return await agent._synthesize_response(
+                "Show my Accounts",
+                [
+                    {"tool": "getUserInfo", "result": '{"identity":{"userId":"005g5000009G1fiAAC"}}'},
+                    {"tool": "soqlQuery", "result": _SOQL},
+                ],
+            )
+
+        response = asyncio.run(collect())
+        deterministic = format_sf_records_as_markdown(_SOQL, tool_name="soqlQuery")
+        assert response == deterministic
+        assert llm.chat_calls == 0
+
+
+class TestIncompleteResponseHandling:
+    def _agent(self, llm, result=_HIERARCHICAL_SOQL):
+        agent = Orchestrator(llm=llm, executor=_MockExecutor(result))
         agent.rag_retriever = _FakeRAG()
         return agent
 

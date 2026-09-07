@@ -1099,8 +1099,32 @@ class Orchestrator:
         # behavior — e.g. Fix B's totalSize-preserving mix for COUNT-with-records —
         # is unchanged), but the verbatim reference tables take precedence and the
         # deterministic fallback is used instead of a half/rewritten answer.
-        ref_tables, _ = _split_reference_results(tool_results)
+        ref_tables, raw_remainder = _split_reference_results(tool_results)
         deterministic_tables = "\n\n".join(ref_tables) if ref_tables else None
+
+        # FAST PATH: flat SOQL tables are already authoritative and complete.
+        # A few requests (for example "show my accounts") also fetch getUserInfo
+        # solely to resolve the current owner's Id. Those metadata-only results
+        # do not add anything to the user-facing answer, so they are safe to skip.
+        # Never bypass synthesis when another data-bearing tool (related records,
+        # find, schema payloads, etc.) remains in the result set.
+        metadata_only_tools = {"getUserInfo", "getObjectSchema"}
+        raw_tools = {
+            item.get("tool")
+            for item in raw_remainder
+            if isinstance(item, dict)
+        }
+        can_use_deterministic_fast_path = (
+            bool(deterministic_tables)
+            and raw_tools.issubset(metadata_only_tools)
+        )
+        if can_use_deterministic_fast_path:
+            logger.info(
+                "[SYNTH] Flat Salesforce result detected; skipping Qwen synthesis "
+                "and returning deterministic table directly."
+            )
+            return deterministic_tables
+
         ref_blocks = [f"[reference_table]\n\n{t}" for t in ref_tables]
 
         parts: list[str] = [json.dumps(tool_results, indent=2)]
