@@ -66,8 +66,8 @@ def test_different_args_are_distinct_submissions():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
 
-    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "LastName": "One"}))
-    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "LastName": "Two"}))
+    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "LastName": "One", "Company": "Acme"}))
+    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "LastName": "Two", "Company": "Acme"}))
 
     assert len(mcp.calls) == 2, "different create args are two real submissions"
 
@@ -83,9 +83,9 @@ def test_arg_key_order_does_not_defeat_dedupe():
 
 
 def test_destructive_tool_is_deduplicated():
-    mcp = _FakeMcpClient(result=json.dumps({"success": True, "deleted": "00Qdel"}))
+    mcp = _FakeMcpClient(result=json.dumps({"success": True, "deleted": "00Q000000000001"}))
     exec_ = _executor(mcp)
-    args = {"sobject-name": "Lead", "id": "00Qdel"}
+    args = {"sobject-name": "Lead", "id": "00Q000000000001"}
 
     asyncio.run(exec_.execute("deleteSobjectRecord", dict(args)))
     asyncio.run(exec_.execute("deleteSobjectRecord", dict(args)))
@@ -107,7 +107,7 @@ def test_key_scope_is_per_details():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
 
-    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "LastName": "Zara"}))
+    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "LastName": "Zara", "Company": "Acme"}))
     asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Contact", "LastName": "Zara"}))
 
     assert len(mcp.calls) == 2, "different sobject names are different operations"

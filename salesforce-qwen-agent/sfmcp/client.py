@@ -38,6 +38,36 @@ def _extract_body(arguments: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in arguments.items() if k not in ignore_keys}
 
 
+def _simplify_describe_fields(raw: dict) -> list[dict]:
+    """Flatten a raw /sobjects/X/describe payload into a minimal field list.
+
+    A field is REQUIRED for create when it is createable, non-nillable and NOT
+    defaulted on create (Salesforce supplies the value otherwise — e.g. Task
+    Status). Never guessed here; this mirrors Salesforce's own metadata."""
+    simplified = []
+    for f in raw.get("fields", []):
+        req = not f.get("nillable") and not f.get("defaultedOnCreate") and bool(f.get("createable"))
+        info = {
+            "name": f.get("name"),
+            "label": f.get("label"),
+            "type": f.get("type"),
+        }
+        if req:
+            info["required"] = True
+        simplified.append(info)
+    return simplified
+
+
+def _extract_required_from_describe(fields: list[dict]) -> list[tuple[str, str]]:
+    """Return [(api_name, human_label)] for the required fields in a simplified
+    field list (already marked 'required' by _simplify_describe_fields)."""
+    return [
+        (f.get("name", ""), f.get("label", "") or f.get("name", ""))
+        for f in fields
+        if f.get("required") and f.get("name")
+    ]
+
+
 class SalesforceMCPClient:
     """
     Manages connection to the Salesforce MCP Server.
@@ -792,62 +822,69 @@ class SalesforceMCPClient:
                 return resp.json()
 
             elif tool_name == "createSobjectRecord":
-                sobject = _extract_sobject(arguments) or "Lead"
+                sobject = _extract_sobject(arguments)
                 body = _extract_body(arguments)
-                
-                # Auto-fix standard mandatory fields if user provided minimal input
-                s_lower = sobject.lower()
-                if s_lower == "lead":
-                    if "LastName" not in body:
-                        raw_name = body.pop("Name", None) or body.pop("FirstName", None) or arguments.get("name")
-                        if raw_name:
-                            name_parts = str(raw_name).strip().split(None, 1)
-                            if len(name_parts) == 2:
-                                body["FirstName"] = name_parts[0]
-                                body["LastName"] = name_parts[1]
-                            else:
-                                body["LastName"] = name_parts[0]
-                                body.pop("FirstName", None)
-                        else:
-                            body["LastName"] = "Unknown"
-                    if "Company" not in body:
-                        body["Company"] = "Individual"
 
-                elif s_lower == "contact":
-                    if "LastName" not in body:
-                        raw_name = body.pop("Name", None) or body.pop("FirstName", None) or arguments.get("name")
-                        if raw_name:
-                            name_parts = str(raw_name).strip().split(None, 1)
-                            if len(name_parts) == 2:
-                                body["FirstName"] = name_parts[0]
-                                body["LastName"] = name_parts[1]
-                            else:
-                                body["LastName"] = name_parts[0]
-                                body.pop("FirstName", None)
-                        else:
-                            body["LastName"] = "Unknown"
+                # FAIL-CLOSED (defense-in-depth REST gate): a mutation that reaches
+                # this REST path has ALREADY passed the executor's mandatory
+                # mutation-validation gate. If the body is empty, REFUSE — never
+                # guess or fabricate defaults (no "Unknown"/"Individual"/"New
+                # Account"/"New Opportunity"/hard-coded StageName/CloseDate).
+                if not sobject:
+                    raise RuntimeError(
+                        "Cannot create a record: the Salesforce object name is missing."
+                    )
+                if not body:
+                    logger.error(
+                        f"[MUTATION-VALIDATION] Fail-closed: createSobjectRecord for "
+                        f"'{sobject}' reached REST with an EMPTY body; refusing to create."
+                    )
+                    return json.dumps({
+                        "validation_error": True,
+                        "retry_allowed": False,
+                        "requires_user_input": True,
+                        "tool": "createSobjectRecord",
+                        "sobject_name": sobject,
+                        "missing_fields": [],
+                        "missing_fields_human": [],
+                        "error": (
+                            f"Cannot create {sobject}: no field values were provided. "
+                            "Please provide the values to set on the new record."
+                        ),
+                        "suggestion": (
+                            "Ask the user which fields to populate on the new record. "
+                            "The request cannot proceed without field values."
+                        ),
+                    })
 
-                elif s_lower == "account":
-                    if "Name" not in body and "LastName" in body:
-                        body["Name"] = body.pop("LastName")
-                    if "Name" not in body:
-                        body["Name"] = "New Account"
-
-                elif s_lower == "opportunity":
-                    if "Name" not in body:
-                        body["Name"] = "New Opportunity"
-                    if "StageName" not in body:
-                        body["StageName"] = "Prospecting"
-                    if "CloseDate" not in body:
-                        body["CloseDate"] = "2026-12-31"
-
-                elif s_lower == "case":
-                    if "Subject" not in body and "Name" in body:
-                        body["Subject"] = body.pop("Name")
-                    if "Subject" not in body:
-                        body["Subject"] = "New Customer Inquiry"
-                    if "Status" not in body:
-                        body["Status"] = "New"
+                # REQUIRED-FIELD CHECK (REST is the last gate): if live Describe
+                # metadata says required fields are missing/blank, refuse the REST
+                # call as well. Required fields are never auto-filled.
+                missing = await self._missing_known_required(sobject, body, headers)
+                if missing:
+                    api_missing = [api for api, _ in missing]
+                    labels = ", ".join(label for _, label in missing)
+                    logger.error(
+                        f"[MUTATION-VALIDATION] Fail-closed: createSobjectRecord for "
+                        f"'{sobject}' missing required fields {api_missing}; refusing to create."
+                    )
+                    return json.dumps({
+                        "validation_error": True,
+                        "retry_allowed": False,
+                        "requires_user_input": True,
+                        "tool": "createSobjectRecord",
+                        "sobject_name": sobject,
+                        "missing_fields": api_missing,
+                        "missing_fields_human": [label for _, label in missing],
+                        "error": (
+                            f"Cannot create {sobject}: required fields are missing or "
+                            f"blank. Please provide: {labels}."
+                        ),
+                        "suggestion": (
+                            "Provide the missing required fields in the request body "
+                            "before retrying. No default values are ever fabricated."
+                        ),
+                    })
 
                 url = f"{base}/services/data/{api_version}/sobjects/{sobject}"
                 post_headers = {**headers, "Sforce-Duplicate-Rule-Header": "allowSave=true"}
@@ -945,6 +982,84 @@ class SalesforceMCPClient:
             error_body = e.response.text
             logger.error(f"REST API fallback failed for {tool_name}: {error_body}")
             raise RuntimeError(f"Salesforce API error for {tool_name}: {error_body}")
+
+    async def describe_required_fields(
+        self,
+        sobject_name: str,
+        headers: dict[str, str] | None = None,
+    ) -> list[tuple[str, str]] | None:
+        """
+        Resolve the required fields (api_name, human_label) of an object from live
+        Salesforce Describe metadata (read-only schema path). Used by the
+        mutation-validation gate for BOTH standard and custom objects, so per-org
+        custom required fields are honored and fields Salesforce defaults on create
+        are never required. Returns None when the schema cannot be established —
+        the caller then fails closed.
+        """
+        cache_key = f"schema:{sobject_name.lower()}"
+        cached = self._schema_cache.get(cache_key)
+        if isinstance(cached, dict) and isinstance(cached.get("fields"), list):
+            required = _extract_required_from_describe(cached["fields"])
+            if required or cached.get("total_fields") is not None:
+                return required
+
+        if headers is None:
+            headers = {
+                "Authorization": f"Bearer {self._access_token}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            }
+        base = self.instance_url.rstrip("/")
+        api_version = "v62.0"
+        url = f"{base}/services/data/{api_version}/sobjects/{sobject_name}/describe"
+        try:
+            resp = await self._http_client.get(url, headers=headers)
+            resp.raise_for_status()
+            raw = resp.json()
+        except Exception as exc:  # noqa: BLE001 - resolver failure fails closed
+            logger.error(
+                f"[MUTATION-VALIDATION] describe_required_fields failed for "
+                f"'{sobject_name}': {exc}"
+            )
+            return None
+
+        simplified = _simplify_describe_fields(raw)
+        self._schema_cache[cache_key] = {
+            "name": raw.get("name"),
+            "label": raw.get("label"),
+            "total_fields": len(simplified),
+            "fields": simplified,
+        }
+        if cache_key not in self._schema_cache_order:
+            self._schema_cache_order.append(cache_key)
+        return _extract_required_from_describe(simplified)
+
+    async def _missing_known_required(
+        self,
+        sobject_name: str,
+        body: dict[str, Any],
+        headers: dict[str, str],
+    ) -> list[tuple[str, str]]:
+        """Return the (api_name, human_label) required fields of `sobject_name`
+        that are missing/blank in `body`, using live Describe metadata. This is the
+        LAST-GATE defense behind the executor: required fields are never auto-filled.
+
+        If Describe cannot be resolved here, an empty list is returned — the
+        executor gate already handled the authoritative decision (static fallback /
+        fail-closed) BEFORE the mutation reached this REST path."""
+        from agent.mutation_validation import _is_present
+
+        try:
+            required = await self.describe_required_fields(sobject_name, headers)
+        except Exception as exc:  # noqa: BLE001 - resolver failure fails closed
+            logger.error(
+                f"[MUTATION-VALIDATION] _missing_known_required describe failed for "
+                f"'{sobject_name}': {exc}"
+            )
+            required = None
+        if not required:
+            return []
+        return [(api, label) for (api, label) in required if not _is_present(body.get(api))]
 
     async def list_tools(self) -> list[dict[str, Any]]:
         """

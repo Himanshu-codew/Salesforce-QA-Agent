@@ -114,10 +114,29 @@ class ToolExecutor:
                 "tool": tool_name,
             })
 
+        # Mutation field validation: a mandatory, FAIL-CLOSED gate for every
+        # mutating/destructive tool. createSobjectRecord resolves required fields
+        # from live Describe metadata (read-only schema path) for BOTH standard and
+        # custom objects; the static registry is a zero-I/O fallback when Describe
+        # is unavailable. If the required schema cannot be established, the mutation
+        # is REJECTED (never guessed, never fabricated — no "Unknown"/"Individual"/
+        # "New Account" defaults are ever inserted). update/delete/upload validate
+        # structural fields (valid IDs, non-empty field bodies). The gate runs
+        # BEFORE idempotency so a rejected mutation is never cached as a successful
+        # execution, and BEFORE mcp_client.call_tool so a rejected mutation never
+        # reaches Salesforce via MCP or REST.
+        is_write = is_mutating(tool_name) or is_destructive(tool_name)
+        if is_write:
+            validation_error = await self.validate_mutation(tool_name, arguments)
+            if validation_error is not None:
+                logger.warning(
+                    f"[MUTATION-VALIDATION] Tool '{tool_name}' rejected: {validation_error}"
+                )
+                return validation_error
+
         # Mutation idempotency: an identical mutating/destructive call within the
         # dedupe window reuses the previous result instead of creating a second
         # record. Reads are never deduplicated (re-list/query is harmless).
-        is_write = is_mutating(tool_name) or is_destructive(tool_name)
         dedupe_key = _mutation_key(tool_name, arguments) if is_write else None
         if dedupe_key:
             cached = _recent_mutation(dedupe_key)
@@ -152,6 +171,43 @@ class ToolExecutor:
             error_msg = f"Unexpected error executing {tool_name}: {str(e)}"
             logger.error(error_msg)
             return json.dumps({"error": error_msg, "tool": tool_name})
+
+    async def validate_mutation(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
+        """
+        Run the mandatory fail-closed mutation validation. Returns an error JSON
+        string when the mutation must be blocked, or None when it may proceed.
+
+        For createSobjectRecord, required fields are resolved from live Describe
+        metadata (read-only schema path) for BOTH standard and custom objects so
+        per-org custom required fields are honored and nothing is blindly
+        hard-coded. The static registry is only a zero-I/O fallback when Describe
+        is unavailable; unknown objects still fail closed.
+        """
+        from agent.mutation_validation import validate_mutation_fields
+
+        sobject_name = ""
+        for key in ("sobject-name", "sobject_name", "sobject", "object", "sobjectName", "objectName"):
+            if key in arguments and arguments[key]:
+                sobject_name = str(arguments[key]).strip()
+                break
+
+        resolver = getattr(self.mcp_client, "describe_required_fields", None)
+        needs_describe = (
+            tool_name == "createSobjectRecord"
+            and bool(sobject_name)
+            and resolver is not None
+        )
+        if needs_describe:
+            try:
+                resolved = await resolver(sobject_name)
+            except Exception as exc:  # noqa: BLE001 - resolver failure fails closed
+                logger.error(
+                    f"[MUTATION-VALIDATION] describe_required_fields failed for "
+                    f"'{sobject_name}': {exc}"
+                )
+                resolved = None
+            return validate_mutation_fields(tool_name, arguments, lambda _s: resolved)
+        return validate_mutation_fields(tool_name, arguments, None)
 
     def _format_result(self, tool_name: str, result: Any) -> str:
         """Format tool result as a clean JSON string."""

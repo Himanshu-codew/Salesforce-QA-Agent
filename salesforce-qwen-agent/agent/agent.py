@@ -12,7 +12,7 @@ from typing import Any, AsyncGenerator
 
 from llm.base import BaseLLM
 from sfmcp.executor import ToolExecutor
-from tools.salesforce import get_tool_definitions, is_read_only
+from tools.salesforce import get_tool_definitions, is_read_only, is_mutating, is_destructive
 from .memory import ConversationMemory
 from .planner import TaskPlanner
 from .prompts import SYSTEM_PROMPT, ERROR_MESSAGES
@@ -96,6 +96,12 @@ def _executor_error_message(result: Any) -> str | None:
 
     Never throws on malformed/non-JSON input. Does NOT require the "tool"
     field (tool-not-found envelopes omit it).
+
+    A VALIDATION failure ({"validation_error": true, ...}) is NOT treated as a
+    fatal SALESFORCE_FAILED: it returns None so the result flows to memory /
+    synthesis as a normal tool result. The LLM then reads
+    requires_user_input / retry_allowed=false and asks the user for the missing
+    fields instead of aborting the turn (see #8 stop-on-validation-failure).
     """
     if not isinstance(result, str):
         return None
@@ -105,6 +111,8 @@ def _executor_error_message(result: Any) -> str | None:
         return None
     if not isinstance(parsed, dict):
         return None
+    if parsed.get("validation_error") is True:
+        return None
     error = parsed.get("error")
     if not isinstance(error, str) or not error.strip():
         return None
@@ -112,6 +120,36 @@ def _executor_error_message(result: Any) -> str | None:
     if isinstance(suggestion, str) and suggestion.strip():
         return f"{error} Suggestion: {suggestion}"
     return error
+
+
+def _blocked_mutation_result(tc: dict) -> str:
+    """Synthetic fail-closed result for a mutation that was NOT executed because a
+    prior mutation in the SAME response failed validation (#8). Carries the same
+    validation_error envelope so it flows to synthesis and the agent asks the user
+    for input; it never reaches Salesforce."""
+    args = tc.get("arguments", {}) if isinstance(tc.get("arguments"), dict) else {}
+    sobject_name = ""
+    for key in ("sobject-name", "sobject_name", "sobject", "object", "sobjectName", "objectName"):
+        if args.get(key):
+            sobject_name = str(args[key]).strip()
+            break
+    return json.dumps({
+        "error": (
+            f"Tool '{tc['name']}' was NOT executed: a prior mutation in this response "
+            "failed required-field validation, so all remaining mutations were stopped."
+        ),
+        "tool": tc["name"],
+        "validation_error": True,
+        "retry_allowed": False,
+        "requires_user_input": True,
+        "missing_fields": [],
+        "missing_fields_human": [],
+        "sobject_name": sobject_name,
+        "suggestion": (
+            "Ask the user for the missing required fields, then submit a corrected "
+            "request. The remaining mutations were not run."
+        ),
+    })
 
 
 def _salesforce_failed_event(message: str) -> dict[str, Any]:
@@ -1523,7 +1561,7 @@ class SalesforceAgent:
                             "data": {"name": tc["name"], "arguments": tc["arguments"]},
                         }
 
-                    # Execute ALL safe calls in parallel
+                    # Run each tool under a bounded timeout, returning (tc, result).
                     async def _run_tool(tc: dict) -> tuple[dict, str]:
                         try:
                             result = await _bounded_call(
@@ -1541,8 +1579,41 @@ class SalesforceAgent:
                             logger.error(f"❌ Tool execution error ({tc['name']}): {e}")
                         return tc, result
 
+                    # ── MUTATION SAFETY (#8): pre-flight every mutation in this
+                    # response BEFORE executing anything. A mutation that fails the
+                    # mandatory fail-closed validation stops ALL remaining mutations
+                    # in the same response. Read-only calls are unaffected and still
+                    # run in parallel with the surviving writes.
                     try:
-                        parallel_results = await asyncio.gather(*[_run_tool(tc) for tc in safe_calls])
+                        calls_to_execute = []
+                        rejected_results: list[tuple[dict, str]] = []
+                        blocked = False
+                        for tc in safe_calls:
+                            is_write = is_mutating(tc["name"]) or is_destructive(tc["name"])
+                            if not is_write:
+                                calls_to_execute.append(tc)
+                                continue
+                            if blocked:
+                                rejected_results.append((tc, _blocked_mutation_result(tc)))
+                                continue
+                            vres = await _bounded_call(
+                                self.executor.validate_mutation(tc["name"], tc["arguments"]),
+                                AGENT_EXECUTOR_TIMEOUT,
+                                f"Mutation pre-flight '{tc['name']}'",
+                            )
+                            if vres is not None:
+                                blocked = True
+                                rejected_results.append((tc, vres))
+                                logger.warning(
+                                    f"[MUTATION-VALIDATION] '{tc['name']}' rejected; stopping "
+                                    f"remaining mutations in this response."
+                                )
+                                continue
+                            calls_to_execute.append(tc)
+
+                        parallel_results = await asyncio.gather(
+                            *[_run_tool(tc) for tc in calls_to_execute]
+                        )
                     except AgentTimeoutError:
                         error_event = _timeout_error_event("Salesforce tool execution")
                         logger.error(f"[TIMEOUT] {error_event['message']}")
@@ -1550,7 +1621,21 @@ class SalesforceAgent:
                         yield error_event
                         return
 
-                    for tc, result in parallel_results:
+                    # Map every announced call (executed + rejected/blocked) to its
+                    # final result, processed in the ORIGINAL safe_calls order so
+                    # memory and the streaming UI stay consistent.
+                    result_by_id: dict[str, str] = {}
+                    for tc, r in rejected_results:
+                        result_by_id[tc["id"]] = r
+                    for tc, r in parallel_results:
+                        result_by_id[tc["id"]] = r
+
+                    for tc in safe_calls:
+                        result = result_by_id.get(tc["id"])
+                        if result is None:
+                            result = json.dumps({
+                                "error": f"Tool '{tc['name']}' produced no result."
+                            })
                         # ── D1: reject executor error envelopes before they can be
                         # formatted / stored / synthesized as normal Salesforce data ──
                         err_msg = _executor_error_message(result)

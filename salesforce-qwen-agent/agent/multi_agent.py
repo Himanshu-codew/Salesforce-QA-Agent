@@ -159,6 +159,13 @@ def _executor_error_message(result: str, tool_name: str) -> str | None:
     return the human-readable message, or None when the result is a normal
     tool result. This keeps MCP / Salesforce failures from being silently
     swallowed as ordinary tool results.
+
+    A VALIDATION failure ({"validation_error": true, ...}) is NOT treated as a
+    fatal AgentError: it returns None so the result flows to the synthesizer as a
+    normal tool result. The synthesizer (a no-tool generation call) reads
+    requires_user_input / retry_allowed=false and asks the user for input; the
+    tool-calling ActionAgent is never re-invoked, so no automatic mutation retry
+    can occur.
     """
     if not isinstance(result, str):
         return None
@@ -168,6 +175,8 @@ def _executor_error_message(result: str, tool_name: str) -> str | None:
         return None
     if not isinstance(parsed, dict):
         return None
+    if parsed.get("validation_error") is True:
+        return None
     error = parsed.get("error")
     if isinstance(error, str) and error.strip() and "tool" in parsed:
         suggestion = parsed.get("suggestion")
@@ -175,6 +184,20 @@ def _executor_error_message(result: str, tool_name: str) -> str | None:
             return f"{error} Suggestion: {suggestion}"
         return error
     return None
+
+
+def _is_validation_error(result: str) -> bool:
+    """Return True when a tool result is a fail-closed mutation validation
+    envelope ({"validation_error": true, ...}). Used to STOP the remaining
+    tool calls in a response once one mutation fails validation (fail-closed
+    for the whole batch, #8)."""
+    if not isinstance(result, str):
+        return False
+    try:
+        parsed = json.loads(result)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    return isinstance(parsed, dict) and parsed.get("validation_error") is True
 
 
 _COUNT_INTENT_PATTERN = re.compile(
@@ -953,6 +976,20 @@ class Orchestrator:
                     raise AgentError(
                         ERR_MCP_SALESFORCE, f"Salesforce call '{tc_name}' failed: {exec_err}"
                     )
+
+                # #8 MULTI-TOOL-CALL SAFETY: once a mutation in this response fails
+                # validation, STOP — the remaining tool calls in the same response
+                # must not run. The validation error already yielded a tool_result
+                # above, so it flows to the no-tool synthesizer which asks the user
+                # for the missing fields (retry_allowed=false -> no auto-retry).
+                if _is_validation_error(res):
+                    remaining = len(tool_calls) - tool_calls.index(tc) - 1
+                    logger.warning(
+                        f"[MUTATION-VALIDATION] '{tc_name}' failed validation; stopping "
+                        f"{remaining} remaining tool call(s) in this response "
+                        f"(fail-closed). session={session_id}"
+                    )
+                    break
 
                 step_count += 1
                 # Fix B: normalize an explicitly-returned COUNT of zero so the
