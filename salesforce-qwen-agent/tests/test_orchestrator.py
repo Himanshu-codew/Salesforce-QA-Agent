@@ -19,6 +19,8 @@ import sys
 import asyncio
 from unittest.mock import MagicMock, AsyncMock
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from agent.multi_agent import Orchestrator
@@ -137,6 +139,44 @@ def test_general_knowledge_question_bypasses_salesforce():
     assert responses
     assert "couldn't understand" not in responses[0]
     assert not any(e["type"] == "tool_call" for e in events)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "What is Python?",
+        "Explain binary search.",
+        "What is the capital of France?",
+    ],
+)
+def test_clearly_non_salesforce_query_never_touches_tools(query):
+    """A clearly non-Salesforce question must not run ANY Salesforce tool /
+    executor step -> no tool_call, no tool_result, and the executor is never
+    invoked (requirement: no MCP / REST / retrieval execution for general q)."""
+    orch = _make_orchestrator(plan=[], rag_tools=[], chat_return="A general answer.")
+    executor = orch.executor
+    events = asyncio.run(_process(orch, query))
+
+    responses = _responses(events)
+    assert responses, "expected a general natural-language response"
+    # The general answer (Qwen) is used, not a Salesforce error path.
+    assert "couldn't understand" not in responses[0]
+
+    # No Salesforce tool participated at any layer.
+    assert not any(e["type"] == "tool_call" for e in events)
+    assert not any(e["type"] == "tool_result" for e in events)
+    assert executor.executed == [], f"executor must never run for {query!r}"
+
+
+def test_non_salesforce_query_still_uses_qwen_for_answer():
+    """The general (non-Salesforce) answer is produced by Qwen/LLM, preserving the
+    'general -> Qwen natural answer' requirement and the original user query."""
+    orch = _make_orchestrator(plan=[], rag_tools=[], chat_return="General answer text.")
+    events = asyncio.run(_process(orch, "What is the capital of France?"))
+    responses = _responses(events)
+    assert responses == ["General answer text."]
+    # The original query (not a rephrased Salesforce variant) reached Qwen.
+    assert _last_user_message(orch.llm) == "What is the capital of France?"
 
 
 def test_salesforce_query_uses_tools():
