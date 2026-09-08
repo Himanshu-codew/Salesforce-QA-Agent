@@ -183,6 +183,41 @@ def test_e2e_valid_create_executes_exactly_once():
     assert "sharma" in (response.get("answer") or "").lower()
 
 
+def test_e2e_batch_any_failure_blocks_zero_mutations():
+    """REGRESSION (#8 all-or-nothing) at the app layer: one response emits a
+    VALID Account create first and a vague/invalid Lead create second. The valid
+    Account create must NOT execute at all — ANY validation failure means ZERO
+    mutations from that response reach Salesforce."""
+    mcp = _RecordingMcpClient()
+    llm = _ScriptedLLM(
+        tool_calls=[
+            {
+                "id": "t1", "name": "createSobjectRecord",
+                "arguments": {"sobject-name": "Account", "body": {"Name": "Acme"}},
+            },
+            {
+                "id": "t2", "name": "createSobjectRecord",
+                "arguments": {"sobject-name": "Lead", "body": {}},
+            },
+        ],
+        ask_for_fields=True,
+    )
+    agent = _build_agent(llm, mcp)
+
+    response = asyncio_run(_chat(agent, "Create an account named Acme and a lead"))
+
+    assert response.get("success") is True
+    assert mcp.calls == [], \
+        "a validation failure in the batch must block even the earlier valid Account create"
+    answer = (response.get("answer") or "").lower()
+    assert "last name" in answer and "company" in answer, f"must ask for fields: {answer}"
+    # Both tool calls were announced but NEITHER executed (mcp.calls is empty).
+    tool_calls = response.get("metadata", {}).get("tool_calls") or []
+    assert len(tool_calls) == 2, "both mutations must be announced"
+    # The tool-calling model was invoked exactly once — no automatic retry.
+    assert llm.tool_llm_calls == 1
+
+
 def asyncio_run(coro):
     import asyncio
     return asyncio.run(coro)

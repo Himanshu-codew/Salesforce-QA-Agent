@@ -123,10 +123,10 @@ def _executor_error_message(result: Any) -> str | None:
 
 
 def _blocked_mutation_result(tc: dict) -> str:
-    """Synthetic fail-closed result for a mutation that was NOT executed because a
-    prior mutation in the SAME response failed validation (#8). Carries the same
-    validation_error envelope so it flows to synthesis and the agent asks the user
-    for input; it never reaches Salesforce."""
+    """Synthetic fail-closed result for a mutation that was NOT executed because
+    ANOTHER mutation in the SAME response failed validation (#8 all-or-nothing).
+    Carries the same validation_error envelope so it flows to synthesis and the
+    agent asks the user for input; ZERO mutations from this response ran."""
     args = tc.get("arguments", {}) if isinstance(tc.get("arguments"), dict) else {}
     sobject_name = ""
     for key in ("sobject-name", "sobject_name", "sobject", "object", "sobjectName", "objectName"):
@@ -135,8 +135,9 @@ def _blocked_mutation_result(tc: dict) -> str:
             break
     return json.dumps({
         "error": (
-            f"Tool '{tc['name']}' was NOT executed: a prior mutation in this response "
-            "failed required-field validation, so all remaining mutations were stopped."
+            f"Tool '{tc['name']}' was NOT executed: a mutation in this response "
+            "failed required-field validation, so ZERO mutations from this response "
+            "were executed (all-or-nothing fail-closed)."
         ),
         "tool": tc["name"],
         "validation_error": True,
@@ -147,7 +148,7 @@ def _blocked_mutation_result(tc: dict) -> str:
         "sobject_name": sobject_name,
         "suggestion": (
             "Ask the user for the missing required fields, then submit a corrected "
-            "request. The remaining mutations were not run."
+            "request. No record was created or modified."
         ),
     })
 
@@ -1354,6 +1355,13 @@ class SalesforceAgent:
         # LLM is NEVER allowed to present data that isn't in this dict
         tool_results_fetched: dict[str, str] = {}
 
+        # ── #8 ALL-OR-NOTHING: True when a mutation in this response failed the
+        # mandatory fail-closed pre-flight validation and ZERO mutations ran. Lets
+        # the final synthesis ask the user for the missing fields instead of being
+        # treated as an ungrounded (E5) answer — the validation/blocked envelopes
+        # are the grounding for an input request.
+        validation_blocked = False
+
         # ── Python-built tables: tc_id → (tool_name, markdown) ──
         # Stores pre-formatted flat tables and count lines. Hierarchical/subquery
         # results are NOT stored here — they flow raw to the LLM for card formatting.
@@ -1579,40 +1587,52 @@ class SalesforceAgent:
                             logger.error(f"❌ Tool execution error ({tc['name']}): {e}")
                         return tc, result
 
-                    # ── MUTATION SAFETY (#8): pre-flight every mutation in this
-                    # response BEFORE executing anything. A mutation that fails the
-                    # mandatory fail-closed validation stops ALL remaining mutations
-                    # in the same response. Read-only calls are unaffected and still
-                    # run in parallel with the surviving writes.
+                    # ── MUTATION SAFETY (#8, ALL-OR-NOTHING): pre-flight validate
+                    # EVERY mutation in this response BEFORE executing ANY of them.
+                    # If ANY mutation fails the mandatory fail-closed validation,
+                    # ZERO mutations from this response reach Salesforce — every
+                    # mutation is returned to synthesis as a validation or
+                    # blocked-sibling envelope, and only read-only calls execute.
                     try:
-                        calls_to_execute = []
                         rejected_results: list[tuple[dict, str]] = []
-                        blocked = False
+                        validations: list[tuple[dict, str | None]] = []
+                        any_rejected = False
                         for tc in safe_calls:
-                            is_write = is_mutating(tc["name"]) or is_destructive(tc["name"])
-                            if not is_write:
-                                calls_to_execute.append(tc)
-                                continue
-                            if blocked:
-                                rejected_results.append((tc, _blocked_mutation_result(tc)))
+                            if not (is_mutating(tc["name"]) or is_destructive(tc["name"])):
                                 continue
                             vres = await _bounded_call(
                                 self.executor.validate_mutation(tc["name"], tc["arguments"]),
                                 AGENT_EXECUTOR_TIMEOUT,
                                 f"Mutation pre-flight '{tc['name']}'",
                             )
+                            validations.append((tc, vres))
                             if vres is not None:
-                                blocked = True
-                                rejected_results.append((tc, vres))
-                                logger.warning(
-                                    f"[MUTATION-VALIDATION] '{tc['name']}' rejected; stopping "
-                                    f"remaining mutations in this response."
+                                any_rejected = True
+
+                        if any_rejected:
+                            # ZERO mutations execute; read-only calls still run. The
+                            # failing mutation yields its own validation envelope;
+                            # sibling mutations yield blocked envelopes so synthesis
+                            # knows nothing was executed this turn.
+                            validation_blocked = True
+                            logger.warning(
+                                f"[MUTATION-VALIDATION] A mutation in this response "
+                                f"failed validation; executing ZERO mutations "
+                                f"(all-or-nothing)."
+                            )
+                            for tc, vres in validations:
+                                rejected_results.append(
+                                    (tc, vres if vres is not None else _blocked_mutation_result(tc))
                                 )
-                                continue
-                            calls_to_execute.append(tc)
+                            execution_calls = [
+                                tc for tc in safe_calls
+                                if not (is_mutating(tc["name"]) or is_destructive(tc["name"]))
+                            ]
+                        else:
+                            execution_calls = safe_calls
 
                         parallel_results = await asyncio.gather(
-                            *[_run_tool(tc) for tc in calls_to_execute]
+                            *[_run_tool(tc) for tc in execution_calls]
                         )
                     except AgentTimeoutError:
                         error_event = _timeout_error_event("Salesforce tool execution")
@@ -1858,9 +1878,12 @@ class SalesforceAgent:
                 # natural-language answer when no real Salesforce tool result was
                 # fetched during the turn — otherwise Qwen could answer from its
                 # own knowledge. Clearly general/non-Salesforce queries are
-                # unaffected (no data intent => no guard). Reuses the D1
-                # controlled error shape (SALESFORCE_FAILED).
-                if _has_salesforce_intent(user_message) and not tool_results_fetched:
+                # unaffected (no data intent => no guard). When a mutation was
+                # blocked by fail-closed validation (#8), the validation/blocked
+                # envelopes ARE the grounding: the answer asks the user for the
+                # missing fields instead of guessing at data, so the guard does
+                # not fire. Reuses the D1 controlled error shape (SALESFORCE_FAILED).
+                if _has_salesforce_intent(user_message) and not tool_results_fetched and not validation_blocked:
                     logger.error(
                         "[SALESFORCE_FAILED] Salesforce/data request completed with no "
                         "Salesforce tool result; refusing to return an ungrounded answer."
@@ -1948,7 +1971,9 @@ class SalesforceAgent:
 
                 # E5 grounded-answer guard: a Salesforce/data request with no real
                 # tool result must not end in a success=true ungrounded answer.
-                if _has_salesforce_intent(user_message) and not tool_results_fetched:
+                # (#8) validation-blocked turns are exempt: the envelopes ground an
+                # input request, not a data claim.
+                if _has_salesforce_intent(user_message) and not tool_results_fetched and not validation_blocked:
                     logger.error(
                         "[SALESFORCE_FAILED] Salesforce/data request produced no tool "
                         "result; refusing an ungrounded fallback answer."

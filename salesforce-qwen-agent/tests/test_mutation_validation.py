@@ -841,18 +841,72 @@ def test_multi_mutation_validation_failure_stops_remaining_calls():
 
     events = _run_orchestrator(orch, "Create a lead, an account, and an opportunity")
 
-    # The vague Lead create was blocked BEFORE Salesforce...
+    # ZERO mutations from the response reached Salesforce — not even the (valid)
+    # Account/Opportunity creates that followed the failing Lead.
     assert mcp.calls == [], "a validation failure must stop ALL mutations in the response"
-    # ...so the (valid) Account and Opportunity creates were NOT executed either.
     created = [c for c in mcp.calls if c[0] == "createSobjectRecord"]
     assert created == [], "later valid mutations in a failed batch must not run"
-    # Only ONE tool call actually produced a result (the failing Lead); the rest
-    # were stopped.
+    # EVERY non-executed mutation yields a validation/blocked envelope to synthesis.
     tool_results = [e for e in events if e.get("type") == "tool_result"]
-    assert len(tool_results) == 1, "after the failed mutation, no further tool may run"
+    assert len(tool_results) == 3, "all three mutations must return failure envelopes"
+    for e in tool_results:
+        env = json.loads(e["data"]["result"])
+        assert env["validation_error"] is True
+        assert env.get("tool") == "createSobjectRecord"
+        assert env["retry_allowed"] is False
     assert _has_validation_error(events)
     # The tool-calling LLM is still invoked exactly once (no automatic retry).
     assert llm.tool_llm_calls == 1
+
+
+def test_multi_mutation_first_valid_then_invalid_blocks_everything():
+    """REGRESSION (#8 all-or-nothing): FIRST mutation VALID (Account) + SECOND
+    invalid/vague (Lead). The valid Account create must NOT execute either —
+    if ANY mutation in the response fails validation, ZERO mutations run."""
+    from agent.multi_agent import Orchestrator
+
+    class _LLM:
+        def __init__(self):
+            self.tool_calls = [
+                {"id": "t1", "name": "createSobjectRecord",
+                 "arguments": {"sobject-name": "Account", "body": {"Name": "Acme"}}},
+                {"id": "t2", "name": "createSobjectRecord",
+                 "arguments": {"sobject-name": "Lead", "body": {}}},
+            ]
+            self.tool_llm_calls = 0
+
+        async def chat_with_tools(self, messages=None, tools=None, temperature=0.0, max_tokens=4096):
+            self.tool_llm_calls += 1
+            return {"content": "", "tool_calls": list(self.tool_calls), "finish_reason": "tool_calls"}
+
+        async def chat(self, messages=None, temperature=0.0, max_tokens=4096):
+            return "To create the lead I need Last Name and Company Name. Please provide them."
+
+    llm = _LLM()
+    mcp = _FakeMcpClient()
+    exec_ = ToolExecutor(mcp, exec_registry())
+    orch = Orchestrator(llm=llm, executor=exec_, max_iterations=5, max_history=4)
+    orch.safety_planner = _SafePlanner()
+    orch._generate_plan = AsyncMockMock(return_value=[{
+        "task_id": 1, "description": "create records", "agent": "ActionAgent", "depends_on": [],
+    }])
+    orch._get_relevant_tools_or_fallback = AsyncMockMock(return_value=[])
+
+    events = _run_orchestrator(orch, "Create an account and a lead")
+
+    # The valid Account create executes ZERO times because the batch failed.
+    assert mcp.calls == [], "any validation failure must block even an earlier valid mutation"
+    # Both mutations returned failure envelopes to synthesis.
+    tool_results = [e for e in events if e.get("type") == "tool_result"]
+    assert len(tool_results) == 2
+    for e in tool_results:
+        env = json.loads(e["data"]["result"])
+        assert env["validation_error"] is True
+        assert env["retry_allowed"] is False
+    # The LLM asks the user for the missing Lead fields; it is not auto-retried.
+    responses = [e for e in events if e.get("type") == "response"]
+    assert responses and "Last Name" in responses[-1]["data"]
+    assert llm.tool_llm_calls == 1, "no automatic tool-calling retry after failure"
 
 
 def test_multi_mutation_all_valid_executes_all_in_order():
@@ -964,6 +1018,79 @@ def test_agent_path_validation_error_not_fatal_and_blocked_envelope():
     assert parsed["sobject_name"] == "Account"
     assert parsed["retry_allowed"] is False
     assert "NOT executed" in parsed["error"]
+    assert "ZERO mutations" in parsed["error"]
+
+
+def test_agent_path_first_valid_then_invalid_blocks_everything():
+    """REGRESSION (#8 all-or-nothing) on the authenticated SalesforceAgent
+    (agent.agent) path: FIRST mutation VALID (Account) + SECOND invalid/vague
+    (Lead). Pre-flight validates ALL mutations BEFORE burning any — so the valid
+    Account create must NOT execute, ZERO mutations reach Salesforce, and the
+    agent asks the user for the missing Lead fields instead of retrying."""
+    from types import SimpleNamespace
+
+    from agent.agent import SalesforceAgent
+
+    _CREATE_TOOL = {
+        "type": "function",
+        "function": {"name": "createSobjectRecord", "description": "Create a record",
+                     "parameters": {"type": "object", "properties": {}}},
+    }
+
+    class _BatchLLM:
+        def __init__(self):
+            self.tool_llm_calls = 0
+            self._tool_calls = [
+                {"id": "t1", "name": "createSobjectRecord",
+                 "arguments": {"sobject-name": "Account", "body": {"Name": "Acme"}}},
+                {"id": "t2", "name": "createSobjectRecord",
+                 "arguments": {"sobject-name": "Lead", "body": {}}},
+            ]
+
+        async def chat_with_tools(self, messages=None, tools=None, temperature=0.0, max_tokens=4096):
+            self.tool_llm_calls += 1
+            if self.tool_llm_calls == 1:
+                return {"content": "", "tool_calls": list(self._tool_calls), "finish_reason": "tool_calls"}
+            # The model decides to ask for input rather than re-attempting a mutation.
+            return {"content": "To create the lead I need Last Name and Company Name. Please provide them.",
+                    "tool_calls": [], "finish_reason": "stop"}
+
+        async def chat(self, messages=None, temperature=0.0, max_tokens=4096):
+            return "To create the lead I need Last Name and Company Name. Please provide them."
+
+    llm = _BatchLLM()
+    mcp = _FakeMcpClient()
+    exec_ = ToolExecutor(mcp, exec_registry())
+    agent = SalesforceAgent(llm=llm, executor=exec_, max_iterations=5)
+    agent.rag_retriever.get_relevant_tools = lambda *a, **k: [_CREATE_TOOL]
+
+    async def _go():
+        events = []
+        async for ev in agent.process_message("Create an account and a lead", "sess"):
+            events.append(ev)
+        return events
+
+    events = asyncio.run(_go())
+
+    # ZERO mutations from this response reached Salesforce — the valid Account
+    # create did NOT execute just because it came first.
+    assert mcp.calls == [], "any validation failure must block even an earlier valid mutation"
+    # The account never executed: only failure envelopes were produced.
+    tool_results = [e for e in events if e.get("type") == "tool_result"]
+    assert len(tool_results) == 2
+    for e in tool_results:
+        parsed = _parse(e["data"]["result"])
+        assert parsed["validation_error"] is True
+        assert parsed["retry_allowed"] is False
+    # The agent asks the user for the missing fields (no auto retry, no canned
+    # SALESFORCE_FAILED / ungrounded guard).
+    responses = [e for e in events if e.get("type") == "response"]
+    assert responses and "Last Name" in responses[-1]["data"] and "Company" in responses[-1]["data"]
+    errors = [e for e in events if e.get("type") == "error"]
+    assert not errors
+    # Exactly one tool-calling decision, then a text answer — the valid mutation
+    # was never re-attempted.
+    assert llm.tool_llm_calls == 2
 
 
 # ─────────────────────────────────────────────────────────────

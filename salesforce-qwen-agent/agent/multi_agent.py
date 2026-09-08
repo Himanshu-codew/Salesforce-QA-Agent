@@ -44,7 +44,7 @@ from .agent import (
     _has_salesforce_intent,
     _has_write_intent,
 )
-from tools.salesforce import get_tool_definitions
+from tools.salesforce import get_tool_definitions, is_mutating, is_destructive
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +198,38 @@ def _is_validation_error(result: str) -> bool:
     except (json.JSONDecodeError, TypeError):
         return False
     return isinstance(parsed, dict) and parsed.get("validation_error") is True
+
+
+def _blocked_mutation_result(tool_name: str, arguments: dict) -> str:
+    """Synthetic fail-closed result for a mutation that was NOT executed because
+    ANOTHER mutation in the same response failed pre-flight validation (#8
+    all-or-nothing). Carries the same validation_error envelope so it flows to the
+    no-tool synthesizer, which asks the user for input. ZERO mutations from this
+    response ran."""
+    args = arguments if isinstance(arguments, dict) else {}
+    sobject_name = ""
+    for key in ("sobject-name", "sobject_name", "sobject", "object", "sobjectName", "objectName"):
+        if args.get(key):
+            sobject_name = str(args[key]).strip()
+            break
+    return json.dumps({
+        "error": (
+            f"Tool '{tool_name}' was NOT executed: a mutation in this response failed "
+            "required-field validation, so ZERO mutations from this response were "
+            "executed (all-or-nothing fail-closed)."
+        ),
+        "tool": tool_name,
+        "validation_error": True,
+        "retry_allowed": False,
+        "requires_user_input": True,
+        "missing_fields": [],
+        "missing_fields_human": [],
+        "sobject_name": sobject_name,
+        "suggestion": (
+            "Ask the user for the missing required fields, then submit a corrected "
+            "request. No record was created or modified."
+        ),
+    })
 
 
 _COUNT_INTENT_PATTERN = re.compile(
@@ -852,7 +884,71 @@ class Orchestrator:
 
             tool_calls = llm_result.get("tool_calls", [])
             task_res = []
-            for tc in tool_calls:
+
+            # ── #8 MUTATION SAFETY (ALL-OR-NOTHING): pre-flight validate EVERY
+            # mutation in this response BEFORE executing ANY of them. If ANY
+            # mutation fails the mandatory fail-closed validation, ZERO mutations
+            # reach Salesforce: every mutation is returned to the no-tool
+            # synthesizer as a validation or blocked-sibling envelope
+            # (requires_user_input=true, retry_allowed=false -> no auto retry).
+            mutation_preflight: dict[int, str | None] = {}
+            any_mutation_rejected = False
+            for _p_idx, _ptc in enumerate(tool_calls):
+                _ptc_name, _ptc_args, _ptc_err = _normalize_tool_call(_ptc)
+                if _ptc_err:
+                    continue
+                if not (is_mutating(_ptc_name) or is_destructive(_ptc_name)):
+                    continue
+                try:
+                    _vres = await asyncio.wait_for(
+                        self.executor.validate_mutation(_ptc_name, _ptc_args),
+                        timeout=EXECUTOR_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    # Fail-closed: a validation we cannot complete within the budget
+                    # is treated as a rejection — the mutation must not execute.
+                    _vres = json.dumps({
+                        "error": (
+                            f"Cannot validate '{_ptc_name}' (pre-flight timed out); "
+                            "refusing to execute."
+                        ),
+                        "tool": _ptc_name,
+                        "validation_error": True,
+                        "retry_allowed": False,
+                        "requires_user_input": True,
+                        "missing_fields": [],
+                        "missing_fields_human": [],
+                        "sobject_name": "",
+                        "suggestion": "Please try again.",
+                    })
+                except Exception as _vexc:  # noqa: BLE001 - any pre-flight error fails closed
+                    logger.error(
+                        f"[MUTATION-VALIDATION] Pre-flight error for '{_ptc_name}': {_vexc}"
+                    )
+                    _vres = json.dumps({
+                        "error": (
+                            f"Cannot validate '{_ptc_name}' (pre-flight error); "
+                            "refusing to execute."
+                        ),
+                        "tool": _ptc_name,
+                        "validation_error": True,
+                        "retry_allowed": False,
+                        "requires_user_input": True,
+                        "missing_fields": [],
+                        "missing_fields_human": [],
+                        "sobject_name": "",
+                        "suggestion": "Please try again.",
+                    })
+                mutation_preflight[_p_idx] = _vres
+                if _vres is not None:
+                    any_mutation_rejected = True
+                    logger.warning(
+                        f"[MUTATION-VALIDATION] '{_ptc_name}' failed validation in "
+                        f"pre-flight; ZERO mutations from this response will execute "
+                        f"(all-or-nothing). session={session_id}"
+                    )
+
+            for tc_idx, tc in enumerate(tool_calls):
                 if step_count >= self._max_tool_iterations:
                     raise AgentError(
                         ERR_TOO_MANY_STEPS,
@@ -947,6 +1043,31 @@ class Orchestrator:
                     _trace("total", start_total)
                     yield _metrics_event()
                     return
+
+                # #8 ALL-OR-NOTHING execution: when ANY mutation in this response
+                # failed pre-flight validation, NO mutation from this response may
+                # execute. The failing mutation yields its own validation envelope
+                # (already validated above, so it is returned unchanged); every
+                # other mutation yields a blocked-sibling envelope. Only read-only
+                # calls reach the executor. retry_allowed=false -> the synthesizer
+                # asks the user for input; there is no automatic retry.
+                if any_mutation_rejected and (is_mutating(tc_name) or is_destructive(tc_name)):
+                    own_envelope = mutation_preflight.get(tc_idx)
+                    envelope = (
+                        own_envelope if own_envelope is not None
+                        else _blocked_mutation_result(tc_name, tc_args)
+                    )
+                    logger.warning(
+                        f"[MUTATION-VALIDATION] '{tc_name}' NOT executed: a mutation in "
+                        f"this response failed validation; zero mutations run "
+                        f"(all-or-nothing). session={session_id}"
+                    )
+                    yield {"type": "tool_call", "data": {"name": tc_name, "arguments": tc_args}}
+                    _record_tool_call(tc_name, tc_args)
+                    yield {"type": "tool_result", "data": {"name": tc_name, "result": envelope}}
+                    task_res.append({"tool": tc_name, "result": envelope})
+                    all_results.append({"tool": tc_name, "result": envelope})
+                    continue
 
                 yield {"type": "tool_call", "data": {"name": tc_name, "arguments": tc_args}}
                 _record_tool_call(tc_name, tc_args)
