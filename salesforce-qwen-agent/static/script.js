@@ -29,6 +29,17 @@ let isProcessing = false;
 let currentAttachedFile = null;
 const sessionId = crypto.randomUUID();
 
+// Each user submission carries a unique request_id. The server uses it to drop
+// re-sent duplicates (reconnect replay / double-submit / auto-resend), so a
+// single "create a lead" can never execute twice.
+function newRequestId() {
+    try {
+        return crypto.randomUUID();
+    } catch (_e) {
+        return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+}
+
 // Reconnect control: a single socket is ever created at a time, and reconnect
 // uses exponential backoff (capped) so we never stack multiple simultaneous
 // WebSockets or hammer the server.
@@ -392,6 +403,7 @@ function sendMessage() {
         type: 'message',
         content: text,
         file_info: attachedFile,
+        request_id: newRequestId(),
     }));
 
     messageInput.value = '';

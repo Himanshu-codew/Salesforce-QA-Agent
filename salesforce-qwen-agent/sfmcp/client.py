@@ -15,6 +15,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from sfmcp.crypto.envelope import TokenVault
+from tools.salesforce import is_mutating, is_destructive
 
 logger = logging.getLogger(__name__)
 
@@ -505,12 +506,26 @@ class SalesforceMCPClient:
 
         plain_name = tool_name.rsplit(":", 1)[-1]
 
+        # A MUTATING/DESTRUCTIVE tool (create/update/delete/upload) writes to
+        # Salesforce. Its outcome is UNKNOWN whenever the MCP call fails without
+        # a definitive signal (connection drop, timeout, transport error): the
+        # server may or may not have already executed it. Such an uncertain
+        # mutation must NEVER be re-invoked automatically — not by an MCP
+        # reconnect-retry and not by the REST fallback — or one user submission
+        # would create two Leads. Only AUTH rejections (401: request refused
+        # before execution) and DEFINITIVE tool errors (isError: execution
+        # failed) are safe to retry/fall back for writes. Read-only tools keep
+        # the full reconnect-then-fallback behavior so a dropped idle MCP
+        # session never spuriously routes a normal query to REST.
+        is_write = is_mutating(plain_name) or is_destructive(plain_name)
+
         # MCP is the primary path. On an auth/session/transient failure we give
         # MCP ONE clean reconnect before EVER falling back to REST, so a normal
         # Salesforce query does not spuriously route to REST just because the
         # idle Streamable HTTP session was dropped or a token lapsed. REST is
         # only used when MCP genuinely cannot complete the call.
         reconnect_retried = False
+        definitive_mcp_error = False
         for attempt in range(2):
             await self._ensure_connected()
             if self._session is not None:
@@ -519,12 +534,22 @@ class SalesforceMCPClient:
                     logger.info(f"[MCP] Executing tool {server_name} (requested as {tool_name}). Transport: MCP")
                     result = await self._session.call_tool(server_name, arguments)
                     if getattr(result, "isError", False):
+                        # Definitive server-side failure: the tool reported an
+                        # error and did not perform the operation, so a clean
+                        # REST fallback is safe even for writes.
+                        definitive_mcp_error = True
                         raise RuntimeError(
                             f"MCP tool {tool_name} returned an error: {self._format_mcp_result(result)}"
                         )
                     self.mcp_transport = "MCP"
                     return self._format_mcp_result(result)
                 except Exception as e:
+                    if definitive_mcp_error:
+                        logger.warning(
+                            f"MCP tool {tool_name} returned a definitive error; "
+                            "falling back to REST API (safe — the tool did not execute)."
+                        )
+                        break
                     status_code = getattr(getattr(e, "response", None), "status_code", None)
                     is_auth = status_code == 401 or "Unauthorized" in str(e)
                     if is_auth and not reconnect_retried:
@@ -533,10 +558,25 @@ class SalesforceMCPClient:
                         if await self._try_oauth_refresh():
                             reconnect_retried = True
                             continue
+                    if is_write and not is_auth:
+                        # Uncertain mutation outcome: refuse to re-invoke and refuse
+                        # the REST fallback so we cannot create a duplicate record.
+                        logger.error(
+                            f"[MUTATION-SAFETY] '{tool_name}' failed with an UNKNOWN outcome "
+                            f"({e}); NOT retrying or falling back to REST to avoid a "
+                            "duplicate record."
+                        )
+                        raise RuntimeError(
+                            f"MCP connection for mutating tool '{tool_name}' failed with an "
+                            f"unknown outcome ({e}). No automatic retry was performed to avoid "
+                            "a duplicate record. Please check Salesforce for this record before "
+                            "deciding to retry."
+                        ) from e
                     if not is_auth and not reconnect_retried:
                         # Transient non-auth failure (dropped idle session, network
                         # blip, timeout): perform one clean MCP reconnect + retry
-                        # before falling back to REST.
+                        # before falling back to REST. Reads only — writes already
+                        # raised above on an uncertain outcome.
                         logger.warning(f"MCP tool call failed ({e}); reconnecting MCP once before REST.")
                         await self._close_mcp_session()
                         self.mcp_transport = "MCP"

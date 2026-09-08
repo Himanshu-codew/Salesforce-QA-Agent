@@ -167,21 +167,31 @@ def test_non_count_empty_not_turned_into_zero():
 
 
 def test_non_zero_count_keeps_real_value():
+    # Non-zero COUNT results keep their real count. Since 3321bd8, a COUNT query
+    # whose value is fully expressed by the backend result is answered by the
+    # deterministic count-line fast path (no second LLM synthesis pass) — the
+    # real value must be the response, never a fabricated zero.
     raw = json.dumps({"totalSize": 1, "records": [{"attributes": {"type": "Account"}, "expr0": 22}]})
     orch, llm, _ = _build(raw)
-    _run(orch, "How many Account records do we have?")
-    assert llm.synthesis_user_msg is not None
-    assert "**Total Count:** 0" not in llm.synthesis_user_msg
-    assert "22" in llm.synthesis_user_msg
+    events = _run(orch, "How many Account records do we have?")
+    assert llm.synthesis_user_msg is None, "COUNT line is deterministic — synthesis skipped"
+    responses = " ".join(str(e.get("data")) for e in events if e.get("type") == "response")
+    assert "**Total Count:** 22" in responses
+    assert "**Total Count:** 0" not in responses
 
 
 def test_count_with_records_keeps_existing_behavior():
+    # COUNT-with-records keeps the real totalSize. The deterministic table (with
+    # its "**Total: N records**" line) is returned directly, never a fabricated
+    # zero or a rewritten count.
     raw = json.dumps({"totalSize": 2, "records": [{"Id": "a"}, {"Id": "b"}]})
     orch, llm, _ = _build(raw)
-    _run(orch, "List Account records")
-    assert llm.synthesis_user_msg is not None
-    assert "**Total Count:** 0" not in llm.synthesis_user_msg
-    assert "totalSize" in llm.synthesis_user_msg
+    events = _run(orch, "List Account records")
+    assert llm.synthesis_user_msg is None, "deterministic table — synthesis skipped"
+    responses = " ".join(str(e.get("data")) for e in events if e.get("type") == "response")
+    assert "| Id |" in responses
+    assert "**Total: 2 records**" in responses
+    assert "**Total Count:** 0" not in responses
 
 
 def test_synthesizer_still_invoked_for_zero_count():

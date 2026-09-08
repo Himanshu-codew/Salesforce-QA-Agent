@@ -1121,6 +1121,38 @@ WS_HEARTBEAT_SECONDS = float(os.getenv("WS_HEARTBEAT_SECONDS", "12"))
 # concurrent `process_message` on the same session.
 _session_busy: dict[str, bool] = {}
 
+# Per-session dedupe of re-sent messages: (session_id) -> (request_id, received_at).
+# A request_id identifies ONE logical user submission end-to-end. If the same
+# request_id arrives again within the TTL (e.g. a reconnect replay, an automatic
+# resend, or an accidental double-submit), it is dropped instead of executed
+# twice — the defensive layer that makes "one submission == one Lead creation".
+_REQUEST_DEDUPE_TTL = float(os.getenv("WS_REQUEST_DEDUPE_TTL", "120"))
+_MAX_RECENT_REQUESTS = 200
+_recent_requests: dict[str, tuple[str, float]] = {}
+
+
+def _remember_request(session_id: str, request_id: str) -> None:
+    _recent_requests[session_id] = (request_id, time.monotonic())
+    now = time.monotonic()
+    stale = [
+        sid for sid, (_ , ts) in _recent_requests.items()
+        if now - ts > _REQUEST_DEDUPE_TTL
+    ]
+    for sid in stale:
+        _recent_requests.pop(sid, None)
+    while len(_recent_requests) > _MAX_RECENT_REQUESTS:
+        _recent_requests.pop(next(iter(_recent_requests)))
+
+
+def _is_duplicate_request(session_id: str, request_id: str | None) -> bool:
+    if not request_id:
+        return False
+    last_id, last_ts = _recent_requests.get(session_id, (None, 0.0))
+    return (
+        last_id == request_id
+        and (time.monotonic() - last_ts) <= _REQUEST_DEDUPE_TTL
+    )
+
 
 def _finalized_ws_event(event: dict) -> dict:
     """Apply the LAST-MILE USER OUTPUT GUARD to an event before delivery.
@@ -1220,8 +1252,24 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 if not user_message:
                     continue
 
+                # Dedupe re-sent submissions: the SAME request_id within TTL is a
+                # replay (reconnect / double-submit / auto-resend). Drop it so a
+                # mutating request (e.g. "create a lead") can never run twice.
+                request_id = data.get("request_id")
+                if _is_duplicate_request(session_id, request_id):
+                    logger.info(
+                        f"[WS] Duplicate request dropped: session={session_id} request_id={request_id!r}"
+                    )
+                    await _ws_send_json(websocket, {
+                        "type": "progress",
+                        "data": "This request was already processed; skipping the duplicate.",
+                    })
+                    continue
+                if request_id:
+                    _remember_request(session_id, request_id)
+
                 if not target_agent:
-                    await websocket.send_json({
+                    await _ws_send_json(websocket, {
                         "type": "error",
                         "data": "Agent not initialized. Check server logs.",
                         "code": "ERROR",
@@ -1232,7 +1280,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 # Do not start a second concurrent run for the same session if the
                 # client re-sent (e.g. a reconnect replay of the same message).
                 if _session_busy.get(session_id):
-                    await websocket.send_json({
+                    await _ws_send_json(websocket, {
                         "type": "progress",
                         "data": "Your previous request is still processing; please wait.",
                     })

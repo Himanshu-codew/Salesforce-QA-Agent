@@ -3,9 +3,11 @@ Tool Executor — executes tool calls against the Salesforce MCP Server.
 Provides validation, error handling, retry logic, and result formatting.
 """
 
+import hashlib
 import json
 import logging
 import os
+import time
 from typing import Any
 
 from .client import SalesforceMCPClient
@@ -17,6 +19,52 @@ logger = logging.getLogger(__name__)
 # Defense-in-depth: even if a caller bypasses the orchestrator safety planner,
 # no mutating/destructive tool may run while READ_ONLY_MODE is enabled.
 READ_ONLY_MODE = os.getenv("READ_ONLY_MODE", "false").lower() in ("true", "1", "yes", "on")
+
+# ── Mutation idempotency (duplicate-record prevention) ───────────────────
+# An identical mutating/destructive tool call (same tool name AND same
+# arguments) repeated within this window returns the PREVIOUS result instead of
+# executing a second time. This is the safety net for the LLM emitting the same
+# create/update/delete twice, a planner re-issue, or a request replay — so one
+# user submission can never create two Leads. Only MUTATIONS are deduplicated;
+# read-only tools always re-execute. The store is bounded (TTL + size cap).
+MUTATION_DEDUPE_TTL = float(os.getenv("MUTATION_DEDUPE_TTL", "90"))
+_MAX_RECENT_MUTATIONS = 200
+_recent_mutations: dict[str, tuple[str, float]] = {}
+
+
+def _canonical_args(value: Any) -> Any:
+    """Recursively canonicalize arguments so key order never changes the hash."""
+    if isinstance(value, dict):
+        return {k: _canonical_args(value[k]) for k in sorted(value)}
+    if isinstance(value, list):
+        return [_canonical_args(v) for v in value]
+    return value
+
+
+def _mutation_key(tool_name: str, arguments: dict[str, Any]) -> str:
+    payload = json.dumps(
+        {"tool": tool_name, "arguments": _canonical_args(arguments)},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _recent_mutation(key: str) -> str | None:
+    prev, ts = _recent_mutations.get(key, (None, 0.0))
+    if prev is not None and (time.monotonic() - ts) <= MUTATION_DEDUPE_TTL:
+        return prev
+    return None
+
+
+def _remember_mutation(key: str, result: str) -> None:
+    _recent_mutations[key] = (result, time.monotonic())
+    now = time.monotonic()
+    stale = [k for k, (_, ts) in _recent_mutations.items() if now - ts > MUTATION_DEDUPE_TTL]
+    for k in stale:
+        _recent_mutations.pop(k, None)
+    while len(_recent_mutations) > _MAX_RECENT_MUTATIONS:
+        _recent_mutations.pop(next(iter(_recent_mutations)))
 
 
 class ToolExecutor:
@@ -66,12 +114,29 @@ class ToolExecutor:
                 "tool": tool_name,
             })
 
+        # Mutation idempotency: an identical mutating/destructive call within the
+        # dedupe window reuses the previous result instead of creating a second
+        # record. Reads are never deduplicated (re-list/query is harmless).
+        is_write = is_mutating(tool_name) or is_destructive(tool_name)
+        dedupe_key = _mutation_key(tool_name, arguments) if is_write else None
+        if dedupe_key:
+            cached = _recent_mutation(dedupe_key)
+            if cached is not None:
+                logger.warning(
+                    f"[IDEMPOTENCY] Skipping duplicate '{tool_name}' call "
+                    f"(identical arguments within {MUTATION_DEDUPE_TTL:.0f}s window); "
+                    "returning the previous result to avoid a duplicate record."
+                )
+                return cached
+
         logger.info(f"Executing tool: {tool_name} with args: {_truncate_args(arguments)}")
 
         try:
             result = await self.mcp_client.call_tool(tool_name, arguments)
             formatted = self._format_result(tool_name, result)
             logger.info(f"Tool {tool_name} executed successfully.")
+            if dedupe_key:
+                _remember_mutation(dedupe_key, formatted)
             return formatted
 
         except RuntimeError as e:

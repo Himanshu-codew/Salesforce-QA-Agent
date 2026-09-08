@@ -558,42 +558,63 @@ def _is_soql_count(soql_query: str) -> bool:
     return bool(re.search(r"\bCOUNT\s*\(", soql_query, re.IGNORECASE))
 
 
+# Tools whose flat record-list results are rendered deterministically as a
+# Markdown reference table. Adding a tool here makes its FLAT results feed the
+# deterministic fast path (no second Qwen synthesis call). Hierarchical,
+# schema, and narrative/related-record tools stay out so the LLM still formats
+# those. listRecentSobjectRecords' primary SOQL result and its `/recent` REST
+# fallback are both flat record lists, so recent-record queries ("show me my
+# recent Accounts") skip the ~67s synthesis step that previously dominated the
+# ~79s end-to-end latency.
+_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords"}
+
+
 def format_sf_records_as_markdown(
     result_json: str,
     tool_name: str = "soqlQuery",
     soql_query: str = "",
 ) -> str | None:
     """
-    Parse a Salesforce soqlQuery JSON result and return formatted markdown.
+    Parse a Salesforce flat record-list JSON result and return formatted markdown.
 
     Handles two cases:
     1. Aggregate/COUNT queries → clean count line
     2. Flat record lists → Standard markdown table
 
+    Recognized for any tool in ``_FLAT_LIST_TOOLS`` (soqlQuery and
+    listRecentSobjectRecords) and for both result shapes the REST API returns:
+    the ``{"totalSize": N, "records": [...]}`` envelope from ``/query`` and a
+    bare top-level JSON array (``/recent`` fallback for listRecentSobjectRecords).
+
     Hierarchical/subquery results return None — they are passed raw to the
     LLM which renders them as structured cards.
 
-    Returns None if the result is not a parseable record list.
+    Returns None if the result is not a parseable flat record list.
     """
-    if tool_name != "soqlQuery":
+    if tool_name not in _FLAT_LIST_TOOLS:
         return None
     try:
         data = json.loads(result_json)
     except Exception:
         return None
 
-    if not isinstance(data, dict):
+    # `listRecentSobjectRecords` can return a bare array (REST `/recent`
+    # fallback) instead of the {totalSize, records} envelope from `/query`.
+    if isinstance(data, list):
+        records = data
+        total_size = len(records)
+    elif isinstance(data, dict):
+        records = data.get("records", [])
+        total_size = data.get("totalSize", len(records))
+    else:
         return None
-
-    records = data.get("records", [])
-    total_size = data.get("totalSize", len(records))
 
     if not records:
         # A COUNT query can legitimately return {"totalSize": 0, "records": []}
         # (e.g. SELECT COUNT(Id) FROM Account with zero rows). Surface it as the
         # project's count line so the direct-response fast path triggers instead
         # of a second LLM synthesis call. Value comes straight from totalSize.
-        if _is_soql_count(soql_query):
+        if tool_name == "soqlQuery" and _is_soql_count(soql_query):
             return f"**Total Count:** {int(total_size):,}"
         return None
 

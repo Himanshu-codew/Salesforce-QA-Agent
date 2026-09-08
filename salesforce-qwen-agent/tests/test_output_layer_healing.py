@@ -253,20 +253,53 @@ class TestIncompleteResponseHandling:
         # When the synthesizer still truncates after the retry, the agent must NOT
         # deliver a half answer nor a fabricated one — it falls back to the
         # Python-built deterministic Salesforce table.
-        llm = _TruncatingLLM(_PLAN, _FULL_SYNTH, max_tokens_first=20,
-                             still_truncated_retry=True)
-        agent = self._agent(llm)
-        events = _run(agent)
-        responses = [e["data"] for e in events if e["type"] == "response"]
+        #
+        # The result set is a flat SOQL table (deterministic-eligible) PLUS a
+        # related-records result (non-metadata). The fast path therefore cannot
+        # shortcut the synthesizer, so truncation/retry logic runs — and the
+        # deterministic table is exactly what must survive the double truncation.
+        # A synthesizer that ALWAYS truncates (planner is bypassed here because
+        # _synthesize_response is exercised directly).
+        class _AlwaysTruncatingLLM:
+            def __init__(self):
+                self.chat_calls = 0
+                self.last_finish_reason = None
+                self.max_tokens_seen = []
+
+            async def chat(self, messages, temperature=0.0, max_tokens=8192):
+                self.chat_calls += 1
+                self.max_tokens_seen.append(max_tokens)
+                self.last_finish_reason = "length"
+                return _FULL_SYNTH[:20]
+
+            async def chat_with_tools(self, messages, tools, temperature=0.0, max_tokens=8192):
+                return {"content": "", "tool_calls": [], "finish_reason": "stop"}
+
+            async def close(self):
+                pass
+
+        llm = _AlwaysTruncatingLLM()
+        agent = Orchestrator(llm=llm, executor=_MockExecutor(_SOQL))
+        agent.rag_retriever = _FakeRAG()
+
+        async def collect():
+            return await agent._synthesize_response(
+                "Show me my recent Accounts with contacts",
+                [
+                    {"tool": "soqlQuery", "result": _SOQL},
+                    {"tool": "getRelatedRecords", "result": _HIERARCHICAL_SOQL},
+                ],
+            )
+
+        response = asyncio.run(collect())
+        deterministic = format_sf_records_as_markdown(_SOQL, tool_name="soqlQuery")
         # The deterministic Account table is returned verbatim (with the exact Id
         # and Name from the mock Salesforce result), not the truncated answer.
-        assert responses
-        deterministic = format_sf_records_as_markdown(_SOQL, tool_name="soqlQuery")
-        assert deterministic is not None
-        for row in deterministic.splitlines():
-            assert "| Id | Name |" in responses[0]
-            if row.startswith("| 001g500000V9LDcAAN"):
-                assert row in responses[0]
+        assert response == deterministic
+        # First synthesis attempt truncated, the retry truncated too, then fallback.
+        assert llm.chat_calls == 2
+        assert llm.last_finish_reason == "length"
+        assert llm.max_tokens_seen[1] > llm.max_tokens_seen[0]
 
 
 def _flat_account_result(records):
