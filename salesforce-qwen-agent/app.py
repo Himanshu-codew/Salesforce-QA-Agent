@@ -1116,6 +1116,13 @@ async def chat_endpoint(request: ChatRequest):
 # the connection survives until the final response is streamed.
 WS_HEARTBEAT_SECONDS = float(os.getenv("WS_HEARTBEAT_SECONDS", "12"))
 
+# Idle keepalive: while NO turn is running the heartbeat task above is inert,
+# and a connection that sits silent (or in a background tab where the browser
+# throttles the client-side pings to ~1/minute) can be silently closed by an
+# edge/proxy idle timeout. A concurrent keepalive task pushes lightweight ping
+# frames over the server->client leg so the socket stays alive when idle too.
+WS_KEEPALIVE_SECONDS = float(os.getenv("WS_KEEPALIVE_SECONDS", "20"))
+
 # Set of processes currently running per session. Guards against a client that
 # reconnects/re-sends the same message and inadvertently starts a second
 # concurrent `process_message` on the same session.
@@ -1217,6 +1224,33 @@ async def _ws_receive_text(websocket: WebSocket) -> str | None:
         raise
 
 
+async def _idle_keepalive(websocket: WebSocket, session_id: str) -> None:
+    """Push lightweight ping frames while a connection is idle.
+
+    The turn-scoped heartbeat only runs while a producer is active. When the
+    connection is idle there is otherwise no server->client traffic, so an edge
+    or proxy idle timeout can silently close the socket (the browser-throttled
+    client pings in a background tab are also insufficient). Active turns are
+    skipped because the turn heartbeat already emits frames there."""
+    try:
+        while _ws_is_connected(websocket):
+            await asyncio.sleep(WS_KEEPALIVE_SECONDS)
+            if not _ws_is_connected(websocket):
+                break
+            if _session_busy.get(session_id):
+                continue
+            if not await _ws_send_json(websocket, {
+                "type": "ping",
+                "ts": time.time(),
+            }):
+                break
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        # Defensive: a keepalive failure must never crash the WebSocket handler.
+        logger.warning(f"[WS] Keepalive task ended ({session_id})", exc_info=True)
+
+
 async def _ws_produce(websocket: WebSocket, agent, session_id: str, user_message: str) -> None:
     """Consume the agent event stream and forward events while disconnect-safe."""
     try:
@@ -1244,6 +1278,11 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
     """
     await websocket.accept()
     logger.info(f"[WS] Connection established: session={session_id}")
+
+    # Idle keepalive task: keeps bytes flowing over the server->client leg even
+    # when no turn is running. Cancelled unconditionally in `finally` so no task
+    # survives the handler (it would otherwise ping a dead socket forever).
+    keepalive = asyncio.create_task(_idle_keepalive(websocket, session_id))
 
     try:
         while True:
@@ -1319,8 +1358,10 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                         f"[WS] Duplicate request dropped: session={session_id} request_id={request_id!r}"
                     )
                     await _ws_send_json(websocket, {
-                        "type": "progress",
-                        "data": "This request was already processed; skipping the duplicate.",
+                        "type": "dedupe",
+                        "data": "This request was already processed; skipping the duplicate. "
+                                "If you did not receive the final answer before the connection "
+                                "dropped, please ask again and I will start fresh.",
                     })
                     continue
                 if request_id:
@@ -1422,6 +1463,9 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
         logger.error(f"[WS] Connection error ({session_id}): {e}", exc_info=True)
     finally:
         _session_busy.pop(session_id, None)
+        if not keepalive.done():
+            keepalive.cancel()
+            await asyncio.gather(keepalive, return_exceptions=True)
         # Only close a socket the client has already abandoned. Closing a
         # still-CONNECTED socket pushes a close frame to the browser and is
         # exactly what used to make perfectly healthy connections report

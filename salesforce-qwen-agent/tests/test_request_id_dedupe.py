@@ -101,7 +101,7 @@ def test_same_request_id_resubmission_is_dropped(monkeypatch):
             }))
             raw = ws.receive_text()
             data = json.loads(raw)
-            assert data.get("type") == "progress"
+            assert data.get("type") == "dedupe", data
             assert "already processed" in data.get("data", "")
             assert agent.calls == 1, "the duplicate must NOT be executed again"
 

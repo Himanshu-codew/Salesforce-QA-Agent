@@ -93,6 +93,8 @@ const sandbox = {
   console,
   crypto: { randomUUID: () => 'session-test-001' },
   WebSocket: FakeWebSocket,
+  AbortController,
+  fetch: () => Promise.resolve({ ok: true }),
   setTimeout: stubSetTimeout,
   clearTimeout: stubClearTimeout,
   setInterval: stubSetInterval,
@@ -133,95 +135,108 @@ function fireReconnectTimer() {
   t.fn();
 }
 
-// --- scenario: single socket, ordered lifecycle ------------------------------
-connect();
-assert.strictEqual(sockets.length, 1, 'exactly one socket created');
-assert.strictEqual(run('ws'), sockets[0], 'global ws points at the new socket');
-assert.strictEqual(run('isConnected'), false);
+// The close path now probes /health before scheduling the reconnect timer, so
+// microtasks must be flushed before asserting timer state after a close.
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-// duplicate connect while CONNECTING must not create a second socket
-connect();
-connect();
-assert.strictEqual(sockets.length, 1, 'no duplicate sockets while CONNECTING');
+async function main() {
+  // --- scenario: single socket, ordered lifecycle ------------------------------
+  connect();
+  assert.strictEqual(sockets.length, 1, 'exactly one socket created');
+  assert.strictEqual(run('ws'), sockets[0], 'global ws points at the new socket');
+  assert.strictEqual(run('isConnected'), false);
 
-// open: exactly one ping interval, reconnectAttempts reset
-sockets[0].readyState = FakeWebSocket.OPEN;
-sockets[0].onopen();
-assert.strictEqual(run('isConnected'), true, 'connected after open');
-assert.strictEqual(timers.intervals.length, 1, 'ping interval started exactly once');
-sockets[0].onopen(); // duplicate open
-assert.strictEqual(timers.intervals.length, 1, 'duplicate open does not stack intervals');
+  // duplicate connect while CONNECTING must not create a second socket
+  connect();
+  connect();
+  assert.strictEqual(sockets.length, 1, 'no duplicate sockets while CONNECTING');
 
-// connect while OPEN must not create a second socket
-connect();
-assert.strictEqual(sockets.length, 1, 'no duplicate socket while OPEN');
+  // open: exactly one ping interval, reconnectAttempts reset
+  sockets[0].readyState = FakeWebSocket.OPEN;
+  sockets[0].onopen();
+  assert.strictEqual(run('isConnected'), true, 'connected after open');
+  assert.strictEqual(timers.intervals.length, 1, 'ping interval started exactly once');
+  sockets[0].onopen(); // duplicate open
+  assert.strictEqual(timers.intervals.length, 1, 'duplicate open does not stack intervals');
 
-// mark an in-flight request, then let the socket die unexpectedly
-run('isProcessing = true');
-sockets[0].readyState = FakeWebSocket.CLOSED;
-sockets[0].onclose();
+  // connect while OPEN must not create a second socket
+  connect();
+  assert.strictEqual(sockets.length, 1, 'no duplicate socket while OPEN');
 
-assert.strictEqual(run('ws'), null, 'socket reference cleared on close');
-assert.strictEqual(run('isConnected'), false, 'disconnected after close');
-assert.strictEqual(
-  run('isProcessing'),
-  false,
-  'in-flight request unlocked on unexpected close (no dead send button)'
-);
-assert.strictEqual(timers.intervals.length, 0, 'ping interval cleared on close');
-assert.strictEqual(timers.timeouts.length, 1, 'exactly one reconnect timer scheduled');
+  // mark an in-flight request, then let the socket die unexpectedly
+  run('isProcessing = true');
+  sockets[0].readyState = FakeWebSocket.CLOSED;
+  sockets[0].onclose();
+  await tick();
 
-// reconnect: a single new socket replaces the old one
-fireReconnectTimer();
-assert.strictEqual(sockets.length, 2, 'reconnect created exactly one new socket');
-const s1 = sockets[1];
-assert.strictEqual(run('ws'), s1, 'global ws points at the newest socket');
+  assert.strictEqual(run('ws'), null, 'socket reference cleared on close');
+  assert.strictEqual(run('isConnected'), false, 'disconnected after close');
+  assert.strictEqual(
+    run('isProcessing'),
+    false,
+    'in-flight request unlocked on unexpected close (no dead send button)'
+  );
+  assert.strictEqual(timers.intervals.length, 0, 'ping interval cleared on close');
+  assert.strictEqual(timers.timeouts.length, 1, 'exactly one reconnect timer scheduled');
 
-// --- stale-handler regression -------------------------------------------------
-// The OLD socket fires close/error AFTER the new socket exists: it must be
-// ignored — no ws clobbering, no extra reconnect timer, no status flood.
-const timerCountBefore = timers.timeouts.length;
-sockets[0].onclose();
-sockets[0].onerror({ message: 'stale' });
-assert.strictEqual(run('ws'), s1, 'stale onclose cannot replace the newer socket');
-assert.strictEqual(
-  timers.timeouts.length,
-  timerCountBefore,
-  'stale onclose cannot schedule a second reconnect'
-);
-assert.strictEqual(run('isConnected'), false, 'stale handler did not flip state up');
+  // reconnect: a single new socket replaces the old one
+  fireReconnectTimer();
+  assert.strictEqual(sockets.length, 2, 'reconnect created exactly one new socket');
+  const s1 = sockets[1];
+  assert.strictEqual(run('ws'), s1, 'global ws points at the newest socket');
 
-// the new socket opens normally
-s1.readyState = FakeWebSocket.OPEN;
-s1.onopen();
-assert.strictEqual(run('isConnected'), true, 'reconnected after open');
-assert.strictEqual(timers.intervals.length, 1, 'new ping interval is single');
+  // --- stale-handler regression -------------------------------------------------
+  // The OLD socket fires close/error AFTER the new socket exists: it must be
+  // ignored — no ws clobbering, no extra reconnect timer, no status flood.
+  const timerCountBefore = timers.timeouts.length;
+  sockets[0].onclose();
+  sockets[0].onerror({ message: 'stale' });
+  assert.strictEqual(run('ws'), s1, 'stale onclose cannot replace the newer socket');
+  assert.strictEqual(
+    timers.timeouts.length,
+    timerCountBefore,
+    'stale onclose cannot schedule a second reconnect'
+  );
+  assert.strictEqual(run('isConnected'), false, 'stale handler did not flip state up');
 
-// --- visibilitychange ---------------------------------------------------------
-// visible + open socket -> no action (no duplicate socket, no extra timer)
-run("document.visibilityState = 'visible'");
-listeners.visibilitychange.forEach((fn) => fn());
-assert.strictEqual(sockets.length, 2, 'visibility with an open socket does nothing');
+  // the new socket opens normally
+  s1.readyState = FakeWebSocket.OPEN;
+  s1.onopen();
+  assert.strictEqual(run('isConnected'), true, 'reconnected after open');
+  assert.strictEqual(timers.intervals.length, 1, 'new ping interval is single');
 
-// visible + closed socket + pending reconnect -> clear timer, connect NOW
-s1.readyState = FakeWebSocket.CLOSED;
-s1.onclose();
-assert.strictEqual(timers.timeouts.length, 1, 'close scheduled one reconnect');
-listeners.visibilitychange.forEach((fn) => fn());
-assert.strictEqual(timers.timeouts.length, 0, 'pending reconnect timer cancelled on resume');
-assert.strictEqual(sockets.length, 3, 'visibility resume reconnected immediately');
-assert.strictEqual(run('ws'), sockets[2], 'newest socket active after resume');
+  // --- visibilitychange ---------------------------------------------------------
+  // visible + open socket -> no action (no duplicate socket, no extra timer)
+  run("document.visibilityState = 'visible'");
+  listeners.visibilitychange.forEach((fn) => fn());
+  assert.strictEqual(sockets.length, 2, 'visibility with an open socket does nothing');
 
-// --- no auto-resend (mutation safety) ----------------------------------------
-// None of the sockets may have transmitted a user "message" after the
-// disconnects above; only pings are allowed.
-for (const s of sockets) {
-  for (const frame of s.sent) {
-    assert.ok(
-      frame.includes('"ping"'),
-      `no message auto-resend after reconnect (got: ${frame.slice(0, 60)})`
-    );
+  // visible + closed socket + pending reconnect -> clear timer, connect NOW
+  s1.readyState = FakeWebSocket.CLOSED;
+  s1.onclose();
+  await tick();
+  assert.strictEqual(timers.timeouts.length, 1, 'close scheduled one reconnect');
+  listeners.visibilitychange.forEach((fn) => fn());
+  assert.strictEqual(timers.timeouts.length, 0, 'pending reconnect timer cancelled on resume');
+  assert.strictEqual(sockets.length, 3, 'visibility resume reconnected immediately');
+  assert.strictEqual(run('ws'), sockets[2], 'newest socket active after resume');
+
+  // --- no auto-resend (mutation safety) ----------------------------------------
+  // None of the sockets may have transmitted a user "message" after the
+  // disconnects above; only pings are allowed.
+  for (const s of sockets) {
+    for (const frame of s.sent) {
+      assert.ok(
+        frame.includes('"ping"'),
+        `no message auto-resend after reconnect (got: ${frame.slice(0, 60)})`
+      );
+    }
   }
+
+  console.log('ws-reconnect-puppet: ALL ASSERTIONS PASSED');
 }
 
-console.log('ws-reconnect-puppet: ALL ASSERTIONS PASSED');
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

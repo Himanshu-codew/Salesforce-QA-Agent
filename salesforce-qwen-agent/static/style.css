@@ -1288,6 +1288,40 @@ textarea::placeholder { color: var(--text-muted); }
     color: var(--text-muted);
 }
 
+/* ─── In-flight resend banner ─── */
+.resend-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 10px 12px;
+    padding: 10px 14px;
+    background: var(--primary-soft);
+    border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+}
+
+.resend-banner button {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    border: 1px solid var(--primary);
+    border-radius: var(--radius-sm);
+    background: var(--primary);
+    color: #fff;
+    font-family: var(--font-sans);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.resend-banner button:hover {
+    background: var(--primary-strong);
+    border-color: var(--primary-strong);
+}
+
 /* ─── Focus visibility (a11y) ─── */
 :focus-visible {
     outline: 2px solid var(--primary);

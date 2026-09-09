@@ -27,6 +27,11 @@ let ws = null;
 let isConnected = false;
 let isProcessing = false;
 let currentAttachedFile = null;
+
+// Last submission that was in flight when the connection dropped. Kept across a
+// reconnect so we can offer a safe one-click resend (the resend reuses the same
+// request_id, which the server drops as a duplicate if it already executed).
+let pendingResendRequest = null;
 const sessionId = crypto.randomUUID();
 
 // Each user submission carries a unique request_id. The server uses it to drop
@@ -277,6 +282,11 @@ function connectWebSocket() {
                 try { socket.send(JSON.stringify({ type: 'ping' })); } catch (e) {}
             }
         }, 20000);
+        if (pendingResendRequest) {
+            showResendBanner();
+        } else {
+            removeResendBanner();
+        }
     };
 
     socket.onmessage = (event) => {
@@ -294,15 +304,17 @@ function connectWebSocket() {
         if (socket !== ws) return;
         if (window.wsPingTimer) { clearInterval(window.wsPingTimer); window.wsPingTimer = null; }
         isConnected = false;
-        // An in-flight request died with the socket: unlock the send button so
-        // the user can retry (we deliberately do NOT auto-resend — the request
-        // may have already executed server-side, e.g. a Lead creation).
+        // An in-flight request died with the socket. We keep pendingResendRequest
+        // (set in sendMessage) so the reconnect flow can offer a safe one-click
+        // resend: it reuses the SAME request_id, which the server drops as a
+        // duplicate if the original run already executed server-side — so one
+        // submission can never double-create a Lead. We deliberately never
+        // auto-resend silently.
         isProcessing = false;
         removeThinking();
         ws = null;
         updateConnectionStatus('disconnected');
-        headerSubtitle.textContent = 'Disconnected — Reconnecting...';
-        scheduleReconnect();
+        probeServerHealth();
     };
 
     socket.onerror = (error) => {
@@ -326,6 +338,67 @@ function scheduleReconnect() {
         reconnectTimer = null;
         connectWebSocket();
     }, backoff + (reconnectAttempts > 1 ? 1500 : 0));
+}
+
+// Distinguish a transit server restart (Render redeploy, cold spin-up) from a
+// plain socket gap so the status line stays truthful while we reconnect.
+function probeServerHealth() {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    fetch('/health', { signal: controller.signal })
+        .then((res) => {
+            const label = res.ok ? 'Reconnecting...' : 'Server updating — reconnecting...';
+            headerSubtitle.textContent = label;
+        })
+        .catch(() => {
+            headerSubtitle.textContent = 'Server updating — reconnecting...';
+        })
+        .finally(() => {
+            clearTimeout(timer);
+            scheduleReconnect();
+        });
+}
+
+// ─── In-flight Resend Banner ───
+let resendBanner = null;
+
+function showResendBanner() {
+    if (resendBanner || !messagesContainer) return;
+    resendBanner = document.createElement('div');
+    resendBanner.className = 'resend-banner';
+    resendBanner.innerHTML =
+        '<span>Connection dropped while this request was in flight.</span>' +
+        '<button type="button">Resend — safe (duplicates are prevented)</button>';
+    resendBanner.querySelector('button').addEventListener('click', () => {
+        const pending = pendingResendRequest;
+        if (!pending) return;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        // Reuses the original request_id: the server drops it as a duplicate if
+        // the original run already executed, so a mutating request (e.g. "create
+        // a lead") can never execute twice.
+        ws.send(JSON.stringify({
+            type: 'message',
+            content: pending.content,
+            file_info: pending.file_info,
+            request_id: pending.request_id,
+        }));
+        clearPendingResend();
+        isProcessing = true;
+        headerSubtitle.textContent = 'Processing...';
+    });
+    messagesContainer.appendChild(resendBanner);
+}
+
+function removeResendBanner() {
+    if (resendBanner && resendBanner.parentNode) {
+        resendBanner.parentNode.removeChild(resendBanner);
+    }
+    resendBanner = null;
+}
+
+function clearPendingResend() {
+    pendingResendRequest = null;
+    removeResendBanner();
 }
 
 // Resume promptly when the tab becomes visible again: background tabs have
@@ -428,12 +501,23 @@ function sendMessage() {
 
     appendMessage('user', text, attachedFile);
 
+    const requestId = newRequestId();
     ws.send(JSON.stringify({
         type: 'message',
         content: text,
         file_info: attachedFile,
-        request_id: newRequestId(),
+        request_id: requestId,
     }));
+
+    // A brand-new submission supersedes any stale resend offer.
+    clearPendingResend();
+    // Remember the in-flight submission so a mid-request connection drop (e.g.
+    // a server redeploy) can offer a safe one-click resend after reconnect.
+    pendingResendRequest = {
+        content: text,
+        file_info: attachedFile,
+        request_id: requestId,
+    };
 
     messageInput.value = '';
     messageInput.style.height = 'auto';
@@ -466,6 +550,7 @@ function handleServerEvent(event) {
             appendMessage('assistant', event.data, null, true);
             isProcessing = false;
             headerSubtitle.textContent = 'Ready to help';
+            clearPendingResend();
             break;
 
         case 'confirmation':
@@ -473,6 +558,7 @@ function handleServerEvent(event) {
             appendConfirmation(event.data);
             isProcessing = false;
             headerSubtitle.textContent = 'Awaiting confirmation...';
+            clearPendingResend();
             break;
 
         case 'error':
@@ -480,6 +566,19 @@ function handleServerEvent(event) {
             appendMessage('assistant', event.data);
             isProcessing = false;
             headerSubtitle.textContent = 'Ready to help';
+            clearPendingResend();
+            break;
+
+        // A resend was detected as a duplicate of a run that already executed
+        // server-side (same request_id within the dedupe window). The original
+        // may have completed while the connection was down, so surface that
+        // truthfully and clear the resend offer instead of hanging in limbo.
+        case 'dedupe':
+            removeThinking();
+            appendMessage('assistant', event.data);
+            isProcessing = false;
+            headerSubtitle.textContent = 'Ready to help';
+            clearPendingResend();
             break;
 
         // Application-level heartbeat / progress — keep the connection alive
