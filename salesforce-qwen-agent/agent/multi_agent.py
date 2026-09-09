@@ -704,7 +704,8 @@ class Orchestrator:
                 t_exec = time.monotonic()
                 try:
                     result = await asyncio.wait_for(
-                        self.executor.execute(tool_name, arguments), timeout=EXECUTOR_TIMEOUT
+                        self.executor.execute(tool_name, arguments, user_provenance={}),
+                        timeout=EXECUTOR_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
                     raise AgentError(
@@ -891,6 +892,11 @@ class Orchestrator:
             # reach Salesforce: every mutation is returned to the no-tool
             # synthesizer as a validation or blocked-sibling envelope
             # (requires_user_input=true, retry_allowed=false -> no auto retry).
+            # PROVENANCE: every body value must be traceable to the user's
+            # explicit per-field value in the CURRENT message — LLM-fabricated
+            # values are rejected.
+            from sfmcp.executor import _extract_user_provided_fields
+            _user_provided_fields = _extract_user_provided_fields(user_message)
             mutation_preflight: dict[int, str | None] = {}
             any_mutation_rejected = False
             for _p_idx, _ptc in enumerate(tool_calls):
@@ -901,7 +907,9 @@ class Orchestrator:
                     continue
                 try:
                     _vres = await asyncio.wait_for(
-                        self.executor.validate_mutation(_ptc_name, _ptc_args),
+                        self.executor.validate_mutation(
+                            _ptc_name, _ptc_args, _user_provided_fields
+                        ),
                         timeout=EXECUTOR_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
@@ -1075,7 +1083,10 @@ class Orchestrator:
                 _set_stage(f"salesforce-mcp-{tc_name}")
                 try:
                     res = await asyncio.wait_for(
-                        self.executor.execute(tc_name, tc_args), timeout=EXECUTOR_TIMEOUT
+                        self.executor.execute(
+                            tc_name, tc_args, _user_provided_fields
+                        ),
+                        timeout=EXECUTOR_TIMEOUT,
                     )
                 except asyncio.TimeoutError:
                     logger.error(

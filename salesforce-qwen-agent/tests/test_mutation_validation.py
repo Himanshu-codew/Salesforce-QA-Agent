@@ -31,7 +31,11 @@ from agent.mutation_validation import (
     is_valid_salesforce_id,
     validate_mutation_fields,
 )
-from sfmcp.executor import ToolExecutor
+from sfmcp.executor import (
+    ToolExecutor,
+    _extract_user_provided_fields,
+    _normalize_value,
+)
 from sfmcp.registry import ToolRegistry
 import sfmcp.executor as executor_module
 
@@ -112,6 +116,22 @@ def _executor(mcp_client) -> ToolExecutor:
     return ToolExecutor(mcp_client, registry)
 
 
+async def _exec_with_prov(exec_, tool_name, arguments):
+    """Run a tool through the executor passing body-mirrored provenance.
+
+    These unit tests validate the PRESENCE and STRUCTURAL rules, so the body's
+    own values are modeled as user-supplied (provenance = the body). Provenance
+    semantics themselves are covered separately by the A–P matrix, the
+    fail-closed-on-None case, and the orchestrator-level tests."""
+    body = arguments.get("body") if isinstance(arguments.get("body"), dict) else {}
+    prov = {
+        str(api): frozenset({_normalize_value(v)})
+        for api, v in body.items()
+        if v is not None and str(v).strip()
+    }
+    return await exec_.execute(tool_name, arguments, user_provenance=prov)
+
+
 @pytest.fixture(autouse=True)
 def _clean_mutation_store():
     executor_module._recent_mutations.clear()
@@ -145,7 +165,7 @@ def _assert_validation_error(result: str, tool: str, missing_api: list[str] | No
 def test_create_lead_empty_body_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "body": {}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Lead", "body": {}}))
     _assert_validation_error(res, "createSobjectRecord", ["LastName", "Company"])
     assert mcp.calls == [], "vague create must never call MCP"
 
@@ -154,7 +174,7 @@ def test_create_lead_vague_request_never_reaches_salesforce():
     # "create a lead" with no fields at all.
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead"}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Lead"}))
     _assert_validation_error(res, "createSobjectRecord", ["LastName", "Company"])
     assert mcp.calls == []
 
@@ -162,7 +182,7 @@ def test_create_lead_vague_request_never_reaches_salesforce():
 def test_create_lead_only_first_name_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord", {"sobject-name": "Lead", "body": {"FirstName": "John"}}
     ))
     _assert_validation_error(res, "createSobjectRecord", ["LastName", "Company"])
@@ -172,7 +192,7 @@ def test_create_lead_only_first_name_rejected():
 def test_create_lead_null_company_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord", {"sobject-name": "Lead", "body": {"LastName": "Smith", "Company": None}}
     ))
     _assert_validation_error(res, "createSobjectRecord", ["Company"])
@@ -182,7 +202,7 @@ def test_create_lead_null_company_rejected():
 def test_create_lead_whitespace_last_name_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord", {"sobject-name": "Lead", "body": {"LastName": "   ", "Company": "Acme"}}
     ))
     _assert_validation_error(res, "createSobjectRecord", ["LastName"])
@@ -193,7 +213,7 @@ def test_create_lead_complete_accepted_executes_once():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
     args = {"sobject-name": "Lead", "body": {"LastName": "Smith", "Company": "Acme", "FirstName": "John"}}
-    res = asyncio.run(exec_.execute("createSobjectRecord", dict(args)))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", dict(args)))
     assert "validation_error" not in _parse(res)
     assert len(mcp.calls) == 1
 
@@ -205,7 +225,7 @@ def test_create_lead_complete_accepted_executes_once():
 def test_create_contact_empty_body_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Contact", "body": {}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Contact", "body": {}}))
     _assert_validation_error(res, "createSobjectRecord", ["LastName"])
     assert mcp.calls == []
 
@@ -213,7 +233,7 @@ def test_create_contact_empty_body_rejected():
 def test_create_contact_vague_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Contact", "body": {"FirstName": "Jane"}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Contact", "body": {"FirstName": "Jane"}}))
     _assert_validation_error(res, "createSobjectRecord", ["LastName"])
     assert mcp.calls == []
 
@@ -221,7 +241,7 @@ def test_create_contact_vague_rejected():
 def test_create_account_missing_name_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Account", "body": {}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Account", "body": {}}))
     _assert_validation_error(res, "createSobjectRecord", ["Name"])
     assert mcp.calls == []
 
@@ -229,7 +249,7 @@ def test_create_account_missing_name_rejected():
 def test_create_account_vague_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Account"}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Account"}))
     _assert_validation_error(res, "createSobjectRecord", ["Name"])
     assert mcp.calls == []
 
@@ -237,7 +257,7 @@ def test_create_account_vague_rejected():
 def test_create_account_complete_accepted():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Account", "body": {"Name": "Acme"}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Account", "body": {"Name": "Acme"}}))
     assert "validation_error" not in _parse(res)
     assert len(mcp.calls) == 1
 
@@ -245,7 +265,7 @@ def test_create_account_complete_accepted():
 def test_create_opportunity_vague_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Opportunity", "body": {}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Opportunity", "body": {}}))
     _assert_validation_error(res, "createSobjectRecord", ["Name", "StageName", "CloseDate"])
     assert mcp.calls == []
 
@@ -253,7 +273,7 @@ def test_create_opportunity_vague_rejected():
 def test_create_opportunity_incomplete_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord", {"sobject-name": "Opportunity", "body": {"Name": "Deal"}}
     ))
     _assert_validation_error(res, "createSobjectRecord", ["StageName", "CloseDate"])
@@ -263,7 +283,7 @@ def test_create_opportunity_incomplete_rejected():
 def test_create_opportunity_complete_accepted():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord",
         {"sobject-name": "Opportunity", "body": {"Name": "Deal", "StageName": "Prospecting", "CloseDate": "2026-12-31"}},
     ))
@@ -276,7 +296,7 @@ def test_create_case_non_empty_body_allowed_when_no_required_fields():
     # defaulted) — a non-empty case body must NOT be over-rejected (#5).
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord", {"sobject-name": "Case", "body": {"Description": "Login issue"}}
     ))
     assert "validation_error" not in _parse(res)
@@ -287,7 +307,7 @@ def test_create_case_empty_body_rejected():
     # Even with no required fields, a ZERO-field create remains vague and fails closed.
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Case", "body": {}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Case", "body": {}}))
     _assert_validation_error(res, "createSobjectRecord")
     assert mcp.calls == [], "empty-body create must never reach Salesforce"
 
@@ -296,7 +316,7 @@ def test_create_task_incomplete_rejected():
     # Task requires Subject; Status is DEFAULTED on create so it is not required (#5).
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord", {"sobject-name": "Task", "body": {"Description": "Follow up"}}
     ))
     _assert_validation_error(res, "createSobjectRecord", ["Subject"])
@@ -306,7 +326,7 @@ def test_create_task_incomplete_rejected():
 def test_create_task_with_subject_accepted():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord", {"sobject-name": "Task", "body": {"Subject": "Follow up"}}
     ))
     assert "validation_error" not in _parse(res)
@@ -320,7 +340,7 @@ def test_create_task_with_subject_accepted():
 def test_create_no_sobject_name_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"body": {"LastName": "Smith"}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"body": {"LastName": "Smith"}}))
     _assert_validation_error(res, "createSobjectRecord")
     assert mcp.calls == []
 
@@ -328,7 +348,7 @@ def test_create_no_sobject_name_rejected():
 def test_create_body_not_dict_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "body": "not-a-dict"}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Lead", "body": "not-a-dict"}))
     _assert_validation_error(res, "createSobjectRecord")
     assert mcp.calls == []
 
@@ -340,7 +360,7 @@ def test_create_body_not_dict_rejected():
 def test_create_custom_object_vague_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "CustomTenant__c", "body": {}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "CustomTenant__c", "body": {}}))
     _assert_validation_error(res, "createSobjectRecord", ["Tenant__c", "Name"])
     assert mcp.calls == []
     assert mcp.describe_calls == ["CustomTenant__c"], "custom object must be described"
@@ -349,7 +369,7 @@ def test_create_custom_object_vague_rejected():
 def test_create_custom_object_complete_accepted():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord",
         {"sobject-name": "CustomTenant__c", "body": {"Tenant__c": "Acme", "Name": "Main"}},
     ))
@@ -361,7 +381,7 @@ def test_create_custom_object_complete_accepted():
 def test_create_custom_object_describe_fails_closed():
     mcp = _FakeMcpClientNoDescribe()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "CustomTenant__c", "body": {"Name": "Acme"}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "CustomTenant__c", "body": {"Name": "Acme"}}))
     _assert_validation_error(res, "createSobjectRecord")
     assert mcp.calls == [], "schema-unresolved mutation must fail closed (no MCP call)"
     assert mcp.describe_calls == ["CustomTenant__c"]
@@ -382,14 +402,14 @@ def test_resolver_first_uses_describe_for_standard_objects():
         ("CustomLeadFlag__c", "Custom Lead Flag"),
     ]
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord", {"sobject-name": "Lead", "body": {"LastName": "Smith", "Company": "Acme"}}
     ))
     _assert_validation_error(res, "createSobjectRecord", ["CustomLeadFlag__c"])
     assert mcp.calls == [], "missing custom required field must block the create"
     assert mcp.describe_calls == ["Lead"]
 
-    ok = asyncio.run(exec_.execute(
+    ok = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord", {"sobject-name": "Lead",
                                 "body": {"LastName": "Smith", "Company": "Acme",
                                          "CustomLeadFlag__c": "Required"}}
@@ -405,11 +425,11 @@ def test_static_fallback_when_describe_unavailable_for_standard_object():
     mcp.describe_overrides["Lead"] = None
     exec_ = _executor(mcp)
 
-    bad = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "body": {}}))
+    bad = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Lead", "body": {}}))
     _assert_validation_error(bad, "createSobjectRecord", ["LastName", "Company"])
     assert mcp.calls == [], "static fallback must still reject a vague lead"
 
-    good = asyncio.run(exec_.execute(
+    good = asyncio.run(_exec_with_prov(exec_,
         "createSobjectRecord",
         {"sobject-name": "Lead", "body": {"LastName": "Sharma", "Company": "Tech Solutions"}},
     ))
@@ -421,7 +441,7 @@ def test_unknown_object_without_describe_falls_back_then_fails_closed():
     # Object is in neither Describe nor the static registry -> fail closed.
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Mystery__c", "body": {"Name": "X"}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Mystery__c", "body": {"Name": "X"}}))
     _assert_validation_error(res, "createSobjectRecord")
     assert mcp.calls == [], "unknown object with unresolved schema must fail closed"
 
@@ -446,6 +466,9 @@ def test_executor_validate_mutation_public_preflight():
     good = asyncio.run(exec_.validate_mutation(
         "createSobjectRecord",
         {"sobject-name": "Lead", "body": {"LastName": "Sharma", "Company": "Tech Solutions"}},
+        user_provenance=_extract_user_provided_fields(
+            "Last Name: Sharma, Company: Tech Solutions"
+        ),
     ))
     assert good is None
 
@@ -461,7 +484,7 @@ def test_executor_validate_mutation_public_preflight():
 def test_update_valid_accepted():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "updateSobjectRecord",
         {"sobject-name": "Lead", "id": _VALID_LEAD_ID, "body": {"Status": "Working"}},
     ))
@@ -472,7 +495,7 @@ def test_update_valid_accepted():
 def test_update_empty_id_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "updateSobjectRecord", {"sobject-name": "Lead", "id": "", "body": {"Status": "Working"}}
     ))
     _assert_validation_error(res, "updateSobjectRecord")
@@ -482,7 +505,7 @@ def test_update_empty_id_rejected():
 def test_update_invalid_id_format_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "updateSobjectRecord", {"sobject-name": "Lead", "id": "not-an-id", "body": {"Status": "Working"}}
     ))
     _assert_validation_error(res, "updateSobjectRecord")
@@ -492,7 +515,7 @@ def test_update_invalid_id_format_rejected():
 def test_update_empty_body_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "updateSobjectRecord", {"sobject-name": "Lead", "id": _VALID_LEAD_ID, "body": {}}
     ))
     _assert_validation_error(res, "updateSobjectRecord")
@@ -502,7 +525,7 @@ def test_update_empty_body_rejected():
 def test_update_related_valid_accepted():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "updateRelatedRecord",
         {"id": _VALID_CONTACT_ID, "relationship-path": "Account", "body": {"Phone": "555-0100"}},
     ))
@@ -513,7 +536,7 @@ def test_update_related_valid_accepted():
 def test_update_related_missing_rel_path_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "updateRelatedRecord",
         {"id": _VALID_CONTACT_ID, "body": {"Phone": "555-0100"}},
     ))
@@ -524,7 +547,7 @@ def test_update_related_missing_rel_path_rejected():
 def test_delete_valid_id_accepted():
     mcp = _FakeMcpClient(result=json.dumps({"success": True}))
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("deleteSobjectRecord", {"sobject-name": "Lead", "id": _VALID_LEAD_ID}))
+    res = asyncio.run(_exec_with_prov(exec_,"deleteSobjectRecord", {"sobject-name": "Lead", "id": _VALID_LEAD_ID}))
     assert "validation_error" not in _parse(res)
     assert len(mcp.calls) == 1
 
@@ -532,7 +555,7 @@ def test_delete_valid_id_accepted():
 def test_delete_invalid_id_rejected():
     mcp = _FakeMcpClient(result=json.dumps({"success": True}))
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("deleteSobjectRecord", {"sobject-name": "Lead", "id": "bad"}))
+    res = asyncio.run(_exec_with_prov(exec_,"deleteSobjectRecord", {"sobject-name": "Lead", "id": "bad"}))
     _assert_validation_error(res, "deleteSobjectRecord")
     assert mcp.calls == []
 
@@ -540,7 +563,7 @@ def test_delete_invalid_id_rejected():
 def test_upload_valid_accepted():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "uploadRecordAttachment",
         {"record_id": _VALID_ACCOUNT_ID, "file_name": "test.pdf", "file_content_base64": "dGVzdA=="},
     ))
@@ -551,7 +574,7 @@ def test_upload_valid_accepted():
 def test_upload_missing_record_id_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "uploadRecordAttachment", {"file_name": "test.pdf", "file_content_base64": "dGVzdA=="}
     ))
     _assert_validation_error(res, "uploadRecordAttachment")
@@ -561,7 +584,7 @@ def test_upload_missing_record_id_rejected():
 def test_upload_missing_file_content_rejected():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute(
+    res = asyncio.run(_exec_with_prov(exec_,
         "uploadRecordAttachment", {"record_id": _VALID_ACCOUNT_ID, "file_name": "test.pdf"}
     ))
     _assert_validation_error(res, "uploadRecordAttachment")
@@ -577,15 +600,15 @@ def test_validation_error_not_cached_as_success():
     exec_ = _executor(mcp)
     bad_args = {"sobject-name": "Lead", "body": {}}
 
-    r1 = asyncio.run(exec_.execute("createSobjectRecord", dict(bad_args)))
-    r2 = asyncio.run(exec_.execute("createSobjectRecord", dict(bad_args)))
+    r1 = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", dict(bad_args)))
+    r2 = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", dict(bad_args)))
 
     assert "validation_error" in _parse(r1)
     assert "validation_error" in _parse(r2)
     assert mcp.calls == [], "rejected mutations must never reach Salesforce"
     # And a correct submission is NOT falsely deduplicated against the rejected one.
     good_args = {"sobject-name": "Lead", "body": {"LastName": "Smith", "Company": "Acme"}}
-    r3 = asyncio.run(exec_.execute("createSobjectRecord", dict(good_args)))
+    r3 = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", dict(good_args)))
     assert "validation_error" not in _parse(r3)
     assert len(mcp.calls) == 1, "corrected submission must execute"
 
@@ -595,8 +618,8 @@ def test_valid_mutation_remains_idempotent_after_validation_pass():
     exec_ = _executor(mcp)
     args = {"sobject-name": "Lead", "body": {"LastName": "Smith", "Company": "Acme"}}
 
-    r1 = asyncio.run(exec_.execute("createSobjectRecord", dict(args)))
-    r2 = asyncio.run(exec_.execute("createSobjectRecord", dict(args)))
+    r1 = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", dict(args)))
+    r2 = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", dict(args)))
 
     assert r1 == r2
     assert len(mcp.calls) == 1, "valid identical mutation must execute exactly once"
@@ -609,7 +632,7 @@ def test_valid_mutation_remains_idempotent_after_validation_pass():
 def test_read_only_tools_unaffected():
     mcp = _FakeMcpClient(result=json.dumps({"totalSize": 0, "records": []}))
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("soqlQuery", {"q": "SELECT Id FROM Account LIMIT 5"}))
+    res = asyncio.run(_exec_with_prov(exec_,"soqlQuery", {"q": "SELECT Id FROM Account LIMIT 5"}))
     assert "validation_error" not in _parse(res)
     assert len(mcp.calls) == 1
 
@@ -621,7 +644,7 @@ def test_read_only_tools_unaffected():
 def test_error_envelope_full_fields_present():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
-    res = asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "body": {}}))
+    res = asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Lead", "body": {}}))
     parsed = _parse(res)
     for key in ("validation_error", "retry_allowed", "requires_user_input", "missing_fields",
                 "missing_fields_human", "sobject_name", "tool", "error", "suggestion"):
@@ -636,10 +659,10 @@ def test_fabricated_defaults_never_submitted():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
     # A vague lead is rejected outright — nothing reaches MCP.
-    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead"}))
+    asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Lead"}))
     assert mcp.calls == []
     # A valid lead forwards EXACTLY the user-provided body — no invented defaults.
-    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead",
+    asyncio.run(_exec_with_prov(exec_,"createSobjectRecord", {"sobject-name": "Lead",
                                                        "body": {"LastName": "Smith", "Company": "Acme"}}))
     assert len(mcp.calls) == 1
     submitted_body = mcp.calls[0][1].get("body", {})
@@ -939,7 +962,8 @@ def test_multi_mutation_all_valid_executes_all_in_order():
     }])
     orch._get_relevant_tools_or_fallback = AsyncMockMock(return_value=[])
 
-    events = _run_orchestrator(orch, "Create a lead and an account")
+    events = _run_orchestrator(orch,
+        "Create a lead. Last Name: Sharma, Company: Tech Solutions, and create an account with Name: Acme")
 
     assert len(mcp.calls) == 2
     assert mcp.calls[0][1].get("body", {}).get("LastName") == "Sharma"
@@ -951,7 +975,7 @@ def test_multi_mutation_all_valid_executes_all_in_order():
 # ─────────────────────────────────────────────────────────────
 
 def test_orchestrator_valid_create_executes_once():
-    """'Create a lead. Last Name Sharma, Company Tech Solutions.' must reach
+    """'Create a lead. Last Name: Sharma, Company: Tech Solutions.' must reach
     Salesforce exactly once and forward the exact user-provided body."""
     from agent.multi_agent import Orchestrator
 
@@ -981,7 +1005,7 @@ def test_orchestrator_valid_create_executes_once():
     }])
     orch._get_relevant_tools_or_fallback = AsyncMockMock(return_value=[])
 
-    events = _run_orchestrator(orch, "Create a lead. Last Name Sharma, Company Tech Solutions.")
+    events = _run_orchestrator(orch, "Create a lead. Last Name: Sharma, Company: Tech Solutions.")
 
     assert len(mcp.calls) == 1
     assert mcp.calls[0][0] == "createSobjectRecord"
@@ -1185,3 +1209,462 @@ def _has_validation_error(events) -> bool:
             except Exception:
                 continue
     return False
+
+
+# ─────────────────────────────────────────────────────────────
+# MUTATION PROVENANCE (deterministic, no heuristics):
+# required/optional field values must be traceable to explicit
+# user input. LLM-fabricated values are REJECTED.
+# ─────────────────────────────────────────────────────────────
+
+def _find_provenance_envelope(events) -> dict | None:
+    for e in events:
+        if e.get("type") == "tool_result":
+            try:
+                parsed = json.loads(e["data"]["result"])
+            except Exception:
+                continue
+            if parsed.get("validation_error") is True:
+                return parsed
+    return None
+
+
+def _last_response_text(events) -> str:
+    responses = [e for e in events if e.get("type") == "response"]
+    return responses[-1]["data"] if responses else ""
+
+
+class _FabricatingLeadLLM:
+    """Scripted agent-path LLM that FABRICATES the production incident body:
+    'create a lead' -> Doe / Acme Corp / john.doe@acme.com, exactly as Qwen
+    did against the deployed app. Only supply_company_at controls Company."""
+
+    def __init__(self, tool_calls=None, chat_text=None):
+        self.tool_calls = tool_calls if tool_calls is not None else [
+            {"id": "t1", "name": "createSobjectRecord",
+             "arguments": {"sobject-name": "Lead",
+                           "body": {"LastName": "Doe", "Company": "Acme Corp",
+                                    "Email": "john.doe@acme.com"}}},
+        ]
+        self.chat_text = chat_text if chat_text is not None else (
+            "To create the lead I need Last Name and Company Name. Please provide them."
+        )
+        self.tool_llm_calls = 0
+
+    async def chat_with_tools(self, messages=None, tools=None, temperature=0.0, max_tokens=4096):
+        self.tool_llm_calls += 1
+        return {"content": "", "tool_calls": list(self.tool_calls), "finish_reason": "tool_calls"}
+
+    async def chat(self, messages=None, temperature=0.0, max_tokens=4096):
+        return self.chat_text
+
+
+def _new_orchestrator(llm, mcp):
+    from agent.multi_agent import Orchestrator
+    exec_ = ToolExecutor(mcp, exec_registry())
+    orch = Orchestrator(llm=llm, executor=exec_, max_iterations=5, max_history=4)
+    orch.safety_planner = _SafePlanner()
+    orch._generate_plan = AsyncMockMock(return_value=[{
+        "task_id": 1, "description": "create lead", "agent": "ActionAgent", "depends_on": [],
+    }])
+    orch._get_relevant_tools_or_fallback = AsyncMockMock(return_value=[])
+    return orch
+
+
+def test_provenance_vague_create_lead_fabricated_values_rejected():
+    """PROVENANCE #1: 'create a lead' must NEVER reach Salesforce. The LLM's
+    fabricated Doe/Acme Corp/john.doe@acme.com is rejected deterministically;
+    the assistant asks for the fields and there is NO automatic retry."""
+    llm = _FabricatingLeadLLM()
+    mcp = _FakeMcpClient()
+    orch = _new_orchestrator(llm, mcp)
+
+    events = _run_orchestrator(orch, "create a lead")
+
+    assert mcp.calls == [], "fabricated create must never reach Salesforce"
+    env = _find_provenance_envelope(events)
+    assert env is not None, "a validation envelope must be returned"
+    assert set(env["missing_fields"]) == {"LastName", "Company", "Email"}
+    assert env["retry_allowed"] is False
+    text = _last_response_text(events)
+    assert "Last Name" in text and "Company" in text
+    assert llm.tool_llm_calls == 1, "no automatic tool-calling retry after rejection"
+
+
+def test_provenance_executor_unit_fabricated_lead_rejected():
+    """The hard provenance gate lives in ToolExecutor.validate_mutation (used by
+    both pre-flight and execute) and runs BEFORE idempotency/transport: with an
+    EXPLICIT EMPTY provenance map ({} — a caller carrying no authored values), a
+    fabricated Lead body is rejected and MCP is never called."""
+    mcp = _FakeMcpClient()
+    exec_ = _executor(mcp)
+
+    async def _go():
+        return await exec_.execute(
+            "createSobjectRecord",
+            {"sobject-name": "Lead",
+             "body": {"LastName": "Doe", "Company": "Acme Corp"}},
+            user_provenance={},
+        )
+
+    res = asyncio.run(_go())
+    env = json.loads(res)
+    assert env["validation_error"] is True
+    assert set(env["missing_fields"]) == {"LastName", "Company"}
+    assert mcp.calls == []
+
+
+def test_provenance_executor_unit_body_matching_none_fails_closed():
+    """A caller that supplies NO provenance object at all (None) FAILS CLOSED
+    for a body-bearing mutation — there must be no bypass and no backwards-
+    compatible hole: no provenance ⇒ un-authored values ⇒ do not write."""
+    mcp = _FakeMcpClient()
+    exec_ = _executor(mcp)
+
+    async def _go():
+        return await exec_.execute(
+            "createSobjectRecord",
+            {"sobject-name": "Lead",
+             "body": {"LastName": "Sharma", "Company": "Tech Solutions"}},
+            user_provenance=None,
+        )
+
+    res = asyncio.run(_go())
+    env = json.loads(res)
+    assert env["validation_error"] is True
+    assert env.get("requires_user_input") is True
+    assert set(env["missing_fields"]) == {"LastName", "Company"}
+    assert mcp.calls == []
+
+
+def test_provenance_executor_unit_explicit_values_allowed():
+    """Same gate, same body, but the user explicitly supplied the values in a
+    labeled message: the create proceeds and reaches the transport exactly once."""
+    mcp = _FakeMcpClient()
+    exec_ = _executor(mcp)
+    prov = _extract_user_provided_fields("Last Name: Sharma, Company: Tech Solutions")
+
+    async def _go():
+        return await exec_.execute(
+            "createSobjectRecord",
+            {"sobject-name": "Lead",
+             "body": {"LastName": "Sharma", "Company": "Tech Solutions"}},
+            user_provenance=prov,
+        )
+
+    res = asyncio.run(_go())
+    parsed = json.loads(res)
+    assert parsed.get("validation_error") is not True
+    assert len(mcp.calls) == 1
+
+
+def test_provenance_create_lead_for_john_does_not_infer_company():
+    """PROVENANCE #2: 'Create a lead. Last Name: John' establishes only the last
+    name. The LLM's invented Company must be rejected — we never infer/provide
+    Company on the user's behalf. Only Company is asked for.
+    NOTE: an UNLABELED 'for John' / 'named John' phrase establishes NO
+    provenance (deterministically mapping it would be guessing); the user must
+    restate the value with its label."""
+    llm = _FabricatingLeadLLM(tool_calls=[
+        {"id": "t1", "name": "createSobjectRecord",
+         "arguments": {"sobject-name": "Lead",
+                       "body": {"LastName": "John", "Company": "Acme Partners"}}},
+    ], chat_text="I need the Company Name. Please provide it.")
+    mcp = _FakeMcpClient()
+    orch = _new_orchestrator(llm, mcp)
+
+    events = _run_orchestrator(orch, "Create a lead. Last Name: John")
+
+    assert mcp.calls == [], "never execute a create with an inferred Company"
+    env = _find_provenance_envelope(events)
+    assert env is not None
+    assert set(env["missing_fields"]) == {"Company"}
+    assert "LastName" not in env["missing_fields"], "John's name was user-provided"
+    assert "Company" in _last_response_text(events)
+
+
+def test_provenance_explicit_field_bindings_execute_exact_body():
+    """PROVENANCE #3: explicit user bindings ('Last Name: Sharma. Company:
+    Tech Solutions.') make the create legitimate — it executes exactly once with
+    the exact user-supplied values and nothing else."""
+    llm = _FabricatingLeadLLM(tool_calls=[
+        {"id": "t1", "name": "createSobjectRecord",
+         "arguments": {"sobject-name": "Lead",
+                       "body": {"LastName": "Sharma", "Company": "Tech Solutions"}}},
+    ], chat_text="Created the lead for Sharma at Tech Solutions.")
+    mcp = _FakeMcpClient()
+    orch = _new_orchestrator(llm, mcp)
+
+    events = _run_orchestrator(orch, "Create a lead. Last Name: Sharma. Company: Tech Solutions.")
+
+    assert len(mcp.calls) == 1
+    assert mcp.calls[0][0] == "createSobjectRecord"
+    assert mcp.calls[0][1]["body"] == {"LastName": "Sharma", "Company": "Tech Solutions"}
+    assert _find_provenance_envelope(events) is None
+
+
+def test_provenance_multi_turn_bare_values_never_auto_mapped():
+    """PROVENANCE #4 (multi-turn): 'Sharma, Tech Solutions' carries NO field
+    labels, so the parser cannot deterministically map it. The second create is
+    STILL rejected — we never guess/auto-map bare values to fields. Both turns
+    together produce ZERO Salesforce calls."""
+    llm_turn1 = _FabricatingLeadLLM(chat_text="I need the Last Name and Company Name. Please provide them.")
+    mcp1 = _FakeMcpClient()
+    _run_orchestrator(_new_orchestrator(llm_turn1, mcp1), "create a lead")
+    assert mcp1.calls == []
+
+    llm_turn2 = _FabricatingLeadLLM(tool_calls=[
+        {"id": "t1", "name": "createSobjectRecord",
+         "arguments": {"sobject-name": "Lead",
+                       "body": {"LastName": "Sharma", "Company": "Tech Solutions"}}},
+    ], chat_text="I need the fields labeled explicitly, e.g. 'Last Name: Sharma, Company: Tech Solutions'.")
+    mcp2 = _FakeMcpClient()
+    events2 = _run_orchestrator(_new_orchestrator(llm_turn2, mcp2), "Sharma, Tech Solutions")
+
+    assert mcp2.calls == [], "bare unlabeled values must never auto-map to a create"
+    env = _find_provenance_envelope(events2)
+    assert env is not None
+    assert set(env["missing_fields"]) == {"LastName", "Company"}
+    assert "Last Name" in _last_response_text(events2)
+
+
+def test_provenance_optional_fields_omitted_when_absent():
+    """PROVENANCE #5a: the LLM supplies ONLY the user-provided required fields —
+    no invented FirstName/Email. The create succeeds with exactly that body."""
+    llm = _FabricatingLeadLLM(tool_calls=[
+        {"id": "t1", "name": "createSobjectRecord",
+         "arguments": {"sobject-name": "Lead",
+                       "body": {"LastName": "Sharma", "Company": "Tech Solutions"}}},
+    ], chat_text="Created the lead.")
+    mcp = _FakeMcpClient()
+    orch = _new_orchestrator(llm, mcp)
+
+    events = _run_orchestrator(orch, "Create a lead. Last Name: Sharma. Company: Tech Solutions.")
+
+    assert len(mcp.calls) == 1
+    assert mcp.calls[0][1]["body"] == {"LastName": "Sharma", "Company": "Tech Solutions"}
+
+
+def test_provenance_fabricated_optional_fields_rejected():
+    """PROVENANCE #5b: when the LLM INVENTS optional fields (FirstName, Email)
+    the user never supplied, the create is rejected — optional fields must be
+    omitted, never fabricated."""
+    llm = _FabricatingLeadLLM(tool_calls=[
+        {"id": "t1", "name": "createSobjectRecord",
+         "arguments": {"sobject-name": "Lead",
+                       "body": {"LastName": "Sharma", "Company": "Tech Solutions",
+                                "FirstName": "John", "Email": "john.doe@acme.com"}}},
+    ], chat_text="I did not receive First Name and Email from you. Please provide them if you want them set.")
+    mcp = _FakeMcpClient()
+    orch = _new_orchestrator(llm, mcp)
+
+    events = _run_orchestrator(orch, "Create a lead. Last Name: Sharma. Company: Tech Solutions.")
+
+    assert mcp.calls == [], "fabricated optional fields must not reach Salesforce"
+    env = _find_provenance_envelope(events)
+    assert env is not None
+    assert set(env["missing_fields"]) == {"FirstName", "Email"}
+
+
+def test_provenance_mixed_valid_and_fabricated_blocks_everything():
+    """PROVENANCE #6 (all-or-nothing): a VALID lead create (Sharma / Tech
+    Solutions) in the same response as a FABRICATED account ('Global Corp') means
+    ZERO mutations execute — the valid lead is blocked too, as a sibling of the
+    rejected mutation."""
+    from agent.multi_agent import Orchestrator
+
+    class _MixedLLM:
+        def __init__(self):
+            self.tool_calls = [
+                {"id": "t1", "name": "createSobjectRecord",
+                 "arguments": {"sobject-name": "Lead",
+                               "body": {"LastName": "Sharma", "Company": "Tech Solutions"}}},
+                {"id": "t2", "name": "createSobjectRecord",
+                 "arguments": {"sobject-name": "Account", "body": {"Name": "Global Corp"}}},
+            ]
+            self.tool_llm_calls = 0
+
+        async def chat_with_tools(self, messages=None, tools=None, temperature=0.0, max_tokens=4096):
+            self.tool_llm_calls += 1
+            return {"content": "", "tool_calls": list(self.tool_calls), "finish_reason": "tool_calls"}
+
+        async def chat(self, messages=None, temperature=0.0, max_tokens=4096):
+            return ("I need the Account Name. Please provide it explicitly.")
+
+    llm = _MixedLLM()
+    mcp = _FakeMcpClient()
+    exec_ = ToolExecutor(mcp, exec_registry())
+    orch = Orchestrator(llm=llm, executor=exec_, max_iterations=5, max_history=4)
+    orch.safety_planner = _SafePlanner()
+    orch._generate_plan = AsyncMockMock(return_value=[{
+        "task_id": 1, "description": "create records", "agent": "ActionAgent", "depends_on": [],
+    }])
+    orch._get_relevant_tools_or_fallback = AsyncMockMock(return_value=[])
+
+    events = _run_orchestrator(
+        orch,
+        "Create a lead. Last Name: Sharma. Company: Tech Solutions. Also create an account named Acme.",
+    )
+
+    assert mcp.calls == [], "a fabricated mutation must block the whole response (all-or-nothing)"
+    envelopes = [e for e in events if e.get("type") == "tool_result"]
+    assert len(envelopes) == 2, "both mutations yield rejection envelopes"
+    account_env = None
+    for e in envelopes:
+        env = json.loads(e["data"]["result"])
+        assert env["validation_error"] is True
+        assert env["retry_allowed"] is False
+        if env["sobject_name"].lower() == "account":
+            account_env = env
+    assert account_env is not None
+    assert "Name" in account_env["missing_fields"]
+    assert llm.tool_llm_calls == 1
+
+
+# ─────────────────────────────────────────────────────────────
+# PROVENANCE MATRIX (A–P): field-scoped, request-scoped, FULL-VALUE
+# equality. Locked design decisions: no substring/token matching, no
+# cross-field reuse, no truncation, no unlabeled auto-mapping, no
+# global/context store (per-message provenance only), and explicit
+# fail-closed on None.
+# ─────────────────────────────────────────────────────────────
+
+def _provenance_matrix_case(user_message, body, expect_pass):
+    """Run one matrix case through validate_mutation against the Lead/Account
+    describe schema and return (passed, missing_fields)."""
+    mcp = _FakeMcpClient()
+    exec_ = _executor(mcp)
+    prov = _extract_user_provided_fields(user_message)
+    res = asyncio.run(exec_.validate_mutation(
+        "createSobjectRecord", body, user_provenance=prov
+    ))
+    if res is None:
+        assert expect_pass, f"expected FAIL for {user_message!r} -> passed"
+        return True, []
+    parsed = json.loads(res)
+    assert not expect_pass, f"expected PASS for {user_message!r} -> {parsed.get('error')}"
+    assert parsed["validation_error"] is True
+    assert parsed["retry_allowed"] is False
+    assert parsed["requires_user_input"] is True
+    return False, parsed.get("missing_fields", [])
+
+
+def test_provenance_matrix_a_p():
+    cases = [
+        # A. Labeled values match -> pass
+        ("Last Name: Sharma, Company: Tech Solutions",
+         {"sobject-name": "Lead", "body": {"LastName": "Sharma", "Company": "Tech Solutions"}}, True),
+        # B. Cross-field swap -> fail (Last 'Tech Solutions' is the Company value)
+        ("Last Name: Sharma, Company: Tech Solutions",
+         {"sobject-name": "Lead", "body": {"LastName": "Tech Solutions", "Company": "Sharma"}}, False),
+        # C. Truncation -> fail (user said Acme Technologies, LLM wrote Acme)
+        ("Company: Acme Technologies",
+         {"sobject-name": "Lead", "body": {"LastName": "Smith", "Company": "Acme"}}, False),
+        # D. Unlabeled bare values -> fail (deterministic mapping impossible)
+        ("Sharma, Tech Solutions",
+         {"sobject-name": "Lead", "body": {"LastName": "Sharma", "Company": "Tech Solutions"}}, False),
+        # E. API-name + label mix -> pass
+        ("LastName: Sharma, company is Tech Solutions",
+         {"sobject-name": "Lead", "body": {"LastName": "Sharma", "Company": "Tech Solutions"}}, True),
+        # F. Stale/multi-turn values do NOT authorize a NEW message -> fail
+        #   (this message carries no bindings, even though a prior turn had them)
+        ("create a lead",
+         {"sobject-name": "Lead", "body": {"LastName": "Sharma", "Company": "Tech Solutions"}}, False),
+        # G. Quoted value containing a conjunction -> pass
+        ('Company: "Research and Development", Last Name: Smith',
+         {"sobject-name": "Lead", "body": {"LastName": "Smith", "Company": "Research and Development"}}, True),
+        # H. Unbound conjunction in plain text -> binds only the head word (quotes
+        #    required for full phrase) — design tradeoff
+        ("Company is Research and Development",
+         {"sobject-name": "Lead", "body": {"LastName": "Smith", "Company": "Research and Development"}}, False),
+        # I. Empty body -> provenance layer passes but the mutation is still
+        #    rejected by the presence gate (vague create) -> overall FAIL.
+        ("create a lead", {"sobject-name": "Lead", "body": {}}, False),
+        # J. Sentence-period boundaries + internal email dot -> pass
+        ("Last Name: Smith. Company: Acme. Email: bob.d@acme.com.",
+         {"sobject-name": "Lead",
+          "body": {"LastName": "Smith", "Company": "Acme", "Email": "bob.d@acme.com"}}, True),
+        # K. Full-width label/punctuation separators -> pass
+        ("Last Name：Sharma。 Company：Tech Solutions",
+         {"sobject-name": "Lead", "body": {"LastName": "Sharma", "Company": "Tech Solutions"}}, True),
+        # L. Flat single-key args (no 'body' container) -> pass
+        ("Status: Working, Last Name: Smith, Company: Acme",
+         {"sobject-name": "Lead", "LastName": "Smith", "Status": "Working", "Company": "Acme"}, True),
+        # M. Fabricated email (user never supplied it) -> fail
+        ("Last Name: Sharma, Company: Tech Solutions",
+         {"sobject-name": "Lead",
+          "body": {"LastName": "Sharma", "Company": "Tech Solutions",
+                   "Email": "john.doe@acme.com"}}, False),
+        # N. Case/whitespace-insensitive full-value match -> pass
+        ("Company: TECH SOLUTIONS, Last Name: Smith",
+         {"sobject-name": "Lead", "body": {"LastName": "Smith", "Company": "TECH SOLUTIONS"}}, True),
+        # O. Trailing-period normalization on both sides -> pass
+        ("Company: Acme., Last Name: Smith.",
+         {"sobject-name": "Lead", "body": {"LastName": "Smith", "Company": "Acme"}}, True),
+        # P. 'for <name>' / 'named <name>' establish NO provenance -> fail
+        ("create a lead for Sharma",
+         {"sobject-name": "Lead", "body": {"LastName": "Sharma", "Company": "Acme Corp"}}, False),
+    ]
+    for message, body, expect in cases:
+        passed, missing = _provenance_matrix_case(message, body, expect)
+        assert passed == expect, f"matrix case {message!r}: passed={passed} expected={expect}"
+
+
+def test_soql_auto_fix_never_executes_a_mutating_tool():
+    """The SOQL auto-fix path runs OUTSIDE the mutation pre-flight/provenance
+    block. A mutating/destructive tool returned by the fix LLM must NEVER be
+    executed — only read-only tools may be auto-corrected."""
+    from agent.agent import SalesforceAgent
+
+    _SOQL_TOOL = {
+        "type": "function",
+        "function": {"name": "soqlQuery", "description": "Run a SOQL query",
+                     "parameters": {"type": "object", "properties": {}}},
+    }
+    _CREATE_TOOL = {
+        "type": "function",
+        "function": {"name": "createSobjectRecord", "description": "Create a record",
+                     "parameters": {"type": "object", "properties": {}}},
+    }
+
+    class _FixLLM:
+        def __init__(self):
+            self.tool_llm_calls = 0
+
+        async def chat_with_tools(self, messages=None, tools=None, temperature=0.0, max_tokens=4096):
+            self.tool_llm_calls += 1
+            if self.tool_llm_calls == 1:
+                # First decision: a MALFORMED soqlQuery (triggers the auto-fix path).
+                return {"content": "", "tool_calls": [
+                    {"id": "t1", "name": "soqlQuery",
+                     "arguments": {"q": "SELECT Id FROM Lead WHERE"}},
+                ], "finish_reason": "tool_calls"}
+            # The auto-fix LLM tries to smuggle in a CREATE. Must be refused.
+            return {"content": "", "tool_calls": [
+                {"id": "t2", "name": "createSobjectRecord",
+                 "arguments": {"sobject-name": "Lead",
+                               "body": {"LastName": "Doe", "Company": "Acme"}}},
+            ], "finish_reason": "tool_calls"}
+
+        async def chat(self, messages=None, temperature=0.0, max_tokens=4096):
+            return "I could not correct the query."
+
+    mcp = _FakeMcpClient(result="Malformed Query: expected EOF at 'WHERE'")
+    exec_ = _executor(mcp)
+    agent = SalesforceAgent(llm=_FixLLM(), executor=exec_, max_iterations=5)
+    agent.rag_retriever.get_relevant_tools = lambda *a, **k: [_SOQL_TOOL, _CREATE_TOOL]
+
+    # RAG fast-path bypasses the planner for read-only intents, so ensure the
+    # first tool-call response reaches the executor through the normal path.
+    events = []
+    async def _go():
+        async for ev in agent.process_message("Show me the malformed leads", "soql-guard-session"):
+            events.append(ev)
+    asyncio.run(_go())
+
+    assert mcp.calls == [("soqlQuery", {"q": "SELECT Id FROM Lead WHERE"})], \
+        "only the read-only query may be attempted; the mutation must never execute"
+    assert all(c[0] != "createSobjectRecord" for c in mcp.calls)
+    errors = [e for e in events if e.get("type") == "error"]
+    assert errors, "the refusal must surface as a controlled error event"
+    assert "refused" in errors[0]["message"].lower()

@@ -58,7 +58,7 @@ class _Exec:
         self.result = result
         self.executed = []
 
-    async def execute(self, name, arguments):
+    async def execute(self, name, arguments, user_provenance=None):
         self.executed.append((name, arguments))
         return self.result
 

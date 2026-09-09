@@ -75,7 +75,7 @@ class _Exec:
         self.executed = []
         self.user_id = user_id if user_id else "005000000000000001"
 
-    async def execute(self, name, arguments):
+    async def execute(self, name, arguments, user_provenance=None):
         self.executed.append((name, arguments))
         if name == "getUserInfo":
             # Real Salesforce MCP getUserInfo shape: {"identity": {"userId": "005..."}}.
@@ -180,7 +180,7 @@ def test_invalid_user_id_aborts_ownership_query():
     llm = _RunLLM([_tc("soqlQuery", "SELECT Id, Name FROM Contact LIMIT 200")])
 
     class _ExecBad(_Exec):
-        async def execute(self, name, arguments):
+        async def execute(self, name, arguments, user_provenance=None):
             self.executed.append((name, arguments))
             if name == "getUserInfo":
                 return json.dumps({"display_name": "Himanshu", "email": "h@example.com"})
@@ -210,7 +210,7 @@ def test_empty_user_id_result_aborts_ownership_query():
     llm = _RunLLM([_tc("soqlQuery", "SELECT Id, Name FROM Contact LIMIT 200")])
 
     class _ExecEmpty(_Exec):
-        async def execute(self, name, arguments):
+        async def execute(self, name, arguments, user_provenance=None):
             self.executed.append((name, arguments))
             if name == "getUserInfo":
                 return "{}"

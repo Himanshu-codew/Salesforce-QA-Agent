@@ -69,7 +69,7 @@ class _Exec:
     def __init__(self):
         self.executed = []
 
-    async def execute(self, name, arguments):
+    async def execute(self, name, arguments, user_provenance=None):
         self.executed.append((name, arguments))
         if name == "getUserInfo":
             return json.dumps({"id": "005000000000000001", "display_name": "Himanshu"})
@@ -235,7 +235,7 @@ def test_who_am_i_uses_getuserinfo():
     llm = _RunLLM([{"id": "t99", "name": "getUserInfo", "arguments": {}}])
 
     class _ExecUser(_Exec):
-        async def execute(self, name, arguments):
+        async def execute(self, name, arguments, user_provenance=None):
             self.executed.append((name, arguments))
             return json.dumps({"display_name": "Himanshu", "email": "himanshu@example.com"})
 
@@ -250,7 +250,7 @@ def test_what_is_my_profile_uses_getuserinfo():
     llm = _RunLLM([{"id": "t98", "name": "getUserInfo", "arguments": {}}])
 
     class _ExecUser(_Exec):
-        async def execute(self, name, arguments):
+        async def execute(self, name, arguments, user_provenance=None):
             self.executed.append((name, arguments))
             return json.dumps({"display_name": "Himanshu", "role": "Standard"})
 
@@ -292,7 +292,7 @@ def test_ownership_filtered_read_inlines_literal_user_id():
     ])
 
     class _ExecOwned(_Exec):
-        async def execute(self, name, arguments):
+        async def execute(self, name, arguments, user_provenance=None):
             self.executed.append((name, arguments))
             if name == "getUserInfo":
                 return json.dumps({"id": "005000000000000001", "display_name": "Himanshu"})

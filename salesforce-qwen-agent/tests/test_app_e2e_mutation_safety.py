@@ -8,7 +8,7 @@ client and a scripted LLM — no live Salesforce / MCP / Qwen required.
 Proves at the application layer:
 - "create a lead" is BLOCKED and the app ASKS for Last Name + Company Name;
   nothing reaches the MCP/REST client.
-- "Create a lead. Last Name Sharma, Company Tech Solutions." executes EXACTLY
+- "Create a lead. Last Name: Sharma, Company: Tech Solutions." executes EXACTLY
   once and forwards the exact user-provided body.
 """
 
@@ -160,7 +160,7 @@ def test_e2e_create_a_lead_blocked_and_asks_for_fields():
 
 
 def test_e2e_valid_create_executes_exactly_once():
-    """'Create a lead. Last Name Sharma, Company Tech Solutions.' forwards the
+    """'Create a lead. Last Name: Sharma, Company: Tech Solutions.' forwards the
     exact user-provided body to Salesforce exactly once."""
     mcp = _RecordingMcpClient()
     llm = _ScriptedLLM(
@@ -173,7 +173,7 @@ def test_e2e_valid_create_executes_exactly_once():
     )
     agent = _build_agent(llm, mcp)
 
-    response = asyncio_run(_chat(agent, "Create a lead. Last Name Sharma, Company Tech Solutions."))
+    response = asyncio_run(_chat(agent, "Create a lead. Last Name: Sharma, Company: Tech Solutions."))
 
     assert response.get("success") is True
     assert len(mcp.calls) == 1, "valid create must reach Salesforce exactly once"

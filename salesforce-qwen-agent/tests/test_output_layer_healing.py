@@ -156,7 +156,7 @@ class _MockExecutor:
         self.result = result
         self.calls = []
 
-    async def execute(self, tool_name, arguments):
+    async def execute(self, tool_name, arguments, user_provenance=None):
         self.calls.append((tool_name, arguments))
         return self.result
 

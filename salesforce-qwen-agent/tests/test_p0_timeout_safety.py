@@ -180,7 +180,7 @@ def test_confirmed_executor_timeout_yields_controlled_error_not_fake_result(monk
     agent.planner = _StubPlannerConfirmed()
 
     class _Exec:
-        async def execute(self, name, arguments):
+        async def execute(self, name, arguments, user_provenance=None):
             await asyncio.sleep(60.0)
             return "{}"
 
@@ -218,7 +218,7 @@ def test_confirmed_executor_fast_result_still_yields_tool_result(monkeypatch):
     agent.planner = _StubPlannerConfirmed()
 
     class _Exec:
-        async def execute(self, name, arguments):
+        async def execute(self, name, arguments, user_provenance=None):
             return '{"totalSize":1}'
 
     agent.executor = _Exec()

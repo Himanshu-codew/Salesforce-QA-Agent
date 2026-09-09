@@ -60,7 +60,7 @@ class _Exec:
         self.results_by_q = results_by_q
         self.executed = []
 
-    async def execute(self, name, arguments):
+    async def execute(self, name, arguments, user_provenance=None):
         self.executed.append((name, arguments))
         q = arguments.get("q", "")
         return self.results_by_q.get(q, "{}")

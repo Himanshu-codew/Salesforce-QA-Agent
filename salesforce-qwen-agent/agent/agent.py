@@ -1301,7 +1301,9 @@ class SalesforceAgent:
 
                 try:
                     result = await _bounded_call(
-                        self.executor.execute(tool_name, arguments),
+                        self.executor.execute(
+                            tool_name, arguments, user_provenance={}
+                        ),
                         AGENT_EXECUTOR_TIMEOUT,
                         "Salesforce confirmed-operation execution",
                     )
@@ -1570,10 +1572,12 @@ class SalesforceAgent:
                         }
 
                     # Run each tool under a bounded timeout, returning (tc, result).
-                    async def _run_tool(tc: dict) -> tuple[dict, str]:
+                    async def _run_tool(tc: dict, user_provenance: dict) -> tuple[dict, str]:
                         try:
                             result = await _bounded_call(
-                                self.executor.execute(tc["name"], tc["arguments"]),
+                                self.executor.execute(
+                                    tc["name"], tc["arguments"], user_provenance
+                                ),
                                 AGENT_EXECUTOR_TIMEOUT,
                                 f"Salesforce tool '{tc['name']}' execution",
                             )
@@ -1593,6 +1597,10 @@ class SalesforceAgent:
                     # ZERO mutations from this response reach Salesforce — every
                     # mutation is returned to synthesis as a validation or
                     # blocked-sibling envelope, and only read-only calls execute.
+                    # PROVENANCE: required fields must be traceable to the user's
+                    # explicit message — LLM-fabricated values are rejected.
+                    from sfmcp.executor import _extract_user_provided_fields
+                    user_provided_fields = _extract_user_provided_fields(user_message)
                     try:
                         rejected_results: list[tuple[dict, str]] = []
                         validations: list[tuple[dict, str | None]] = []
@@ -1601,7 +1609,9 @@ class SalesforceAgent:
                             if not (is_mutating(tc["name"]) or is_destructive(tc["name"])):
                                 continue
                             vres = await _bounded_call(
-                                self.executor.validate_mutation(tc["name"], tc["arguments"]),
+                                self.executor.validate_mutation(
+                                    tc["name"], tc["arguments"], user_provided_fields
+                                ),
                                 AGENT_EXECUTOR_TIMEOUT,
                                 f"Mutation pre-flight '{tc['name']}'",
                             )
@@ -1632,7 +1642,8 @@ class SalesforceAgent:
                             execution_calls = safe_calls
 
                         parallel_results = await asyncio.gather(
-                            *[_run_tool(tc) for tc in execution_calls]
+                            *[_run_tool(tc, user_provided_fields)
+                              for tc in execution_calls]
                         )
                     except AgentTimeoutError:
                         error_event = _timeout_error_event("Salesforce tool execution")
@@ -1708,14 +1719,33 @@ class SalesforceAgent:
                                                 "type": "tool_call",
                                                 "data": {"name": fixed_tc["name"], "arguments": fixed_tc["arguments"]},
                                             }
-                                            result = await _bounded_call(
-                                                self.executor.execute(
-                                                    fixed_tc["name"], fixed_tc["arguments"]
-                                                ),
-                                                AGENT_EXECUTOR_TIMEOUT,
-                                                "SOQL auto-fix execution",
-                                            )
-                                            memory.add_tool_result(tc["id"], tc["name"], result)
+                                            # ── SAFETY: the auto-fix LLM may return
+                                            # ANY tool. As this path runs OUTSIDE the
+                                            # mutation pre-flight/provenance block, a
+                                            # mutating/destructive tool here is NEVER
+                                            # executed — treated as a hard error. The
+                                            # correction may only be a read-only call
+                                            # (this whole path is a SOQL correction). ──
+                                            if not is_read_only(fixed_tc["name"]):
+                                                result = json.dumps({
+                                                    "error": (
+                                                        f"SOQL auto-fix refused to run "
+                                                        f"'{fixed_tc['name']}': only read-only "
+                                                        "tools are permitted in auto-corrected "
+                                                        "executions."
+                                                    ),
+                                                    "tool": fixed_tc["name"],
+                                                })
+                                            else:
+                                                result = await _bounded_call(
+                                                    self.executor.execute(
+                                                        fixed_tc["name"], fixed_tc["arguments"],
+                                                        user_provenance={},
+                                                    ),
+                                                    AGENT_EXECUTOR_TIMEOUT,
+                                                    "SOQL auto-fix execution",
+                                                )
+                                                memory.add_tool_result(tc["id"], tc["name"], result)
                                     except AgentTimeoutError:
                                         error_event = _timeout_error_event("SOQL auto-fix")
                                         logger.error(f"[TIMEOUT] {error_event['message']}")

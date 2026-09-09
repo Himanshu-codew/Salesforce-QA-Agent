@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -15,6 +16,24 @@ from .registry import ToolRegistry
 from tools.salesforce import is_mutating, is_destructive
 
 logger = logging.getLogger(__name__)
+
+# ── Mutation provenance (field-scoped, request-scoped, FAIL-CLOSED) ───────
+# User provenance is NOT stored in any global/context state. The agent derives
+# the field-scoped values the user authored in the CURRENT request message via
+# _extract_user_provided_fields() and passes them EXPLICITLY to
+# validate_mutation()/execute() as an immutable dict {api_field: frozenset}.
+# There is no disable flag and no hidden context: a caller that provides no
+# provenance at all is treated as having authored nothing and body-bearing
+# mutations FAIL CLOSED.
+#
+# Body-bearing mutations are the ones with a field->value map that an LLM could
+# fabricate. uploadRecordAttachment is deliberately excluded: it has no
+# field->value body (the only field the REST fallback derives, ContentVersion.Title,
+# comes deterministically from the file name — an approved transformation, not a
+# fabricated value).
+_BODY_BEARING_MUTATIONS: frozenset[str] = frozenset({
+    "createSobjectRecord", "updateSobjectRecord", "updateRelatedRecord",
+})
 
 # Defense-in-depth: even if a caller bypasses the orchestrator safety planner,
 # no mutating/destructive tool may run while READ_ONLY_MODE is enabled.
@@ -67,6 +86,282 @@ def _remember_mutation(key: str, result: str) -> None:
         _recent_mutations.pop(next(iter(_recent_mutations)))
 
 
+# ── Mutation provenance enforcement ──────────────────────────────────────
+# Maps common field name variants (spoken, written, labeled) to the API name
+# used in Salesforce tool-call bodies.  Used by _extract_user_provided_fields
+# to map natural-language field values from the user's message to the API
+# fields we must verify.
+_FIELD_LABEL_TO_API: dict[str, str] = {
+    "last name": "LastName", "lastname": "LastName", "last-name": "LastName",
+    "first name": "FirstName", "firstname": "FirstName", "first-name": "FirstName",
+    "company": "Company", "company name": "Company", "company-name": "Company",
+    "email": "Email", "email address": "Email", "email-address": "Email",
+    "phone": "Phone", "phone number": "Phone", "phone-number": "Phone",
+    "title": "Title", "lead source": "LeadSource", "leadsource": "LeadSource",
+    "status": "Status", "lead-status": "Status", "leadstatus": "Status",
+    "name": "Name", "account name": "Name", "account-name": "Name",
+    "opportunity name": "Name", "opportunity-name": "Name",
+    "stage": "StageName", "stage name": "StageName", "stagename": "StageName",
+    "close date": "CloseDate", "closedate": "CloseDate", "close-date": "CloseDate",
+    "subject": "Subject",
+}
+
+# Only the truly required-on-create fields per object.  Fields that Salesforce
+# can default on create (Status on Lead, Priority on Task, etc.) are
+# intentionally EXCLUDED: the LLM must not fabricate them, but they don't
+# trigger provenance rejection if present.
+_CREATE_REQUIRED_FIELDS: dict[str, list[tuple[str, str]]] = {
+    "lead":        [("LastName", "Last Name"), ("Company", "Company Name")],
+    "contact":     [("LastName", "Last Name")],
+    "account":     [("Name", "Account Name")],
+    "opportunity": [("Name", "Opportunity Name"), ("StageName", "Stage"),
+                    ("CloseDate", "Close Date")],
+    "case":        [],   # no universally required fields on create
+    "task":        [("Subject", "Subject")],
+}
+
+
+# Reverse map: Salesforce API field name -> human label, used in provenance /
+# validation error messages so the user sees plain-language field names.
+_API_TO_LABEL: dict[str, str] = {
+    "LastName": "Last Name", "FirstName": "First Name", "Company": "Company Name",
+    "Email": "Email", "Phone": "Phone", "Title": "Title", "LeadSource": "Lead Source",
+    "Status": "Status", "Name": "Name", "StageName": "Stage", "CloseDate": "Close Date",
+    "Subject": "Subject",
+}
+
+
+def _normalize_value(value: Any) -> str:
+    """Normalize a single field value for FULL-VALUE provenance equality.
+
+    - trims surrounding whitespace
+    - strips surrounding matching single/double quotes
+    - collapses internal whitespace runs to a single space
+    - strips a single trailing period
+    - casefolds
+
+    Full normalized values are compared by equality with the field's allowed
+    set — never by substring or token membership, so truncation and
+    cross-field swaps cannot pass."""
+    s = str(value).strip()
+    if len(s) >= 2 and s[0] in ("'", '"') and s[-1] == s[0]:
+        s = s[1:-1].strip()
+    s = re.sub(r"\s+", " ", s).strip()
+    if s.endswith("."):
+        s = s[:-1].rstrip()
+    return s.casefold()
+
+
+# Map every user-facing label (and the lowercased API names) to the Salesforce
+# API field name used in tool-call bodies.  Used by _extract_user_provided_fields
+# to translate a user's words into the fields the gate must verify.
+_TERM_TO_FIELD: dict[str, str] = {}
+for _label, _api in _FIELD_LABEL_TO_API.items():
+    _TERM_TO_FIELD.setdefault(_label.lower(), _api)
+for _api in _FIELD_LABEL_TO_API.values():
+    _TERM_TO_FIELD.setdefault(_api.lower(), _api)
+# Drop one-shot loop variables left in the module namespace.
+try:
+    del _label, _api
+except NameError:
+    pass
+
+# Words that terminate an UNQUOTED value binding (in addition to every field label).
+_BINDING_STOP_WORDS: tuple[str, ...] = ("and", "or", "but", "please", "also", "then")
+
+# Characters allowed inside a single unquoted value (e.g. emails, phones with
+# hyphens/plus, apostrophes, ampersands, slashes, hashes, status strings with
+# '-' like 'Working - Contacted').  Comma, period (sentence ends), newline and
+# the stop words are boundaries, not value chars.
+_VALUE_CHARS = r"0-9A-Za-z .'@#&+/_-"
+_VALUE_START = r"0-9A-Za-z#+"
+
+
+def _extract_user_provided_fields(user_message: str) -> dict[str, frozenset[str]]:
+    """Extract the field-scoped set of NORMALIZED VALUES the user authored in
+    the CURRENT message.
+
+    Returns {api_field: frozenset(normalized_values)}.  Only deterministic
+    explicit bindings count:
+
+      - 'Last Name: Sharma'        (colon / 全角 colon)
+      - 'Company = Tech Solutions' (=)
+      - 'Company is Acme', 'Stage is Prospecting', 'Status are Working' (is/are/as)
+
+    An unquoted value terminates at: the next field label (longest-match), a
+    ';'/'.'/newline, a ',' (value-list separator), or a word-bounded
+    'and'/'or'/'but' conjunction.  Quoted values ('Acme Corp' / "Research and
+    Development") bind their full content and are exempt from those boundaries.
+
+    NEVER bound (deterministically ambiguous -> the requesting side must repeat
+    the value with an explicit label): bare comma-separated values, whitespace
+    bindings ('Last Name Sharma'), and for/named/called/by-the-name-of captures.
+    Mapping an unlabeled value to a field would be guessing, which is prohibited.
+    """
+    if not user_message:
+        return {}
+    terms = sorted(_TERM_TO_FIELD, key=len, reverse=True)
+    stop_terms = sorted(set(terms) | set(_BINDING_STOP_WORDS), key=len, reverse=True)
+    stop_alt = "|".join(re.escape(t) for t in stop_terms)
+
+    result: dict[str, set[str]] = {}
+    masked = user_message
+
+    for term in terms:
+        api = _TERM_TO_FIELD[term]
+        escaped = re.escape(term)
+        leading = r"(?:^|[\s,;，；。：（(])"
+        # A value stops at a sentence boundary (comma/semicolon/newline, plus
+        # full-width ，；。), a WORD-BOUNDED stop word / next field label
+        # (longest-match), a period followed by whitespace or end (sentence
+        # period — internal dots in emails/URLs stay part of the value), or the
+        # end of the message.  Word boundaries prevent a stop word such as 'or'
+        # from matching inside a longer word ('Acme Corp' must not truncate
+        # after 'Acme C').
+        boundary = r"(?:(?:\s*(?:,|;|，|；|。|\n|\b(?:" + stop_alt + r")\b)|\s*[.。](?=\s|$))|\s*$)"
+        value_re = "([" + _VALUE_START + "][" + _VALUE_CHARS + "]*?)"
+
+        pat_colon = re.compile(
+            leading + escaped + r"\s*[:：=]\s*" + value_re +
+            r"(?=" + boundary + r")",
+            re.IGNORECASE,
+        )
+        pat_is = re.compile(
+            leading + escaped + r"\s+(?:is|are|as)\s+" + value_re +
+            r"(?=" + boundary + r")",
+            re.IGNORECASE,
+        )
+        pat_colon_quoted = re.compile(
+            leading + escaped + r"\s*[:：=]\s*(['\"])([^'\"]*)\1",
+            re.IGNORECASE,
+        )
+        pat_is_quoted = re.compile(
+            leading + escaped + r"\s+(?:is|are|as)\s+(['\"])([^'\"]*)\1",
+            re.IGNORECASE,
+        )
+        # Label lookahead used ONLY to blank the label span (so a shorter term
+        # like 'name' can never double-bind inside a longer label such as
+        # 'last name').  It matches the label only when a binding separator
+        # follows; it never consumes the separator or the value.
+        label_re = re.compile(
+            leading + escaped + r"(?=\s*[:：=]|\s+(?:is|are|as)\s+)",
+            re.IGNORECASE,
+        )
+
+        label_spans: list[tuple[int, int]] = []
+        for m in label_re.finditer(masked):
+            label_spans.append((m.end() - len(term), m.end()))
+
+        def _record(m: re.Match) -> None:
+            raw = m.group(2) if m.lastindex == 2 else m.group(1)
+            norm = _normalize_value(raw)
+            if norm and norm not in ("none", "n/a", "unknown", "tbd", "na"):
+                result.setdefault(api, set()).add(norm)
+
+        for pat in (pat_colon, pat_is, pat_colon_quoted, pat_is_quoted):
+            for m in pat.finditer(masked):
+                _record(m)
+
+        if label_spans:
+            chars = list(masked)
+            for ts, te in label_spans:
+                for i in range(ts, te):
+                    chars[i] = " "
+            masked = "".join(chars)
+
+    return {api: frozenset(vals) for api, vals in result.items()}
+
+
+def _is_blank(value: Any) -> bool:
+    """A body value is 'blank' when it is absent/None/whitespace-only.  Blank
+    values are deferred to the presence gate, never treated as provenance
+    fabrications."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    return False
+
+
+def _provenance_failure_envelope(
+    tool_name: str,
+    sobject_name: str,
+    fields: list[tuple[str, str]],
+    error: str,
+    suggestion: str,
+) -> str:
+    """Structured fail-closed validation envelope (machine + human readable)."""
+    return json.dumps({
+        "error": error,
+        "tool": tool_name,
+        "validation_error": True,
+        "retry_allowed": False,
+        "requires_user_input": True,
+        "missing_fields": [api for api, _ in fields],
+        "missing_fields_human": [label for _, label in fields],
+        "sobject_name": sobject_name,
+        "suggestion": suggestion,
+    })
+
+
+def _validate_provenance(
+    tool_name: str,
+    body: dict[str, Any],
+    user_provenance: dict[str, frozenset[str]] | None,
+    sobject_name: str,
+) -> str | None:
+    """Fail-closed provenance gate: returns an error JSON string when ANY
+    non-blank body field value was NOT authored by the user for that SAME field
+    in the current request; None when provenance holds.
+
+    - `user_provenance is None` (a caller that provides no provenance at all)
+      FAILS CLOSED for every non-blank body field — a mutation without
+      user-authored values must never reach the transport.
+    - Otherwise each body value is matched FULL-VALUE against its own field's
+      allowed set.  Truncated values and cross-field swaps therefore fail.
+    """
+    if not isinstance(body, dict) or not body:
+        return None
+    fields = [(str(api), value) for api, value in body.items() if not _is_blank(value)]
+    if not fields:
+        return None
+
+    def _label(api: str) -> str:
+        return _API_TO_LABEL.get(api, api)
+
+    if user_provenance is None:
+        named = [(api, _label(api)) for api, _ in fields]
+        labels = ", ".join(lbl for _, lbl in named)
+        return _provenance_failure_envelope(
+            tool_name, sobject_name, named,
+            (f"Cannot {tool_name}: this mutation carried no user provenance. "
+             f"The field value(s) ({labels}) were never provided by the user — "
+             "executing would stamp un-authored data into Salesforce."),
+            "Route the user's request through the agent so explicit per-field "
+            "provenance is attached, or ask the user to provide the fields.",
+        )
+
+    fabricated: list[tuple[str, str]] = []
+    for api, value in fields:
+        allowed = user_provenance.get(api, frozenset())
+        if _normalize_value(value) in allowed:
+            continue
+        fabricated.append((api, _label(api)))
+
+    if not fabricated:
+        return None
+
+    labels = ", ".join(lbl for _, lbl in fabricated)
+    return _provenance_failure_envelope(
+        tool_name, sobject_name, fabricated,
+        (f"Cannot {tool_name}: field value(s) ({labels}) were NOT provided by the "
+         "user — the system must not fabricate field values; omit fields the user "
+         "did not supply explicitly."),
+        "Ask the user to provide the fields explicitly, then submit a corrected "
+        "request with only user-supplied values.",
+    )
+
+
 class ToolExecutor:
     """
     Executes Salesforce MCP tool calls.
@@ -82,13 +377,22 @@ class ToolExecutor:
         self.mcp_client = mcp_client
         self.registry = registry
 
-    async def execute(self, tool_name: str, arguments: dict[str, Any]) -> str:
+    async def execute(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        user_provenance: dict[str, frozenset[str]] | None = None,
+    ) -> str:
         """
         Execute a tool call and return the result as a formatted string.
 
         Args:
             tool_name: The name of the tool to execute.
             arguments: The arguments to pass to the tool.
+            user_provenance: The field-scoped, request-scoped provenance map
+                ({api_field -> frozenset(normalized values)}) the user authored
+                in the CURRENT message. Passed through to validate_mutation.
+                None fails closed for body-bearing mutations (never authorized).
 
         Returns:
             A JSON-formatted string with the tool result.
@@ -127,7 +431,9 @@ class ToolExecutor:
         # reaches Salesforce via MCP or REST.
         is_write = is_mutating(tool_name) or is_destructive(tool_name)
         if is_write:
-            validation_error = await self.validate_mutation(tool_name, arguments)
+            validation_error = await self.validate_mutation(
+                tool_name, arguments, user_provenance
+            )
             if validation_error is not None:
                 logger.warning(
                     f"[MUTATION-VALIDATION] Tool '{tool_name}' rejected: {validation_error}"
@@ -172,10 +478,27 @@ class ToolExecutor:
             logger.error(error_msg)
             return json.dumps({"error": error_msg, "tool": tool_name})
 
-    async def validate_mutation(self, tool_name: str, arguments: dict[str, Any]) -> str | None:
+    async def validate_mutation(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        user_provenance: dict[str, frozenset[str]] | None = None,
+    ) -> str | None:
         """
         Run the mandatory fail-closed mutation validation. Returns an error JSON
         string when the mutation must be blocked, or None when it may proceed.
+
+        user_provenance: the field-scoped set of normalized values the user
+        authored in THIS request message ({api_field -> frozenset}). None means
+        the caller carried NO provenance at all: for body-bearing mutations
+        (create/update/related) that is FAIL-CLOSED — every non-blank body value
+        is treated as un-authored.
+
+        For a body-bearing mutation the checks run in order:
+        1. PROVENANCE: every non-blank body field value must equal (full-value,
+           normalized) a value the user bound to that SAME field in this request.
+        2. PRESENCE: required fields must be present and non-blank.
+        3. OTHER mutation safety (valid IDs, non-empty bodies, known schema).
 
         For createSobjectRecord, required fields are resolved from live Describe
         metadata (read-only schema path) for BOTH standard and custom objects so
@@ -183,7 +506,10 @@ class ToolExecutor:
         hard-coded. The static registry is only a zero-I/O fallback when Describe
         is unavailable; unknown objects still fail closed.
         """
-        from agent.mutation_validation import validate_mutation_fields
+        from agent.mutation_validation import (
+            validate_mutation_fields,
+            _extract_clean_body,
+        )
 
         sobject_name = ""
         for key in ("sobject-name", "sobject_name", "sobject", "object", "sobjectName", "objectName"):
@@ -191,6 +517,24 @@ class ToolExecutor:
                 sobject_name = str(arguments[key]).strip()
                 break
 
+        # ── PROVENANCE GATE (deterministic, field-scoped, full-value): every
+        # non-blank body field value must trace back to a value the user bound
+        # to that SAME field in the current message. No global/context store, no
+        # substring/token matching, no disable flag. A caller that passes no
+        # provenance (None) FAILS CLOSED for every non-blank body field. ──
+        if tool_name in _BODY_BEARING_MUTATIONS:
+            body = _extract_clean_body(arguments)
+            prov_err = _validate_provenance(
+                tool_name, body, user_provenance, sobject_name
+            )
+            if prov_err is not None:
+                logger.warning(
+                    f"[MUTATION-PROVENANCE] '{tool_name}' rejected: body values "
+                    "were not user-provided in this request."
+                )
+                return prov_err
+
+        # ── PRESENCE GATE: required fields must exist and be non-blank. ──
         resolver = getattr(self.mcp_client, "describe_required_fields", None)
         needs_describe = (
             tool_name == "createSobjectRecord"

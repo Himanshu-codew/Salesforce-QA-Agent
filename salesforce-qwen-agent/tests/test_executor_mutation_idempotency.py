@@ -20,7 +20,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from sfmcp.executor import ToolExecutor
+from sfmcp.executor import ToolExecutor, _normalize_value
 from sfmcp.registry import ToolRegistry
 import sfmcp.executor as executor_module
 
@@ -43,6 +43,17 @@ def _executor(mcp_client) -> ToolExecutor:
     return ToolExecutor(mcp_client, registry)
 
 
+def _prov(arguments):
+    """Body-mirrored provenance so these IDEMPOTENCY tests exercise the dedupe
+    rules (not provenance semantics — those live in test_mutation_validation)."""
+    skip = {"sobject-name", "sobject_name", "sobject", "object", "sobjectName", "objectName"}
+    return {
+        api: frozenset({_normalize_value(v)})
+        for api, v in arguments.items()
+        if api not in skip and v is not None and str(v).strip()
+    }
+
+
 @pytest.fixture(autouse=True)
 def _clean_mutation_store():
     executor_module._recent_mutations.clear()
@@ -55,8 +66,8 @@ def test_identical_create_executes_once():
     exec_ = _executor(mcp)
     args = {"sobject-name": "Lead", "LastName": "Farhan", "Company": "Acme"}
 
-    r1 = asyncio.run(exec_.execute("createSobjectRecord", dict(args)))
-    r2 = asyncio.run(exec_.execute("createSobjectRecord", dict(args)))
+    r1 = asyncio.run(exec_.execute("createSobjectRecord", dict(args), user_provenance=_prov(args)))
+    r2 = asyncio.run(exec_.execute("createSobjectRecord", dict(args), user_provenance=_prov(args)))
 
     assert r1 == r2
     assert len(mcp.calls) == 1, "identical mutation must execute exactly once"
@@ -66,8 +77,16 @@ def test_different_args_are_distinct_submissions():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
 
-    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "LastName": "One", "Company": "Acme"}))
-    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "LastName": "Two", "Company": "Acme"}))
+    asyncio.run(exec_.execute(
+        "createSobjectRecord",
+        {"sobject-name": "Lead", "LastName": "One", "Company": "Acme"},
+        user_provenance={"LastName": {"one"}, "Company": {"acme"}},
+    ))
+    asyncio.run(exec_.execute(
+        "createSobjectRecord",
+        {"sobject-name": "Lead", "LastName": "Two", "Company": "Acme"},
+        user_provenance={"LastName": {"two"}, "Company": {"acme"}},
+    ))
 
     assert len(mcp.calls) == 2, "different create args are two real submissions"
 
@@ -76,8 +95,17 @@ def test_arg_key_order_does_not_defeat_dedupe():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
 
-    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "LastName": "Ali", "Company": "X"}))
-    asyncio.run(exec_.execute("createSobjectRecord", {"LastName": "Ali", "Company": "X", "sobject-name": "Lead"}))
+    first_args = {"sobject-name": "Lead", "LastName": "Ali", "Company": "X"}
+    asyncio.run(exec_.execute(
+        "createSobjectRecord",
+        {"sobject-name": "Lead", "LastName": "Ali", "Company": "X"},
+        user_provenance=_prov(first_args),
+    ))
+    asyncio.run(exec_.execute(
+        "createSobjectRecord",
+        {"LastName": "Ali", "Company": "X", "sobject-name": "Lead"},
+        user_provenance=_prov(first_args),
+    ))
 
     assert len(mcp.calls) == 1
 
@@ -107,7 +135,13 @@ def test_key_scope_is_per_details():
     mcp = _FakeMcpClient()
     exec_ = _executor(mcp)
 
-    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Lead", "LastName": "Zara", "Company": "Acme"}))
-    asyncio.run(exec_.execute("createSobjectRecord", {"sobject-name": "Contact", "LastName": "Zara"}))
+    lead_args = {"sobject-name": "Lead", "LastName": "Zara", "Company": "Acme"}
+    contact_args = {"sobject-name": "Contact", "LastName": "Zara"}
+    asyncio.run(exec_.execute(
+        "createSobjectRecord", lead_args, user_provenance=_prov(lead_args)
+    ))
+    asyncio.run(exec_.execute(
+        "createSobjectRecord", contact_args, user_provenance=_prov(contact_args)
+    ))
 
     assert len(mcp.calls) == 2, "different sobject names are different operations"

@@ -68,7 +68,7 @@ class _Exec:
         self.result = result
         self.executed = []
 
-    async def execute(self, name, arguments):
+    async def execute(self, name, arguments, user_provenance=None):
         self.executed.append((name, arguments))
         return self.result
 
@@ -310,7 +310,7 @@ def test_confirmed_mutation_error_yields_controlled_error(monkeypatch):
 
 def test_p0_timeout_is_not_salesforce_failed(monkeypatch):
     class _SlowExec:
-        async def execute(self, name, arguments):
+        async def execute(self, name, arguments, user_provenance=None):
             await asyncio.sleep(60.0)
             return "{}"
 

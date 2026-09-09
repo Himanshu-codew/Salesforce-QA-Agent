@@ -66,7 +66,7 @@ class _Executor:
         self.never = False
         self.executed = []
 
-    async def execute(self, name, arguments):
+    async def execute(self, name, arguments, user_provenance=None):
         self.executed.append((name, arguments))
         if self.exc:
             raise self.exc

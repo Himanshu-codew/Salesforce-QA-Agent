@@ -55,7 +55,7 @@ class _Exec:
         self.result = result
         self.executed = []
 
-    async def execute(self, name, arguments):
+    async def execute(self, name, arguments, user_provenance=None):
         self.executed.append((name, arguments))
         return self.result
 
@@ -156,7 +156,7 @@ def test_compound_list_and_count_skips_planner_and_runs_both():
     ])
     exec_ = _Exec(None)
 
-    async def fake_execute(name, arguments):
+    async def fake_execute(name, arguments, user_provenance=None):
         q = arguments.get("q", "")
         exec_.executed.append((name, arguments))
         if "COUNT" in q:
@@ -246,7 +246,7 @@ def test_duplicate_count_protection_still_works():
     ])
     exec_ = _Exec(None)
 
-    async def fake_execute(name, arguments):
+    async def fake_execute(name, arguments, user_provenance=None):
         q = arguments.get("q", "")
         exec_.executed.append((name, arguments))
         if "COUNT" in q:
