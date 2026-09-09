@@ -116,6 +116,7 @@ Your job is to take the original user query and the raw JSON results returned by
 RESPONSE FORMATTING RULES (CRITICAL):
 - Your response MUST be clean Markdown.
 - Flat Record Tables: Present lists of records as Markdown tables with headers (e.g., Accounts, Leads). Do not skip rows.
+- COUNT / Aggregate / Scalar Results: A COUNT/summary result (e.g. `expr0`/`count` or a summarized value) is NOT a business record. NEVER report the number of returned aggregate rows as a record count and NEVER append "Total: N records" to a COUNT or summary. Present pre-built count lines (e.g. "**Total Accounts: 60**", "**Total Leads: 0**") VERBATIM and keep the exact totals from the tool results. Only a real record-list table may carry "**Total: N records**".
 - Pre-Built VERBATIM Tables: When the tool results contain pre-built `[reference_table]` Markdown tables, those tables are FINAL and authoritative. Present them VERBATIM — do NOT reformat, truncate, reorder, rename columns, or change any value, and show ALL rows. Every cell value (including Id and Name) must appear exactly as provided.
 - Hierarchical Cards: When records contain nested subqueries (e.g., an Account with nested Opportunities), present them as cards:
   ```

@@ -64,12 +64,14 @@ class _ScriptedLLM:
         self.tool_calls = tool_calls
         self.ask_for_fields = ask_for_fields
         self.tool_llm_calls = 0
+        self.chat_calls = 0
 
     async def chat_with_tools(self, messages=None, tools=None, temperature=0.0, max_tokens=4096):
         self.tool_llm_calls += 1
         return {"content": "", "tool_calls": list(self.tool_calls), "finish_reason": "tool_calls"}
 
     async def chat(self, messages=None, temperature=0.0, max_tokens=4096):
+        self.chat_calls += 1
         if self.ask_for_fields:
             return (
                 "To create the lead I need the required fields: "
@@ -155,6 +157,44 @@ def test_e2e_create_a_lead_blocked_and_asks_for_fields():
     # The app surfaced the (blocked) tool call in metadata, but it never executed.
     tool_calls = response.get("metadata", {}).get("tool_calls") or []
     assert any(tc.get("name") == "createSobjectRecord" for tc in tool_calls)
+    # The tool-calling model was not re-invoked (no automatic retry).
+    assert llm.tool_llm_calls == 1
+
+
+def test_e2e_create_a_lead_with_fabricated_values_asks_for_required_fields():
+    """PROBLEM 1: the tool-calling LLM HALLUCINATES a Lead body (Doe/Acme Corp/
+    j.doe@acme.com) for a vague 'create a lead'. The running app must reject the
+    fabricated create deterministically, never reach the Salesforce transport,
+    and ask ONLY for the true CREATEABLE-AND-REQUIRED fields (Last Name +
+    Company Name) — Email is optional for Lead and must NOT be demanded, and no
+    invented value may leak into the ask."""
+    mcp = _RecordingMcpClient()
+    llm = _ScriptedLLM(
+        tool_calls=[{
+            "id": "t1", "name": "createSobjectRecord",
+            "arguments": {"sobject-name": "Lead",
+                          "body": {"LastName": "Doe", "Company": "Acme Corp",
+                                   "Email": "j.doe@acme.com"}},
+        }],
+        ask_for_fields=True,
+    )
+    agent = _build_agent(llm, mcp)
+
+    response = asyncio_run(_chat(agent, "create a lead"))
+
+    assert response.get("success") is True
+    assert mcp.calls == [], "a fabricated create must never reach the Salesforce client"
+    answer = response.get("answer") or ""
+    lower = answer.lower()
+    assert "last name" in lower and "company" in lower, \
+        f"must ask for the true required fields: {answer}"
+    # Email was invented by the LLM and is OPTIONAL for Lead — not demanded.
+    assert "email" not in lower, "the ask must not demand fabricated optional fields"
+    # No invented value may leak into the ask.
+    for invented in ("Doe", "Acme Corp", "j.doe@acme.com", "Acme"):
+        assert invented not in answer, f"fabricated value {invented!r} leaked into the ask"
+    # The ask is deterministic — the synthesizer LLM is never invoked.
+    assert llm.chat_calls == 0
     # The tool-calling model was not re-invoked (no automatic retry).
     assert llm.tool_llm_calls == 1
 

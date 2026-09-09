@@ -9,7 +9,7 @@ requests still run their COUNT unchanged.
 
 Data-fidelity invariants preserved:
 - Pure list request -> list query executes, no COUNT, no invented total.
-- Genuine COUNT request -> COUNT executes, "**Total Count:** N" preserved.
+- Genuine COUNT request -> COUNT executes, "**Total Accounts: N**" preserved.
 - Explicit compound list + count -> both operations allowed.
 - Reference tables stay verbatim and Id/Name remain separate cells.
 

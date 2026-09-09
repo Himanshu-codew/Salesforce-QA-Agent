@@ -254,10 +254,17 @@ function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}`;
 
-    ws = new WebSocket(wsUrl);
+    // Identity guard: every handler captures THIS socket and only acts on
+    // global state while this socket is still the current one. A late
+    // onclose/onerror delivered for an old, fully-closed socket can therefore
+    // never null out a newer socket, flood the status bar, or schedule a
+    // second reconnect — the socket, timers and state stay in sync.
+    const socket = new WebSocket(wsUrl);
+    ws = socket;
     reconnectInFlight = false;
 
-    ws.onopen = () => {
+    socket.onopen = () => {
+        if (socket !== ws) return;
         reconnectAttempts = 0;
         isConnected = true;
         updateConnectionStatus('connected');
@@ -266,13 +273,14 @@ function connectWebSocket() {
         // alive even while idle. The server parses and ignores these.
         if (window.wsPingTimer) clearInterval(window.wsPingTimer);
         window.wsPingTimer = setInterval(() => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                try { ws.send(JSON.stringify({ type: 'ping' })); } catch (e) {}
+            if (ws === socket && socket.readyState === WebSocket.OPEN) {
+                try { socket.send(JSON.stringify({ type: 'ping' })); } catch (e) {}
             }
         }, 20000);
     };
 
-    ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
+        if (socket !== ws) return;
         try {
             const data = JSON.parse(event.data);
             handleServerEvent(data);
@@ -281,17 +289,24 @@ function connectWebSocket() {
         }
     };
 
-    // Browser-level WebSocket ping keeps the client→edge leg warm as well.
-    ws.onclose = () => {
+    socket.onclose = () => {
+        // A stale socket's close must never replace a newer connection.
+        if (socket !== ws) return;
         if (window.wsPingTimer) { clearInterval(window.wsPingTimer); window.wsPingTimer = null; }
         isConnected = false;
+        // An in-flight request died with the socket: unlock the send button so
+        // the user can retry (we deliberately do NOT auto-resend — the request
+        // may have already executed server-side, e.g. a Lead creation).
+        isProcessing = false;
+        removeThinking();
         ws = null;
         updateConnectionStatus('disconnected');
         headerSubtitle.textContent = 'Disconnected — Reconnecting...';
         scheduleReconnect();
     };
 
-    ws.onerror = (error) => {
+    socket.onerror = (error) => {
+        if (socket !== ws) return;
         console.error('WebSocket error:', error);
         updateConnectionStatus('disconnected');
     };
@@ -312,6 +327,20 @@ function scheduleReconnect() {
         connectWebSocket();
     }, backoff + (reconnectAttempts > 1 ? 1500 : 0));
 }
+
+// Resume promptly when the tab becomes visible again: background tabs have
+// their timers throttled (so client pings slow to ~1/min and a proxy-side idle
+// close is more likely), and a Render cold boot after spin-down can exceed the
+// backoff window. Waking the tab should immediately re-establish the socket.
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    connectWebSocket();
+});
 
 function updateConnectionStatus(status) {
     if (!connectionStatus) return;

@@ -1182,9 +1182,39 @@ async def _ws_send_json(websocket: WebSocket, payload: dict) -> bool:
     try:
         await websocket.send_json(payload)
         return True
-    except (RuntimeError, WebSocketDisconnect) as send_err:
+    except (RuntimeError, WebSocketDisconnect, OSError) as send_err:
         logger.warning(f"[WS] Client disconnected during event delivery: {send_err}")
         return False
+
+
+async def _ws_receive_text(websocket: WebSocket) -> str | None:
+    """Best-effort WebSocket receive that is safe after client/server disconnects.
+
+    PROBLEM 2: Starlette's ``receive_text()`` raises
+    ``RuntimeError('WebSocket is not connected. Need to call "accept" first.')``
+    once ``application_state`` has left CONNECTED — which happens on ANY prior
+    send that hit an OSError (Starlette flips the state to DISCONNECTED and raises
+    WebSocketDisconnect, so the send wrapper logs the normal "[WS] Client
+    disconnected during event delivery"). The next loop iteration then raised that
+    RuntimeError at ``receive_text()``, escaped the WebSocketDisconnect handler and
+    logged a noisy traceback on a perfectly normal client disconnect.
+
+    Here a dead/closed socket or a WebSocketDisconnect is treated as a normal
+    end-of-connection and signalled with None; any OTHER RuntimeError is re-raised
+    (no blind catch)."""
+    if not _ws_is_connected(websocket):
+        logger.info("[WS] Connection already closed; stopping receive loop.")
+        return None
+    try:
+        return await websocket.receive_text()
+    except WebSocketDisconnect as exc:
+        logger.info(f"[WS] Client disconnected during receive: {exc}")
+        return None
+    except RuntimeError as exc:
+        if "not connected" in str(exc):
+            logger.info(f"[WS] Connection closed during receive: {exc}")
+            return None
+        raise
 
 
 async def _ws_produce(websocket: WebSocket, agent, session_id: str, user_message: str) -> None:
@@ -1217,10 +1247,38 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
     try:
         while True:
-            raw = await websocket.receive_text()
-            data = json.loads(raw)
+            raw = await _ws_receive_text(websocket)
+            if raw is None:
+                break
+            try:
+                data = json.loads(raw)
+            except (ValueError, TypeError) as parse_err:
+                logger.warning(f"[WS] Ignoring malformed frame ({session_id}): {parse_err}")
+                await _ws_send_json(websocket, _finalized_ws_event({
+                    "type": "error",
+                    "data": "I received a message I could not read. Please try again.",
+                    "code": "ERROR",
+                    "message": "I received a message I could not read. Please try again.",
+                }))
+                continue
 
-            target_agent = await session_manager.get_or_create_agent(session_id)
+            try:
+                target_agent = await session_manager.get_or_create_agent(session_id)
+            except Exception as agent_err:
+                # A transient agent/session init failure (cold instance right
+                # after a Render spin-up, LLM client warm-up, ...) used to fall
+                # through to the generic exception handler which then force-
+                # closed a still-healthy socket. Surface it and keep the
+                # connection alive so the client does not get a spurious
+                # "Disconnected — Reconnecting..." for this.
+                logger.error(f"[WS] Agent init failed ({session_id}): {agent_err}", exc_info=True)
+                await _ws_send_json(websocket, _finalized_ws_event({
+                    "type": "error",
+                    "data": "I could not initialize this session. Please try again.",
+                    "code": "ERROR",
+                    "message": "I could not initialize this session. Please try again.",
+                }))
+                continue
 
             if data.get("type") == "clear":
                 session_files.pop(session_id, None)
@@ -1318,22 +1376,31 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
                 heartbeat = asyncio.create_task(_heartbeat())
 
-                # Wait for both to finish, but keep receiving so a disconnect,
-                # clear, or error mid-flight is surfaced instead of blocking forever.
+                # Wait for both to finish. Keep polling so a disconnect that
+                # surfaces through a failed send (Starlette flips the state to
+                # DISCONNECTED) aborts the in-flight turn immediately instead of
+                # running a minutes-long request for an absent client. Task
+                # cleanup is unconditional (finally) so no producer/heartbeat
+                # survives, no send happens after the connection is gone, and
+                # the busy flag is always released.
                 try:
                     while not producer.done() or not heartbeat.done():
-                        done, pending = await asyncio.wait(
+                        _, _ = await asyncio.wait(
                             [producer, heartbeat],
                             timeout=WS_HEARTBEAT_SECONDS,
                             return_when=asyncio.FIRST_COMPLETED,
                         )
                         if producer.done() and heartbeat.done():
                             break
-                except asyncio.CancelledError:
-                    logger.info(f"[WS] Connection cancelled during processing ({session_id})")
-                    producer.cancel()
-                    heartbeat.cancel()
-                    raise
+                        if not _ws_is_connected(websocket):
+                            break
+                finally:
+                    if not producer.done():
+                        producer.cancel()
+                    if not heartbeat.done():
+                        heartbeat.cancel()
+                    await asyncio.gather(producer, heartbeat, return_exceptions=True)
+                    _session_busy[session_id] = False
 
                 # `idle` is cosmetic and the client ignores it. Never send it
                 # after the producer has observed a disconnect: that used to
@@ -1343,13 +1410,6 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 logger.info(f"[WS] Final response sent: session={session_id}")
                 log_request_complete(session_id)
 
-                try:
-                    producer.result()
-                except Exception:
-                    pass
-                finally:
-                    _session_busy[session_id] = False
-
     except WebSocketDisconnect:
         logger.info(f"[WS] Connection closed: session={session_id}")
         _session_busy.pop(session_id, None)
@@ -1357,10 +1417,17 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
         logger.error(f"[WS] Connection error ({session_id}): {e}", exc_info=True)
     finally:
         _session_busy.pop(session_id, None)
-        try:
-            await websocket.close()
-        except Exception:
-            pass
+        # Only close a socket the client has already abandoned. Closing a
+        # still-CONNECTED socket pushes a close frame to the browser and is
+        # exactly what used to make perfectly healthy connections report
+        # "Disconnected — Reconnecting..." for no client-side reason (e.g. a
+        # malformed frame or a transient agent-init failure leaking into the
+        # generic exception handler and tearing the endpoint down).
+        if not _ws_is_connected(websocket):
+            try:
+                await websocket.close()
+            except Exception:
+                pass
         logger.info(f"[WS] Connection closed: session={session_id}")
 
 

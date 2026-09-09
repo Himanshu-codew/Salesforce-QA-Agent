@@ -116,7 +116,7 @@ class TestZeroCountFastPath:
             "soqlQuery",
             soql_query="SELECT COUNT(Id) FROM Account",
         )
-        assert md == "**Total Count:** 0"
+        assert md == "**Total Accounts: 0**"
 
     def test_zero_count_not_none_enables_direct_path(self):
         md = format_sf_records_as_markdown(
@@ -135,10 +135,11 @@ class TestZeroCountFastPath:
             "soqlQuery",
             soql_query="SELECT COUNT(Id) FROM Account",
         )
-        assert md == "**Total Count:** 60"
+        assert md == "**Total Accounts: 60**"
 
     def test_nonzero_count_works_without_soql_arg(self):
-        # Legacy callers (no soql_query arg) keep working via expr0.
+        # Legacy callers (no soql_query arg) keep working via expr0. With no
+        # object determinable, the generic count line is the fallback.
         assert format_sf_records_as_markdown(
             json.dumps({"totalSize": 1, "records": [{"expr0": 7}]}), "soqlQuery"
         ) == "**Total Count:** 7"

@@ -289,9 +289,16 @@ def _provenance_failure_envelope(
     fields: list[tuple[str, str]],
     error: str,
     suggestion: str,
+    missing_required: bool = False,
 ) -> str:
-    """Structured fail-closed validation envelope (machine + human readable)."""
-    return json.dumps({
+    """Structured fail-closed validation envelope (machine + human readable).
+
+    ``missing_required=True`` marks the case where ``fields`` is the
+    createable-and-required set the user must supply for a blocked CREATE
+    (resolved from Describe metadata / static registry), as opposed to the
+    list of body fields whose values were fabricated.
+    """
+    payload: dict[str, Any] = {
         "error": error,
         "tool": tool_name,
         "validation_error": True,
@@ -301,7 +308,26 @@ def _provenance_failure_envelope(
         "missing_fields_human": [label for _, label in fields],
         "sobject_name": sobject_name,
         "suggestion": suggestion,
-    })
+    }
+    if missing_required:
+        payload["missing_required"] = True
+    return json.dumps(payload)
+
+
+def _provenance_satisfied_fields(
+    body: dict[str, Any],
+    user_provenance: dict[str, frozenset[str]] | None,
+) -> set[str]:
+    """Return the body field APIs whose values are explicitly user-authored
+    (full-value provenance satisfied) in the current request message."""
+    prov = user_provenance if isinstance(user_provenance, dict) else {}
+    satisfied: set[str] = set()
+    for api, value in body.items():
+        if _is_blank(value):
+            continue
+        if _normalize_value(value) in prov.get(str(api), frozenset()):
+            satisfied.add(str(api))
+    return satisfied
 
 
 def _validate_provenance(
@@ -528,6 +554,19 @@ class ToolExecutor:
                 tool_name, body, user_provenance, sobject_name
             )
             if prov_err is not None:
+                # PROBLEM 1 (create UX): a vague "create a lead" is blocked
+                # correctly by provenance, but the default envelope lists the
+                # FABRICATED body fields. For a create, the user ask must instead
+                # be the true createable-and-required set (Describe metadata
+                # authoritative, static registry fallback) minus the fields the
+                # user actually provided — so custom required fields are surfaced
+                # and no fabricated labels leak into the ask. The gate itself is
+                # unchanged: still blocked, still fail-closed, no record written.
+                if tool_name == "createSobjectRecord":
+                    prov_err = await self._enrich_create_provenance_envelope(
+                        tool_name, body, user_provenance,
+                        sobject_name, prov_err,
+                    )
                 logger.warning(
                     f"[MUTATION-PROVENANCE] '{tool_name}' rejected: body values "
                     "were not user-provided in this request."
@@ -552,6 +591,69 @@ class ToolExecutor:
                 resolved = None
             return validate_mutation_fields(tool_name, arguments, lambda _s: resolved)
         return validate_mutation_fields(tool_name, arguments, None)
+
+    async def _resolve_create_required(
+        self, sobject_name: str
+    ) -> list[tuple[str, str]] | None:
+        """Resolve the createable-and-required fields of an object for a create:
+        live Describe metadata (read-only schema path) first, static registry as
+        a zero-I/O fallback; None when neither is available."""
+        from agent.mutation_validation import OBJECT_REQUIRED_FIELDS
+
+        resolved: list[tuple[str, str]] | None = None
+        resolver = getattr(self.mcp_client, "describe_required_fields", None)
+        if resolver is not None:
+            try:
+                resolved = await resolver(sobject_name)
+            except Exception as exc:  # noqa: BLE001 - resolver failure fails closed
+                logger.error(
+                    f"[MUTATION-VALIDATION] describe_required_fields failed for "
+                    f"'{sobject_name}' while resolving the required-fields ask: {exc}"
+                )
+                resolved = None
+        if resolved:
+            return [(api, label) for api, label in resolved if api and label]
+        static = OBJECT_REQUIRED_FIELDS.get(sobject_name.lower()) if sobject_name else None
+        if static is None:
+            return None
+        return [(api, label) for api, label in static if api and label]
+
+    async def _enrich_create_provenance_envelope(
+        self,
+        tool_name: str,
+        body: dict[str, Any],
+        user_provenance: dict[str, frozenset[str]] | None,
+        sobject_name: str,
+        prov_err: str,
+    ) -> str:
+        """For a CREATE blocked by the provenance gate, rebuild the envelope so
+        ``missing_fields``/``missing_fields_human`` = the object's required set
+        (minus the fields the user actually supplied) and mark it
+        ``missing_required=True``. This lets the synthesizer ask deterministically
+        for exactly the fields the user must provide, including custom required
+        fields from Describe. Returns the original envelope unchanged when the
+        required set cannot be established (fail-closed) or when every required
+        field was already user-provided (e.g. only OPTIONAL fields were
+        fabricated — those are NOT required and must not be asked for as such)."""
+        required = await self._resolve_create_required(sobject_name)
+        if not required:
+            return prov_err
+        provided = _provenance_satisfied_fields(body, user_provenance)
+        missing = [(api, label) for api, label in required if api not in provided]
+        if not missing:
+            return prov_err
+        missing_labels = ", ".join(label for _, label in missing)
+        return _provenance_failure_envelope(
+            tool_name, sobject_name, missing,
+            (
+                f"Cannot {tool_name}: the create was blocked because it did not "
+                f"carry your values for required field(s) {missing_labels}. "
+                "The system must not fabricate field values."
+            ),
+            "Provide the missing required fields with their values, then submit "
+            "a corrected request. No record was created.",
+            missing_required=True,
+        )
 
     def _format_result(self, tool_name: str, result: Any) -> str:
         """Format tool result as a clean JSON string."""

@@ -3,12 +3,12 @@ Focused offline tests for Fix B in the Orchestrator (agent/multi_agent.py).
 
 Fix B: when a read-only Salesforce COUNT query is executed and Salesforce
 explicitly returns totalSize==0, the Orchestrator normalizes that zero-result
-into the project's count line ("**Total Count:** 0") BEFORE synthesis, so the
+into the project's count line ("**Total Accounts: 0**") BEFORE synthesis, so the
 synthesizer can state an explicit zero instead of treating an empty records
 array as missing/unknown data.
 
 Invariants preserved:
-- Non-COUNT empty results must NOT become "Total Count: 0".
+- Non-COUNT empty results must NOT become a count line.
 - Non-zero COUNT results keep their real count.
 - COUNT results with records keep existing behavior.
 - Synthesizer (planner -> worker -> executor -> synthesizer) flow is unchanged.
@@ -106,7 +106,7 @@ def _run(orch, message):
 def test_helper_count_zero_total_size_is_normalized():
     raw = json.dumps({"totalSize": 0, "records": [], "total_count": 0})
     out = _normalize_zero_count_result("soqlQuery", raw, {"q": "SELECT COUNT(Id) FROM Account"})
-    assert out == "**Total Count:** 0"
+    assert out == "**Total Accounts: 0**"
 
 
 def test_helper_non_count_empty_is_unchanged():
@@ -155,7 +155,7 @@ def test_count_zero_reaches_synthesis_as_count_line():
     orch, llm, _ = _build(raw)
     _run(orch, "How many Account records do we have?")
     assert llm.synthesis_user_msg is not None
-    assert "**Total Count:** 0" in llm.synthesis_user_msg
+    assert "**Total Accounts: 0**" in llm.synthesis_user_msg
 
 
 def test_non_count_empty_not_turned_into_zero():
@@ -163,7 +163,7 @@ def test_non_count_empty_not_turned_into_zero():
     orch, llm, _ = _build(raw, soql="SELECT Id FROM Account LIMIT 10")
     _run(orch, "Show me recent Accounts")
     assert llm.synthesis_user_msg is not None
-    assert "**Total Count:** 0" not in llm.synthesis_user_msg
+    assert "**Total Accounts: 0**" not in llm.synthesis_user_msg
 
 
 def test_non_zero_count_keeps_real_value():
@@ -176,8 +176,8 @@ def test_non_zero_count_keeps_real_value():
     events = _run(orch, "How many Account records do we have?")
     assert llm.synthesis_user_msg is None, "COUNT line is deterministic — synthesis skipped"
     responses = " ".join(str(e.get("data")) for e in events if e.get("type") == "response")
-    assert "**Total Count:** 22" in responses
-    assert "**Total Count:** 0" not in responses
+    assert "**Total Accounts: 22**" in responses
+    assert "**Total Accounts: 0**" not in responses
 
 
 def test_count_with_records_keeps_existing_behavior():
@@ -191,7 +191,7 @@ def test_count_with_records_keeps_existing_behavior():
     responses = " ".join(str(e.get("data")) for e in events if e.get("type") == "response")
     assert "| Id |" in responses
     assert "**Total: 2 records**" in responses
-    assert "**Total Count:** 0" not in responses
+    assert "**Total Accounts: 0**" not in responses
 
 
 def test_synthesizer_still_invoked_for_zero_count():

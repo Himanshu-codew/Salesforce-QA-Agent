@@ -774,8 +774,10 @@ def test_validation_failure_does_not_reinvoke_tool_calling_llm():
     assert len(tool_call_events) == 1, "no second tool call after validation failure"
 
 
-def test_validation_failure_flows_to_synthesizer_not_fatal_error():
-    """validation_error=true results are normal tool results, NOT AgentError."""
+def test_validation_failure_returns_deterministic_ask_not_fatal_error():
+    """validation_error=true results are normal tool results, NOT AgentError, and
+    the vague-create ask is rendered deterministically — the synthesizer LLM is
+    not needed for the wording."""
     from agent.multi_agent import Orchestrator
 
     class _LLM:
@@ -785,11 +787,13 @@ def test_validation_failure_flows_to_synthesizer_not_fatal_error():
                  "arguments": {"sobject-name": "Lead", "body": {}}},
             ]
             self.synthesis_user_msg = ""
+            self.chat_calls = 0
 
         async def chat_with_tools(self, messages=None, tools=None, temperature=0.0, max_tokens=4096):
             return {"content": "", "tool_calls": list(self.tool_calls), "finish_reason": "tool_calls"}
 
         async def chat(self, messages=None, temperature=0.0, max_tokens=4096):
+            self.chat_calls += 1
             for m in messages:
                 if m.get("role") == "user":
                     self.synthesis_user_msg = m.get("content", "")
@@ -810,12 +814,14 @@ def test_validation_failure_flows_to_synthesizer_not_fatal_error():
     # No SALESFORCE_FAILED fatal error event for a validation failure.
     errors = [e for e in events if e.get("type") == "error"]
     assert not errors, "validation failure must not be a terminal error"
-    # The synthesizer was invoked with the validation tool result and produced a
-    # user-facing "provide the fields" response.
-    assert "validation_error" in llm.synthesis_user_msg or "required" in llm.synthesis_user_msg.lower() or "provide" in llm.synthesis_user_msg.lower()
+    # The user-facing response is the deterministic ask listing the required fields.
     responses = [e for e in events if e.get("type") == "response"]
-    assert responses, "synthesizer must produce a user-facing response"
-    assert "Please provide" in responses[-1]["data"]
+    assert responses, "a user-facing response must be produced"
+    text = responses[-1]["data"]
+    assert "Sure. To create the Lead, please provide:" in text
+    assert "- Last Name" in text and "- Company Name" in text
+    # The ask is deterministic: the synthesizer LLM is never invoked.
+    assert llm.chat_calls == 0, "no LLM-written ask for a blocked create"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1250,12 +1256,14 @@ class _FabricatingLeadLLM:
             "To create the lead I need Last Name and Company Name. Please provide them."
         )
         self.tool_llm_calls = 0
+        self.chat_calls = 0
 
     async def chat_with_tools(self, messages=None, tools=None, temperature=0.0, max_tokens=4096):
         self.tool_llm_calls += 1
         return {"content": "", "tool_calls": list(self.tool_calls), "finish_reason": "tool_calls"}
 
     async def chat(self, messages=None, temperature=0.0, max_tokens=4096):
+        self.chat_calls += 1
         return self.chat_text
 
 
@@ -1274,7 +1282,8 @@ def _new_orchestrator(llm, mcp):
 def test_provenance_vague_create_lead_fabricated_values_rejected():
     """PROVENANCE #1: 'create a lead' must NEVER reach Salesforce. The LLM's
     fabricated Doe/Acme Corp/john.doe@acme.com is rejected deterministically;
-    the assistant asks for the fields and there is NO automatic retry."""
+    the assistant asks for the CREATEABLE-AND-REQUIRED fields (not the invented
+    ones) and there is NO automatic retry and NO LLM-written ask."""
     llm = _FabricatingLeadLLM()
     mcp = _FakeMcpClient()
     orch = _new_orchestrator(llm, mcp)
@@ -1284,11 +1293,50 @@ def test_provenance_vague_create_lead_fabricated_values_rejected():
     assert mcp.calls == [], "fabricated create must never reach Salesforce"
     env = _find_provenance_envelope(events)
     assert env is not None, "a validation envelope must be returned"
-    assert set(env["missing_fields"]) == {"LastName", "Company", "Email"}
+    # The ask must be the TRUE required set (Describe/static), NOT the fabricated
+    # field list — Email was invented by the LLM but is optional for Lead.
+    assert env.get("missing_required") is True
+    assert set(env["missing_fields"]) == {"LastName", "Company"}
+    assert set(env["missing_fields_human"]) == {"Last Name", "Company Name"}
     assert env["retry_allowed"] is False
     text = _last_response_text(events)
-    assert "Last Name" in text and "Company" in text
+    assert "Sure. To create the Lead, please provide:" in text
+    assert "- Last Name" in text and "- Company Name" in text
+    # No fabricated values leak into the deterministic ask.
+    for invented in ("Doe", "Acme", "john.doe", "Acme Corp"):
+        assert invented not in text, f"fabricated value {invented!r} must never appear in the ask"
     assert llm.tool_llm_calls == 1, "no automatic tool-calling retry after rejection"
+    assert llm.chat_calls == 0, "the ask is deterministic — the synthesizer LLM is not invoked"
+
+
+def test_provenance_create_fabricated_ask_lists_custom_required_fields_deterministically():
+    """PROBLEM 1 (Lead UX): a fabricated create of a CUSTOM object must ask for
+    the CUSTOM required fields resolved from Describe (never guessed from a
+    static list) — deterministically, with ZERO mutations and ZERO invented
+    values. Describe for CustomTenant__c requires Tenant__c + Name."""
+    llm = _FabricatingLeadLLM(tool_calls=[
+        {"id": "t1", "name": "createSobjectRecord",
+         "arguments": {"sobject-name": "CustomTenant__c",
+                       "body": {"Tenant__c": "Acme Tenants", "Name": "HQ"}}},
+    ])
+    mcp = _FakeMcpClient()
+    orch = _new_orchestrator(llm, mcp)
+
+    events = _run_orchestrator(orch, "create a custom tenant")
+
+    assert mcp.calls == [], "fabricated custom-object create must never reach Salesforce"
+    env = _find_provenance_envelope(events)
+    assert env is not None
+    assert env.get("missing_required") is True
+    # Custom required fields come from the live Describe metadata, not the
+    # fabricated body.
+    assert set(env["missing_fields"]) == {"Tenant__c", "Name"}
+    text = _last_response_text(events)
+    assert "Sure. To create the CustomTenant__c, please provide:" in text
+    assert "- Tenant" in text and "- Name" in text
+    for invented in ("Acme Tenants", "HQ"):
+        assert invented not in text, f"fabricated value {invented!r} must never appear in the ask"
+    assert llm.chat_calls == 0, "custom-field ask is deterministic — synthesizer LLM not invoked"
 
 
 def test_provenance_executor_unit_fabricated_lead_rejected():
@@ -1464,6 +1512,12 @@ def test_provenance_fabricated_optional_fields_rejected():
     env = _find_provenance_envelope(events)
     assert env is not None
     assert set(env["missing_fields"]) == {"FirstName", "Email"}
+    # All REQUIRED fields were user-provided, so this is NOT a required-fields
+    # ask (missing_required absent) — the deterministic ask must NOT fire and
+    # list optional First Name / Email as if they were required.
+    assert env.get("missing_required") is not True
+    assert llm.chat_calls == 1, "synthesizer LLM handles the optional-field note"
+    assert "First Name and Email" in _last_response_text(events)
 
 
 def test_provenance_mixed_valid_and_fabricated_blocks_everything():

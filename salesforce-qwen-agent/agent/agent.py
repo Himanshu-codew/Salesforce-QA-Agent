@@ -607,6 +607,165 @@ def _is_soql_count(soql_query: str) -> bool:
 # ~79s end-to-end latency.
 _FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords"}
 
+# Pluralization for labeled count/section lines. Custom objects (``__c``) keep
+# their returned type verbatim (Salesforce types are already plural-free names).
+_PLURAL = {
+    "Account": "Accounts",
+    "Lead": "Leads",
+    "Contact": "Contacts",
+    "Opportunity": "Opportunities",
+    "Case": "Cases",
+    "Task": "Tasks",
+    "Event": "Events",
+    "User": "Users",
+    "Note": "Notes",
+    "Attachment": "Attachments",
+    "Order": "Orders",
+}
+
+
+def _plural(label: str) -> str:
+    if label.lower().endswith("__c"):
+        return label
+    plural = _PLURAL.get(label)
+    if plural:
+        return plural
+    if label.endswith("s"):
+        return label
+    return label + "s"
+
+
+def _soql_count_object(soql: str) -> str | None:
+    """Object token from a COUNT aggregate's FROM clause ('' -> None)."""
+    if not soql:
+        return None
+    m = re.search(r"\bFROM\s+([A-Za-z_][\w]*(?:__c)?)", soql, re.IGNORECASE)
+    if not m:
+        return None
+    return m.group(1)
+
+
+def _render_count_line(value: int, soql: str = "", obj_type: str | None = None) -> str:
+    """Deterministic count line, attributed to its object when determinable.
+
+    - ``**Total Leads: 66**`` when the object is known (FROM clause / attributes
+      type that is not the AggregateResult container), so wording always
+      identifies the business object instead of a generic "Total Count".
+    - ``**Total Count:** 66`` only as a last resort when no object can be
+      determined. The value is the aggregate business value (expr0/count or the
+      totalSize of a genuinely empty COUNT) — NEVER the empty wrapper's row
+      count ``{"totalSize": 1}``.
+    """
+    obj = _soql_count_object(soql)
+    if not obj and obj_type and obj_type != "AggregateResult":
+        obj = obj_type
+    if obj:
+        return f"**Total {_plural(obj)}: {value:,}**"
+    return f"**Total Count:** {value:,}"
+
+_AGGREGATE_FUNC_RE = re.compile(r"\b(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*[\w.]+\s*\)", re.IGNORECASE)
+_METRIC_FUNC_RE = re.compile(r"\b(SUM|AVG|MIN|MAX)\s*\(", re.IGNORECASE)
+
+
+def _aggregate_metric_name(soql: str) -> str:
+    """Return the SOQL aggregate function name (COUNT/SUM/AVG/MIN/MAX), or 'Count'."""
+    m = _AGGREGATE_FUNC_RE.search(soql or "")
+    return m.group(1).upper() if m else "Count"
+
+
+def _aggregate_metric_label(soql: str) -> str:
+    """Aggregate column label with metric AND field context, e.g. 'SUM(Amount)'.
+
+    Falls back to the bare function name ('SUM') when the expression cannot be
+    parsed from the SOQL, so legacy/no-SOQL callers still render correctly.
+    """
+    m = _AGGREGATE_FUNC_RE.search(soql or "")
+    if m:
+        return m.group(0)
+    return "Count"
+
+
+def _has_metric_aggregate(soql: str) -> bool:
+    """True when the SOQL selects a non-Count aggregate function (SUM/AVG/MIN/MAX)."""
+    return bool(_METRIC_FUNC_RE.search(soql or ""))
+
+
+def _fmt_aggregate_cell(value) -> str:
+    """Format one aggregate table cell (group value or metric)."""
+    if value is None or value == "":
+        return ""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return f"{value:,}"
+    if isinstance(value, float):
+        return f"{int(value):,}" if value.is_integer() else f"{value:,}"
+    if isinstance(value, (dict, list)):
+        return ""
+    return str(value)
+
+
+def _aggregate_group_columns(first: dict) -> list[str]:
+    """Group/selector columns of an expr0/count aggregate row.
+
+    Derived from the RETURNED record keys (never a hardcoded object/field), so
+    arbitrary GROUP BY selectors (Status, CloseDate, custom ``__c`` fields, ...)
+    are preserved without fabricating columns.
+    """
+    return [
+        k
+        for k in first
+        if k not in ("expr0", "count", "attributes")
+        and not isinstance(first[k], (dict, list))
+    ]
+
+
+def _render_aggregate_markdown(records: list, soql: str = "") -> str:
+    """Render a COUNT/SUM/GROUP-BY aggregate result as a deterministic table.
+
+    Group columns come from the returned record keys (never a hardcoded object),
+    and the metric column (``expr0``/``count``) is named by the SOQL aggregate
+    function and right-aligned. Aggregates are summaries, NOT business records,
+    so no '**Total: N records**' line is ever appended here.
+    """
+    if not records or not isinstance(records[0], dict):
+        return ""
+    first = records[0]
+    col_names = _aggregate_group_columns(first)
+    metric = _aggregate_metric_label(soql)
+    ncols = len(col_names) + 1
+    sep_cells = ["---"] * (ncols - 1) + ["---:"]
+    header = "| " + " | ".join(col_names + [metric]) + " |"
+    sep = "| " + " | ".join(sep_cells) + " |"
+    lines = [header, sep]
+    for rec in records:
+        cells = [_fmt_aggregate_cell(rec.get(k)) for k in col_names]
+        cells.append(_fmt_aggregate_cell(rec.get("expr0", rec.get("count", ""))))
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def _classify_expr_count(first: dict, records: list, soql: str = "") -> str | None:
+    """Classify an ``expr0``/``count``-shaped result as ``count`` or ``aggregate``.
+
+    This is THE single shared decision used by both the flat formatter and the
+    section renderer so they can never diverge:
+
+    - ``count``     single row, no GROUP BY group columns, no SUM/AVG/MIN/MAX
+                    metric → a scalar business value.
+    - ``aggregate`` one or more group columns OR multiple rows OR a non-Count
+                    metric function → a deterministic aggregate table. It is
+                    NEVER collapsed to the first row and NEVER a business row
+                    count (len(records) is the number of groups, not a total).
+    - ``None``      the record is not expr0/count-shaped at all.
+    """
+    if "expr0" not in first and "count" not in first:
+        return None
+    group_cols = _aggregate_group_columns(first)
+    if group_cols or len(records) > 1 or _has_metric_aggregate(soql):
+        return "aggregate"
+    return "count"
+
 
 def format_sf_records_as_markdown(
     result_json: str,
@@ -654,7 +813,9 @@ def format_sf_records_as_markdown(
         # project's count line so the direct-response fast path triggers instead
         # of a second LLM synthesis call. Value comes straight from totalSize.
         if tool_name == "soqlQuery" and _is_soql_count(soql_query):
-            return f"**Total Count:** {int(total_size):,}"
+            # value comes straight from totalSize (a genuinely empty COUNT =
+            # zero business value), attributed via the FROM-clause object.
+            return _render_count_line(int(total_size), soql_query)
         return None
 
     first = records[0]
@@ -664,17 +825,32 @@ def format_sf_records_as_markdown(
     if isinstance(first.get("attributes"), dict):
         obj_type = first["attributes"].get("type")
 
-    # Case 1: Aggregate/COUNT result → clean single-value text, never a table
-    # Salesforce returns {"totalSize": 1, "records": [{"expr0": 60}]} for COUNT queries.
-    # totalSize is always 1 (one aggregate row), so we must read expr0 / count for the real value.
-    if records and isinstance(first, dict) and ("expr0" in first or "count" in first):
-        count_val = first.get("expr0", first.get("count", 0))
-        # Format with commas for readability: 1234567 → 1,234,567
-        try:
-            count_num = int(float(count_val)) if count_val is not None else 0
-        except (ValueError, TypeError):
-            count_num = 0
-        return f"**Total Count:** {count_num:,}"
+    # Case 1: Aggregate/COUNT result. Semantic branching (shared classifier in
+    # _classify_expr_count, so this never diverges from result_types.py):
+    #
+    #  - 'count'     plain single-value COUNT (expr0/count, no group columns, no
+    #                SUM/AVG/MIN/MAX metric) → the scalar count line.
+    #  - 'aggregate' GROUP BY COUNT (group columns) or multi-row or a non-Count
+    #                metric → deterministic aggregate table. NEVER collapsed to
+    #                the first row, NEVER labeled as a record count, NEVER using
+    #                len(records) as the business count (it is the group count).
+    #
+    # totalSize is deliberately ignored here (for COUNT it is 1 row, not the
+    # business value); the value always comes from expr0 / count.
+    if records and isinstance(first, dict):
+        agg_kind = _classify_expr_count(first, records, soql_query)
+        if agg_kind == "count":
+            count_val = first.get("expr0", first.get("count", 0))
+            # Format with commas for readability: 1234567 → 1,234,567
+            try:
+                count_num = int(float(count_val)) if count_val is not None else 0
+            except (ValueError, TypeError):
+                count_num = 0
+            # Attributed to the queried object (never "AggregateResult", never
+            # totalSize=1 as the business value).
+            return _render_count_line(count_num, soql_query, obj_type)
+        if agg_kind == "aggregate":
+            return _render_aggregate_markdown(records, soql_query)
 
     # Case 2: Subquery results → return None (let LLM handle hierarchical formatting)
     has_subqueries = any(
@@ -1430,7 +1606,7 @@ class SalesforceAgent:
                 return
 
             # --- INTERCEPTORS (Pre-process LLM result) ---
-            
+
             # 1. Bare Tool Name Cleanup & Interception
             if llm_result.get("content"):
                 content_clean = llm_result["content"].strip().strip("`'\" \n\r\t").rstrip("()")
@@ -1808,16 +1984,19 @@ class SalesforceAgent:
                             "data": {"name": tc["name"], "result": result},
                         }
 
-                # ── PYTHON DIRECT RESPONSE: Skip LLM for simple flat queries only ──
+                # ── PYTHON DIRECT RESPONSE: Skip LLM for fully-built flat queries ──
                 # Only bypass LLM when ALL tool calls produced flat Python tables
-                # (no hierarchical cards, no subqueries). Action keywords and complex
-                # queries always go to the LLM for natural synthesis.
+                # (no hierarchical cards, no subqueries). Only action keywords that
+                # signal a MUTATION force the LLM to narrate; compound read-only
+                # phrasing ("and count", "and tell me", "also count") must NOT
+                # disqualify a fully-table-built answer, otherwise a mixed list+count
+                # query gets re-rendered by the LLM (which can fuse headers and
+                # mislabel a COUNT as "1 record").
                 _action_kw = [
                     "update", "edit", "change", "modify", "badlo", "set",
                     "delete", "remove", "hatao", "mitao", "drop",
                     "create", "add", "insert", "new", "make", "banao", "daalo",
-                    "and tell me", "and count", "and delete",
-                    "and update", "and create", "also count",
+                    "and delete", "and update", "and create",
                 ]
                 _has_action_or_complex = any(kw in user_msg_lower for kw in _action_kw)
                 if python_tables and safe_calls and len(python_tables) == len(safe_calls) and not destructive_calls and not _has_action_or_complex:

@@ -85,8 +85,13 @@ def _build_validation_error(
     sobject_name: str,
     missing: list[tuple[str, str]],
     reason: str,
+    missing_required: bool = False,
 ) -> str:
-    """Build the structured validation-error envelope (machine readable + human readable)."""
+    """Build the structured validation-error envelope (machine readable + human readable).
+
+    ``missing_required=True`` marks the case where the ``missing`` list is the
+    createable-and-required set the user must supply for a blocked CREATE (as
+    opposed to a structural error with no field list)."""
     import json
 
     api_names = [m[0] for m in missing]
@@ -96,7 +101,7 @@ def _build_validation_error(
         f"Cannot {tool_name}: required fields are missing or blank. "
         f"Please provide: {human_list}." if human_list else reason
     )
-    return json.dumps({
+    payload = {
         "error": error,
         "tool": tool_name,
         "validation_error": True,
@@ -109,7 +114,10 @@ def _build_validation_error(
             "Provide the missing required fields in the request body before retrying. "
             "Do not retry automatically; ask the user to supply the values."
         ),
-    })
+    }
+    if missing_required:
+        payload["missing_required"] = True
+    return json.dumps(payload)
 
 
 def validate_mutation_fields(
@@ -191,7 +199,8 @@ def validate_mutation_fields(
         if not body:
             if required:
                 return _build_validation_error(tool_name, sobject_name, required,
-                                               f"Cannot create {sobject_name}: required fields missing.")
+                                               f"Cannot create {sobject_name}: required fields missing.",
+                                               missing_required=True)
             return _build_validation_error(
                 tool_name, sobject_name, [],
                 f"Cannot create {sobject_name}: no fields were provided. Please provide "
@@ -201,7 +210,8 @@ def validate_mutation_fields(
         missing = _missing_required(required, body)
         if missing:
             return _build_validation_error(tool_name, sobject_name, missing,
-                                           f"Cannot create {sobject_name}: required fields missing.")
+                                           f"Cannot create {sobject_name}: required fields missing.",
+                                           missing_required=True)
         return None
 
     if tool_name == "updateSobjectRecord":
