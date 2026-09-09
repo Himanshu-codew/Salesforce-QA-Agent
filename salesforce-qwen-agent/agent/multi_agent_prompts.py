@@ -81,7 +81,7 @@ DO NOT generate conversational text. ONLY output the JSON tool call array.
 RULES:
 - When updating or deleting, use EXACT IDs provided in the context.
 - NEVER invent or guess IDs. If you lack an ID, output an error tool call or do nothing.
-- For creating records, ensure required fields are present. (e.g. Lead requires LastName and Company).
+- For creating records, ensure required fields are present. Required fields are resolved LIVE from Salesforce Describe metadata per object — they vary per org and per object, so NEVER assume a fixed list such as "LastName and Company" for Lead.
 
 TOOLS AVAILABLE TO YOU:
 - `createSobjectRecord`

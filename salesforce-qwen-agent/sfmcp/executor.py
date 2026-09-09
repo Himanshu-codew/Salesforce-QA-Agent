@@ -106,21 +106,6 @@ _FIELD_LABEL_TO_API: dict[str, str] = {
     "subject": "Subject",
 }
 
-# Only the truly required-on-create fields per object.  Fields that Salesforce
-# can default on create (Status on Lead, Priority on Task, etc.) are
-# intentionally EXCLUDED: the LLM must not fabricate them, but they don't
-# trigger provenance rejection if present.
-_CREATE_REQUIRED_FIELDS: dict[str, list[tuple[str, str]]] = {
-    "lead":        [("LastName", "Last Name"), ("Company", "Company Name")],
-    "contact":     [("LastName", "Last Name")],
-    "account":     [("Name", "Account Name")],
-    "opportunity": [("Name", "Opportunity Name"), ("StageName", "Stage"),
-                    ("CloseDate", "Close Date")],
-    "case":        [],   # no universally required fields on create
-    "task":        [("Subject", "Subject")],
-}
-
-
 # Reverse map: Salesforce API field name -> human label, used in provenance /
 # validation error messages so the user sees plain-language field names.
 _API_TO_LABEL: dict[str, str] = {
@@ -290,6 +275,7 @@ def _provenance_failure_envelope(
     error: str,
     suggestion: str,
     missing_required: bool = False,
+    missing_field_options: dict[str, list[str]] | None = None,
 ) -> str:
     """Structured fail-closed validation envelope (machine + human readable).
 
@@ -297,6 +283,12 @@ def _provenance_failure_envelope(
     createable-and-required set the user must supply for a blocked CREATE
     (resolved from Describe metadata / static registry), as opposed to the
     list of body fields whose values were fabricated.
+
+    ``missing_field_options`` (optional) carries the METADATA-DERIVED choice
+    hints for those required fields — active picklist values for enum fields
+    and referenced object names for lookup fields — so an ask can show what
+    values are allowed. It is only populated with ENUM/lookup hints (never
+    fabricated values), so no invented example values are ever presented.
     """
     payload: dict[str, Any] = {
         "error": error,
@@ -311,6 +303,10 @@ def _provenance_failure_envelope(
     }
     if missing_required:
         payload["missing_required"] = True
+    if missing_field_options:
+        payload["missing_field_options"] = {
+            str(api): list(options) for api, options in missing_field_options.items() if options
+        }
     return json.dumps(payload)
 
 
@@ -589,18 +585,72 @@ class ToolExecutor:
                     f"'{sobject_name}': {exc}"
                 )
                 resolved = None
-            return validate_mutation_fields(tool_name, arguments, lambda _s: resolved)
-        return validate_mutation_fields(tool_name, arguments, None)
+            err = validate_mutation_fields(tool_name, arguments, lambda _s: resolved)
+            return await self._enrich_presence_envelope_options(
+                tool_name, sobject_name, err
+            )
+        err = validate_mutation_fields(tool_name, arguments, None)
+        return await self._enrich_presence_envelope_options(
+            tool_name, sobject_name, err
+        )
+
+    async def _enrich_presence_envelope_options(
+        self,
+        tool_name: str,
+        sobject_name: str,
+        envelope: str | None,
+    ) -> str | None:
+        """Attach METADATA-DERIVED choice hints to a PASSED-BACK required-fields
+        envelope so the deterministic ask can list what values are allowed for
+        enum/lookup fields. Only fills ``missing_field_options`` when the
+        envelope is a required-create ask (``missing_required``), never for
+        structural errors or fabricated-field provenance envelopes. Returns the
+        envelope unchanged otherwise (safe on None / foreign envelopes)."""
+        if tool_name != "createSobjectRecord" or not envelope:
+            return envelope
+        if not sobject_name:
+            return envelope
+        try:
+            parsed = json.loads(envelope)
+        except (json.JSONDecodeError, TypeError):
+            return envelope
+        if not isinstance(parsed, dict) or parsed.get("missing_required") is not True:
+            return envelope
+        fields = list(parsed.get("missing_fields") or [])
+        if not fields:
+            return envelope
+        required_pairs = [
+            (api, label)
+            for api, label in zip(
+                parsed.get("missing_fields") or [],
+                parsed.get("missing_fields_human") or [],
+            )
+        ]
+        required_with_options = await self._with_required_field_options(
+            required_pairs, sobject_name
+        )
+        options = {
+            str(api): list(opts)
+            for api, _, opts in required_with_options
+            if opts
+        }
+        if not options:
+            return envelope
+        parsed["missing_field_options"] = options
+        return json.dumps(parsed)
 
     async def _resolve_create_required(
         self, sobject_name: str
     ) -> list[tuple[str, str]] | None:
         """Resolve the createable-and-required fields of an object for a create:
         live Describe metadata (read-only schema path) first, static registry as
-        a zero-I/O fallback; None when neither is available."""
+        a zero-I/O fallback; None when neither is available.
+
+        An authoritative EMPTY list (Describe resolved and the object genuinely
+        has no create-required fields) is a VALID resolution and is returned as
+        ``[]`` — it is distinct from None (schema unknown -> fail closed)."""
         from agent.mutation_validation import OBJECT_REQUIRED_FIELDS
 
-        resolved: list[tuple[str, str]] | None = None
         resolver = getattr(self.mcp_client, "describe_required_fields", None)
         if resolver is not None:
             try:
@@ -611,12 +661,39 @@ class ToolExecutor:
                     f"'{sobject_name}' while resolving the required-fields ask: {exc}"
                 )
                 resolved = None
-        if resolved:
-            return [(api, label) for api, label in resolved if api and label]
+            if resolved is not None:
+                return [(api, label) for api, label in resolved if api and label]
         static = OBJECT_REQUIRED_FIELDS.get(sobject_name.lower()) if sobject_name else None
         if static is None:
             return None
         return [(api, label) for api, label in static if api and label]
+
+    async def _with_required_field_options(
+        self,
+        required: list[tuple[str, str]],
+        sobject_name: str,
+    ) -> list[tuple[str, str, list[str]]]:
+        """Augment the required fields of an object with live choice hints
+        (active picklist values for enum fields, referenced object names for
+        lookup fields) so the deterministic required-fields ask can show what
+        values are allowed. Hints come from Describe metadata (reusing the
+        shared schema cache — no extra describe call difficulty); when Describe
+        is unavailable the static fallback hints are empty (never guessed)."""
+        options: dict[str, list[str]] = {}
+        resolver = getattr(self.mcp_client, "describe_required_field_options", None)
+        if resolver is not None:
+            try:
+                options = await resolver(sobject_name) or {}
+            except Exception as exc:  # noqa: BLE001 - resolver failure fails closed
+                logger.error(
+                    f"[MUTATION-VALIDATION] describe_required_field_options failed for "
+                    f"'{sobject_name}': {exc}"
+                )
+                options = {}
+        return [
+            (api, label, options.get(api) or [])
+            for api, label in required
+        ]
 
     async def _enrich_create_provenance_envelope(
         self,
@@ -642,9 +719,14 @@ class ToolExecutor:
         missing = [(api, label) for api, label in required if api not in provided]
         if not missing:
             return prov_err
-        missing_labels = ", ".join(label for _, label in missing)
+        required_with_options = await self._with_required_field_options(missing, sobject_name)
+        missing_labels = ", ".join(label for _, label, _ in required_with_options)
+        missing_option_map = {
+            str(api): list(options) for api, _, options in required_with_options if options
+        }
         return _provenance_failure_envelope(
-            tool_name, sobject_name, missing,
+            tool_name, sobject_name,
+            [(api, label) for api, label, _ in required_with_options],
             (
                 f"Cannot {tool_name}: the create was blocked because it did not "
                 f"carry your values for required field(s) {missing_labels}. "
@@ -653,6 +735,7 @@ class ToolExecutor:
             "Provide the missing required fields with their values, then submit "
             "a corrected request. No record was created.",
             missing_required=True,
+            missing_field_options=missing_option_map,
         )
 
     def _format_result(self, tool_name: str, result: Any) -> str:

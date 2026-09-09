@@ -327,21 +327,35 @@ def _render_required_fields_ask(tool_results: list[dict]) -> str | None:
     seen: set[tuple[str, tuple[str, ...]]] = set()
     for env in required_envs:
         sobject = str(env.get("sobject_name") or "").strip() or "record"
+        apis = [
+            str(a) for a in (env.get("missing_fields") or []) if str(a).strip()
+        ]
         labels = [
-            str(lbl) for lbl in (env.get("missing_fields_human") or []) if str(lbl).strip()
+            str(l) for l in (env.get("missing_fields_human") or []) if str(l).strip()
         ]
         if not labels:
-            labels = [
-                str(lbl) for lbl in (env.get("missing_fields") or []) if str(lbl).strip()
-            ]
-        if not labels:
+            labels = list(apis)
+        if not apis:
             continue
+        options_map = env.get("missing_field_options") or {}
         key = (sobject, tuple(labels))
         if key in seen:
             continue
         seen.add(key)
-        lines = "\n".join(f"- {label}" for label in labels)
-        blocks.append(f"Sure. To create the {sobject}, please provide:\n{lines}")
+        lines: list[str] = []
+        for i, api in enumerate(apis):
+            label = labels[i] if i < len(labels) else api
+            opts = options_map.get(api) if isinstance(options_map, dict) else None
+            if opts:
+                # Render a METADATA-ACCURATE hint so the user sees real allowed
+                # values or referenced objects — no invented placeholder text.
+                # For picklists (value strings) and reference objects alike,
+                # "choose from:" is the most unambiguous presentation.
+                hint = "choose from: " + ", ".join(opts)
+                lines.append(f"- {label} ({hint.strip()})")
+            else:
+                lines.append(f"- {label}")
+        blocks.append(f"Sure. To create the {sobject}, please provide:\n" + "\n".join(lines))
 
     if not blocks:
         return None

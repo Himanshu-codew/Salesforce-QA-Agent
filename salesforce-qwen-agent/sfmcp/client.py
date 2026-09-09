@@ -38,12 +38,24 @@ def _extract_body(arguments: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in arguments.items() if k not in ignore_keys}
 
 
+# Picklist values attached to a required/enum field are capped so the
+# deterministic required-fields ask stays compact. Values are the ACTIVE
+# picklist entries in Describe order (deterministic, mirroring Salesforce).
+_PICKLIST_VALUES_CAP = 12
+
+
 def _simplify_describe_fields(raw: dict) -> list[dict]:
     """Flatten a raw /sobjects/X/describe payload into a minimal field list.
 
     A field is REQUIRED for create when it is createable, non-nillable and NOT
     defaulted on create (Salesforce supplies the value otherwise — e.g. Task
-    Status). Never guessed here; this mirrors Salesforce's own metadata."""
+    Status). Never guessed here; this mirrors Salesforce's own metadata.
+
+    The minimal record also keeps the LIVE metadata the deterministic
+    required-fields ask needs (A8): active picklist values for enum fields and
+    the referenced object names for lookup/reference fields — labels and hints
+    are always derived from Describe, never from a hard-coded per-object list.
+    """
     simplified = []
     for f in raw.get("fields", []):
         req = not f.get("nillable") and not f.get("defaultedOnCreate") and bool(f.get("createable"))
@@ -54,6 +66,14 @@ def _simplify_describe_fields(raw: dict) -> list[dict]:
         }
         if req:
             info["required"] = True
+        if f.get("type") == "picklist" and f.get("picklistValues"):
+            active_vals = [p.get("value") for p in f.get("picklistValues", []) if p.get("active")]
+            if active_vals:
+                info["picklist_values"] = active_vals[:_PICKLIST_VALUES_CAP]
+        if f.get("type") == "reference" and f.get("referenceTo"):
+            refs = [r for r in f.get("referenceTo", []) if str(r).strip()]
+            if refs:
+                info["reference_to"] = refs
         simplified.append(info)
     return simplified
 
@@ -66,6 +86,28 @@ def _extract_required_from_describe(fields: list[dict]) -> list[tuple[str, str]]
         for f in fields
         if f.get("required") and f.get("name")
     ]
+
+
+def _extract_required_field_options(fields: list[dict]) -> dict[str, list[str]]:
+    """Return {api_name: [choice_hints]} for the REQUIRED fields in a simplified
+    field list.
+
+    - picklist   -> the active picklist values (a user must choose one)
+    - reference  -> the referenced sObject names (the user must supply a
+                    well-formed record ID of one of these objects)
+
+    Only required fields are keyed, the order is the Describe field order, and
+    every value derives from live metadata (never a hard-coded list).
+    """
+    options: dict[str, list[str]] = {}
+    for f in fields:
+        if not f.get("required") or not f.get("name"):
+            continue
+        if f.get("type") == "picklist" and f.get("picklist_values"):
+            options[str(f["name"])] = [str(v) for v in f["picklist_values"]]
+        elif f.get("type") == "reference" and f.get("reference_to"):
+            options[str(f["name"])] = [str(o) for o in f["reference_to"]]
+    return options
 
 
 class SalesforceMCPClient:
@@ -111,6 +153,11 @@ class SalesforceMCPClient:
         self._access_token = access_token
         self._refresh_token = refresh_token
         self._expires_at = expires_at
+        # True when the current _access_token came from a SOAP partner-login
+        # session. SOAP tokens are REST-capable but carry no MCP scope, so when
+        # an MCP-capable OAuth scope is configured they must be replaced before
+        # talking to the hosted MCP server (which would otherwise 401).
+        self._access_token_is_soap = False
         self.oauth_scope = oauth_scope
         self.auth_host = auth_host
         self.token_vault = token_vault
@@ -140,6 +187,12 @@ class SalesforceMCPClient:
         self.mcp_required = os.getenv("SALESFORCE_MCP_REQUIRED", "false").lower() in (
             "true", "1", "yes", "on",
         )
+        # One-time noise reduction: when the hosted MCP server rejects us with
+        # 401 (token lacks MCP scope), emit a single actionable warning and keep
+        # subsequent boots/retries quiet so the REST-fallback state is signaled
+        # but not noisy. Clear on a successful MCP init so a real fix is always
+        # reported.
+        self._mcp_401_warned = False
 
     @property
     def is_connected(self) -> bool:
@@ -188,6 +241,7 @@ class SalesforceMCPClient:
 
             if session_id_elem is not None and session_id_elem.text:
                 self._access_token = session_id_elem.text
+                self._access_token_is_soap = True
                 self._expires_at = time.time() + 7200
                 if server_url_elem is not None and server_url_elem.text:
                     parsed = urllib.parse.urlparse(server_url_elem.text)
@@ -202,10 +256,18 @@ class SalesforceMCPClient:
 
     async def authenticate(self) -> str:
         """
-        Authenticate with Salesforce using fast SOAP partner login,
-        falling back to OAuth if needed.
+        Authenticate with Salesforce.
+
+        When an MCP-capable OAuth scope is configured, the OAuth password grant
+        is preferred over SOAP because the hosted MCP server requires OAuth
+        tokens carrying MCP scope (mcp_api / sfap_api / legacy sfap:mcp:*);
+        SOAP session tokens lack those scopes and are rejected with 401. When no
+        MCP scope is configured (REST-only setup), the fast SOAP partner login is
+        kept as the primary path, exactly as before.
         """
-        if self.username and self.password and self.security_token:
+        want_mcp = self.oauth_scope and self._scope_has_mcp_capability(self.oauth_scope)
+
+        if not want_mcp and self.username and self.password and self.security_token:
             try:
                 return await self._soap_authenticate()
             except Exception as soap_err:
@@ -237,8 +299,14 @@ class SalesforceMCPClient:
             data = response.json()
 
             self._access_token = data["access_token"]
+            self._access_token_is_soap = False
+            # Capture the refresh token so later refreshes stay MCP-capable
+            # (previously this path never recorded refresh_token, so the token
+            # lapsed into a full re-auth instead of a clean refresh).
+            self._refresh_token = data.get("refresh_token", self._refresh_token)
             self.instance_url = data.get("instance_url", self.instance_url)
             self._expires_at = time.time() + int(data.get("expires_in", 3600))
+            self._persist_tokens()
 
             logger.info(
                 f"Authenticated with Salesforce via OAuth. Instance: {self.instance_url}"
@@ -274,6 +342,8 @@ class SalesforceMCPClient:
         await self._ensure_connected()
         if self._session is not None:
             logger.info("MCP Client ready (Streamable HTTP transport).")
+        elif self._mcp_401_warned:
+            logger.debug("MCP session not established (401); REST fallback active.")
         else:
             logger.warning("MCP session not established; falls back to REST API.")
 
@@ -311,6 +381,7 @@ class SalesforceMCPClient:
                 logger.warning("OAuth refresh_token grant returned no access_token.")
                 return False
             self._access_token = new_token
+            self._access_token_is_soap = False
             self._refresh_token = data.get("refresh_token", self._refresh_token)
             self._expires_at = time.time() + int(data.get("expires_in", 3600))
             if data.get("instance_url"):
@@ -328,22 +399,35 @@ class SalesforceMCPClient:
         # (produced by the interactive /api/auth/login flow). Only fall back to
         # SOAP/password auth when no valid scoped token exists, because SOAP
         # session tokens lack the MCP scopes the hosted server requires.
-        if self._needs_mcp_token():
-            self._load_mcp_scoped_token_from_vault()
-        if self._refresh_token and (
-            not self._access_token or not self._expires_at or time.time() > self._expires_at - 30
-        ):
+        if not self._needs_mcp_token():
+            return
+        self._load_mcp_scoped_token_from_vault()
+        want_mcp_scope = bool(self.oauth_scope and self._scope_has_mcp_capability(self.oauth_scope))
+        token_unusable = (
+            not self._access_token
+            or not self._expires_at
+            or time.time() > self._expires_at - 30
+            or (self._access_token_is_soap and want_mcp_scope)
+        )
+        if self._refresh_token and token_unusable:
             if await self._try_oauth_refresh():
                 return
-        if not self._access_token or (self._expires_at and time.time() > self._expires_at - 30):
+        if (not self._access_token or self._access_token_is_soap and want_mcp_scope
+                or self._expires_at and time.time() > self._expires_at - 30):
             try:
                 await self.authenticate()
             except Exception as e:
                 logger.warning(f"Token acquisition failed: {e}")
 
     def _needs_mcp_token(self) -> bool:
-        """True when the current token is missing/expired and would need replacement."""
-        return not self._access_token or not self._expires_at or time.time() > self._expires_at - 30
+        """True when the current token is missing/expired or unusable for MCP and would need replacement."""
+        want_mcp_scope = bool(self.oauth_scope and self._scope_has_mcp_capability(self.oauth_scope))
+        return (
+            not self._access_token
+            or not self._expires_at
+            or time.time() > self._expires_at - 30
+            or (self._access_token_is_soap and want_mcp_scope)
+        )
 
     @staticmethod
     def _scope_has_mcp_capability(scope: str) -> bool:
@@ -412,6 +496,7 @@ class SalesforceMCPClient:
                     )
                     continue
                 self._access_token = token
+                self._access_token_is_soap = False
                 self._refresh_token = rec.get("refresh_token") or self._refresh_token
                 if rec.get("instance_url"):
                     self.instance_url = rec["instance_url"]
@@ -478,9 +563,28 @@ class SalesforceMCPClient:
             self._connected = True
             self.mcp_transport = "MCP"
             self._name_map = {}
+            self._mcp_401_warned = False
             logger.info("[MCP] MCP SDK session initialized; is_connected=True. Transport: MCP")
         except Exception as e:
-            logger.warning(f"[MCP] Session init failed: {e}.")
+            # Noise reduction: a persistent 401 (token lacks MCP scope) is
+            # reported ONCE with actionable guidance; subsequent boots/retries
+            # stay quiet with a DEBUG line. Non-auth failures are still logged at
+            # WARNING every time because they can be transient or genuine breakage.
+            status_code = getattr(getattr(e, "response", None), "status_code", None)
+            is_auth_rejection = status_code == 401 or "Unauthorized" in str(e)
+            if is_auth_rejection:
+                if not self._mcp_401_warned:
+                    logger.warning(
+                        "[MCP] Session init rejected (401 Unauthorized). The token lacks the "
+                        "MCP OAuth scope the hosted server requires; using REST fallback. Verify "
+                        "the Connected App allows the MCP scopes (mcp_api / sfap_api) and that the "
+                        "login is OAuth-scoped, then restart."
+                    )
+                    self._mcp_401_warned = True
+                else:
+                    logger.debug("[MCP] Session init rejected (401); REST fallback active.")
+            else:
+                logger.warning(f"[MCP] Session init failed: {e}.")
             self._connected = False
             await self._close_mcp_session()
             if self.mcp_required:
@@ -725,40 +829,17 @@ class SalesforceMCPClient:
                             uncached.append(obj)
 
                     for obj in uncached:
-                        url = f"{base}/services/data/{api_version}/sobjects/{obj}/describe"
-                        resp = await self._http_client.get(url, headers=headers)
-                        resp.raise_for_status()
-                        raw = resp.json()
-
-                        simplified_fields = []
-                        for f in raw.get("fields", []):
-                            req = not f.get("nillable") and not f.get("defaultedOnCreate") and f.get("createable")
-                            field_info = {
-                                "name": f.get("name"),
-                                "label": f.get("label"),
-                                "type": f.get("type"),
-                            }
-                            if req:
-                                field_info["required"] = True
-                            if f.get("type") == "picklist" and f.get("picklistValues"):
-                                active_vals = [p.get("value") for p in f.get("picklistValues", []) if p.get("active")]
-                                if active_vals:
-                                    field_info["picklist_values"] = active_vals[:15]
-                            simplified_fields.append(field_info)
-
+                        fields = await self._get_simplified_field_list(obj, headers)
+                        if fields is None:
+                            raw = {}
+                        else:
+                            raw = {"name": obj, "label": obj}
                         obj_schema = {
-                            "name": raw.get("name"),
-                            "label": raw.get("label"),
-                            "total_fields": len(simplified_fields),
-                            "fields": simplified_fields,
+                            "name": raw.get("name") or obj,
+                            "label": raw.get("label") or obj,
+                            "total_fields": len(fields) if fields else 0,
+                            "fields": fields or [],
                         }
-                        cache_key = f"schema:{obj.lower()}"
-                        self._schema_cache[cache_key] = obj_schema
-                        self._schema_cache_order.append(cache_key)
-                        # FIFO eviction: drop oldest entries when cache exceeds max
-                        while len(self._schema_cache) > self._schema_cache_max and self._schema_cache_order:
-                            old_key = self._schema_cache_order.pop(0)
-                            self._schema_cache.pop(old_key, None)
                         results[obj] = obj_schema
 
                     return results
@@ -983,25 +1064,21 @@ class SalesforceMCPClient:
             logger.error(f"REST API fallback failed for {tool_name}: {error_body}")
             raise RuntimeError(f"Salesforce API error for {tool_name}: {error_body}")
 
-    async def describe_required_fields(
+    async def _get_simplified_field_list(
         self,
         sobject_name: str,
         headers: dict[str, str] | None = None,
-    ) -> list[tuple[str, str]] | None:
-        """
-        Resolve the required fields (api_name, human_label) of an object from live
-        Salesforce Describe metadata (read-only schema path). Used by the
-        mutation-validation gate for BOTH standard and custom objects, so per-org
-        custom required fields are honored and fields Salesforce defaults on create
-        are never required. Returns None when the schema cannot be established —
-        the caller then fails closed.
-        """
+    ) -> list[dict] | None:
+        """Return the simplified Describe field list for an object, from the
+        schema cache when available or a live /sobjects/<obj>/describe call
+        (cached afterwards). Returns None when the schema cannot be established
+        — the caller then falls back / fails closed. Everything that needs
+        Describe metadata (required fields AND the required-field choice hints)
+        shares this single loader so one describe populates both."""
         cache_key = f"schema:{sobject_name.lower()}"
         cached = self._schema_cache.get(cache_key)
         if isinstance(cached, dict) and isinstance(cached.get("fields"), list):
-            required = _extract_required_from_describe(cached["fields"])
-            if required or cached.get("total_fields") is not None:
-                return required
+            return cached["fields"]
 
         if headers is None:
             headers = {
@@ -1018,8 +1095,7 @@ class SalesforceMCPClient:
             raw = resp.json()
         except Exception as exc:  # noqa: BLE001 - resolver failure fails closed
             logger.error(
-                f"[MUTATION-VALIDATION] describe_required_fields failed for "
-                f"'{sobject_name}': {exc}"
+                f"[MUTATION-VALIDATION] describe failed for '{sobject_name}': {exc}"
             )
             return None
 
@@ -1032,7 +1108,48 @@ class SalesforceMCPClient:
         }
         if cache_key not in self._schema_cache_order:
             self._schema_cache_order.append(cache_key)
-        return _extract_required_from_describe(simplified)
+        # FIFO eviction: drop oldest entries when the cache exceeds its bound.
+        while len(self._schema_cache) > self._schema_cache_max and self._schema_cache_order:
+            old_key = self._schema_cache_order.pop(0)
+            self._schema_cache.pop(old_key, None)
+        return simplified
+
+    async def describe_required_fields(
+        self,
+        sobject_name: str,
+        headers: dict[str, str] | None = None,
+    ) -> list[tuple[str, str]] | None:
+        """
+        Resolve the required fields (api_name, human_label) of an object from live
+        Salesforce Describe metadata (read-only schema path). Used by the
+        mutation-validation gate for BOTH standard and custom objects, so per-org
+        custom required fields are honored and fields Salesforce defaults on create
+        are never required. Returns None when the schema cannot be established —
+        the caller then fails closed. An authoritative EMPTY list (the describe
+        resolved and the object genuinely has no create-required fields, e.g. a
+        custom object whose only mandatory fields default on create) is a
+        VALID resolution, distinct from None (unknown / Describe failure).
+        """
+        fields = await self._get_simplified_field_list(sobject_name, headers)
+        if fields is None:
+            return None
+        return _extract_required_from_describe(fields)
+
+    async def describe_required_field_options(
+        self,
+        sobject_name: str,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, list[str]] | None:
+        """Resolve {api_name -> [choice hints]} for the REQUIRED fields of an
+        object from live Describe metadata: active picklist values for enum
+        fields and referenced object names for lookup fields. Used to render a
+        deterministic, metadata-accurate required-fields ask. Returns None when
+        the schema cannot be established. Reuses the same schema cache as
+        ``describe_required_fields`` (no duplicate describe call)."""
+        fields = await self._get_simplified_field_list(sobject_name, headers)
+        if fields is None:
+            return None
+        return _extract_required_field_options(fields)
 
     async def _missing_known_required(
         self,

@@ -1407,7 +1407,12 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 # raise "Cannot call send once a close message has been sent".
                 if _ws_is_connected(websocket):
                     await _ws_send_json(websocket, {"type": "idle"})
-                logger.info(f"[WS] Final response sent: session={session_id}")
+                    logger.info(f"[WS] Final response sent: session={session_id}")
+                else:
+                    logger.info(
+                        f"[WS] Turn completed but client already disconnected; "
+                        f"final response not deliverable: session={session_id}"
+                    )
                 log_request_complete(session_id)
 
     except WebSocketDisconnect:
