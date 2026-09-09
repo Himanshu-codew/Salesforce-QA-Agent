@@ -915,6 +915,7 @@ async def health_check():
         mcp_available = mcp_status["any_mcp"]
         mcp_transport = "MCP" if mcp_available else "REST"
         mcp_src = "session"
+        mcp_unavailable_reason = mcp_status.get("unavailable_reason", "")
     else:
         # No authenticated user session yet: report the server default client.
         mcp_connected = mcp_client.is_connected if mcp_client else False
@@ -926,6 +927,12 @@ async def health_check():
             getattr(mcp_client, "mcp_transport", "REST") if mcp_client else "N/A"
         )
         mcp_src = "global-default"
+        if mcp_client:
+            mcp_unavailable_reason = (
+                getattr(mcp_client, "mcp_unavailable_reason", "") or ""
+            )
+        else:
+            mcp_unavailable_reason = ""
     return {
         "status": "healthy",
         "mcp_connected": mcp_connected,
@@ -933,6 +940,7 @@ async def health_check():
         "mcp_transport": mcp_transport,
         "mcp_source": mcp_src,
         "mcp_sessions": mcp_status["connected_sessions"],
+        "mcp_unavailable_reason": mcp_unavailable_reason,
         "mcp_required": (
             getattr(mcp_client, "mcp_required", False) if mcp_client else False
         ),

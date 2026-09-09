@@ -282,6 +282,7 @@ class UserSessionManager:
         connected_sessions: list[str] = []
         mcp_sessions: list[str] = []
         using_rest_or_unconnected: list[str] = []
+        unavailable_reason = ""
         for sid, session in self._sessions.items():
             if not session.get("authenticated"):
                 continue
@@ -296,6 +297,8 @@ class UserSessionManager:
                 connected_sessions.append(sid)
             else:
                 using_rest_or_unconnected.append(sid)
+            if not unavailable_reason:
+                unavailable_reason = getattr(client, "mcp_unavailable_reason", "") or ""
         return {
             "any_connected": bool(connected_sessions),
             "any_mcp": bool(mcp_sessions),
@@ -303,6 +306,7 @@ class UserSessionManager:
             "connected_sessions": connected_sessions,
             "mcp_sessions": mcp_sessions,
             "unconnected_sessions": using_rest_or_unconnected,
+            "unavailable_reason": unavailable_reason,
             "total_sessions": len(self._sessions),
         }
 

@@ -54,6 +54,9 @@ def _make_client(session_call, mcp_required=False):
     client._close_mcp_session = AsyncMock()
     client._try_oauth_refresh = AsyncMock(return_value=True)
     client._fallback_rest_api = AsyncMock(return_value={"fallback": "ok"})
+    client._oauth_unavailable = False
+    client._mcp_enabled = True
+    client._mcp_unavailable_reason = ""
     return client
 
 

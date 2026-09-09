@@ -63,6 +63,10 @@ def _make_client():
     client.mcp_required = False
     client.mcp_transport = "REST"
     client._mcp_401_warned = False
+    client._oauth_unavailable = False
+    client._oauth_reason = ""
+    client._mcp_unavailable_reason = ""
+    client._mcp_enabled = True
     client._http_client = AsyncMock()
     client._persist_tokens = Mock()
     client._soap_authenticate = AsyncMock(return_value="soap_tok")
@@ -79,6 +83,19 @@ def _oauth_response(access_token="oauth_tok", refresh_token="rt", expires_in=360
         "expires_in": expires_in,
         "instance_url": "https://x.salesforce.com",
     })
+    return resp
+
+
+def _oauth_error_response(status=400, err="invalid_grant", desc="expired access/refresh token"):
+    resp = Mock()
+    resp.raise_for_status = Mock()
+    resp.status_code = status
+    resp.text = f'{{"error":"{err}","error_description":"{desc}"}}'
+    resp.json = Mock(return_value={"error": err, "error_description": desc})
+    err_inst = Exception(f"Client error '{status}' for url 'https://login.salesforce.com/oauth2/token'")
+    err_inst.response = SimpleNamespace(status_code=status, text=resp.text)
+    err_inst.response.raise_for_status = resp.raise_for_status
+    resp.raise_for_status.side_effect = err_inst
     return resp
 
 
@@ -131,6 +148,140 @@ def test_authenticate_falls_back_to_soap_when_oauth_grant_fails():
 
     assert result == "soap_tok"
     client._soap_authenticate.assert_awaited_once()
+
+
+# ─────────────────────────────────────────────
+# authenticate(): graceful degradation when OAuth grant rejected
+# ─────────────────────────────────────────────
+
+def test_authenticate_records_4xx_oauth_failure_and_falls_back_to_soap():
+    client = _make_client()
+    client.oauth_scope = MCP_SCOPE
+    client._http_client.post = AsyncMock(return_value=_oauth_error_response(
+        status=400, err="invalid_grant"
+    ))
+
+    result = asyncio.run(client.authenticate())
+
+    assert result == "soap_tok"
+    client._soap_authenticate.assert_awaited_once()
+    assert client._oauth_unavailable is True
+    assert "HTTP 400" in client._oauth_reason
+    assert "invalid_grant" in client._oauth_reason
+
+
+def test_authenticate_skips_oauth_entirely_once_marked_unavailable():
+    client = _make_client()
+    client.oauth_scope = MCP_SCOPE
+    client._oauth_unavailable = True
+    client._oauth_reason = "OAuth grant rejected (HTTP 400): error=invalid_grant"
+
+    result = asyncio.run(client.authenticate(force_oauth=True))
+
+    assert result == "soap_tok"
+    client._soap_authenticate.assert_awaited_once()
+    client._http_client.post.assert_not_awaited()
+
+
+def test_authenticate_does_not_cache_transient_oauth_failure():
+    client = _make_client()
+    client.oauth_scope = MCP_SCOPE
+    client._http_client.post = AsyncMock(side_effect=RuntimeError("network down"))
+
+    result = asyncio.run(client.authenticate())
+
+    assert result == "soap_tok"
+    assert client._oauth_unavailable is False
+
+
+def test_authenticate_raises_without_soap_creds_when_oauth_rejected():
+    client = _make_client()
+    client.oauth_scope = MCP_SCOPE
+    client.username = None
+    client.password = None
+    client.security_token = None
+    client._http_client.post = AsyncMock(return_value=_oauth_error_response(
+        status=400, err="invalid_client"
+    ))
+
+    with pytest.raises(RuntimeError, match="OAuth authentication failed"):
+        asyncio.run(client.authenticate())
+
+
+# ─────────────────────────────────────────────
+# _try_oauth_refresh / _needs_mcp_token: no per-turn churn
+# ─────────────────────────────────────────────
+
+def test_oauth_failure_cached_stops_repeat_grant_attempts():
+    client = _make_client()
+    client.oauth_scope = MCP_SCOPE
+    client._http_client.post = AsyncMock(return_value=_oauth_error_response(
+        status=400, err="invalid_grant"
+    ))
+
+    first = asyncio.run(client.authenticate())
+    second = asyncio.run(client.authenticate(force_oauth=True))
+
+    assert first == "soap_tok"
+    assert second == "soap_tok"
+    assert client._oauth_unavailable is True
+    # Exactly ONE OAuth grant attempt across both calls — the second never hits
+    # the token endpoint.
+    assert client._http_client.post.await_count == 1
+    assert client._soap_authenticate.await_count == 2
+
+
+def test_refresh_skipped_when_oauth_unavailable():
+    client = _make_client()
+    client.oauth_scope = MCP_SCOPE
+    client._oauth_unavailable = True
+    client._refresh_token = "rt"
+
+    assert asyncio.run(client._try_oauth_refresh()) is False
+    client._http_client.post.assert_not_awaited()
+
+
+def test_needs_mcp_token_false_for_soap_token_when_oauth_unavailable():
+    client = _make_client()
+    client._access_token = "soap_sid"
+    client._access_token_is_soap = True
+    client._expires_at = time.time() + 3600
+    client.oauth_scope = MCP_SCOPE
+    client._oauth_unavailable = True
+
+    assert client._needs_mcp_token() is False
+
+
+def test_ensure_fresh_token_reuses_soap_token_for_rest_when_oauth_unavailable():
+    client = _make_client()
+    client._access_token = "soap_sid"
+    client._access_token_is_soap = True
+    client._expires_at = time.time() + 3600
+    client.oauth_scope = MCP_SCOPE
+    client._oauth_unavailable = True
+    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
+    client._try_oauth_refresh = AsyncMock(return_value=False)
+    client.authenticate = AsyncMock(return_value="soap_tok")
+
+    asyncio.run(client._ensure_fresh_token())
+
+    client._try_oauth_refresh.assert_not_awaited()
+    client.authenticate.assert_not_awaited()
+
+
+def test_ensure_fresh_token_still_replaces_soap_token_when_oauth_works():
+    client = _make_client()
+    client._access_token = "soap_sid"
+    client._access_token_is_soap = True
+    client._expires_at = time.time() + 3600
+    client.oauth_scope = MCP_SCOPE
+    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
+    client._try_oauth_refresh = AsyncMock(return_value=False)
+    client.authenticate = AsyncMock(return_value="oauth_tok")
+
+    asyncio.run(client._ensure_fresh_token())
+
+    client.authenticate.assert_awaited_once()
 
 
 # ─────────────────────────────────────────────
@@ -368,3 +519,121 @@ def test_mcp_success_clears_401_warning_flag(caplog):
 
     assert client._mcp_401_warned is False
     assert client.mcp_transport == "MCP"
+
+
+# ─────────────────────────────────────────────
+# _ensure_connected: MCP gated unless a real OAuth token exists
+# ─────────────────────────────────────────────
+
+def test_ensure_connected_gates_mcp_when_oauth_unavailable():
+    client = _make_connected_client()
+    client._access_token = "soap_sid"
+    client._access_token_is_soap = True
+    client._oauth_unavailable = True
+    client._oauth_reason = "OAuth grant rejected (HTTP 400): error=invalid_grant"
+
+    with patch("sfmcp.client.streamable_http_client", side_effect=AssertionError("MCP must not connect")):
+        asyncio.run(client._ensure_connected())
+
+    assert client._session is None
+    assert client.mcp_transport == "REST"
+    assert "rejected" in client._mcp_unavailable_reason
+
+
+def test_ensure_connected_gates_mcp_when_disabled():
+    client = _make_connected_client()
+    client._mcp_enabled = False
+    client._access_token = "tok"
+    client._access_token_is_soap = False
+
+    with patch("sfmcp.client.streamable_http_client", side_effect=AssertionError("MCP must not connect")):
+        asyncio.run(client._ensure_connected())
+
+    assert client._session is None
+    assert "SALESFORCE_MCP_ENABLED=false" in client._mcp_unavailable_reason
+    assert client.mcp_transport == "REST"
+
+
+def test_ensure_connected_gates_mcp_with_no_url():
+    client = _make_connected_client()
+    client.mcp_url = ""
+
+    with patch("sfmcp.client.streamable_http_client", side_effect=AssertionError("MCP must not connect")):
+        asyncio.run(client._ensure_connected())
+
+    assert client._session is None
+    assert "SALESFORCE_MCP_URL" in client._mcp_unavailable_reason
+
+
+def test_ensure_connected_gates_mcp_when_only_soap_token_with_guidance():
+    client = _make_connected_client()
+    client._access_token = "soap_sid"
+    client._access_token_is_soap = True
+    client._oauth_unavailable = False
+
+    with patch("sfmcp.client.streamable_http_client", side_effect=AssertionError("MCP must not connect")):
+        asyncio.run(client._ensure_connected())
+
+    assert client._session is None
+    assert "interactive /api/auth/login" in client._mcp_unavailable_reason
+
+
+def test_ensure_connected_reconnects_mcp_when_vault_oauth_token_available():
+    client = _make_client()
+    client._session = None
+    client._mcp_ctx = None
+    client._mcp_read = None
+    client._mcp_write = None
+    client._connected = False
+    client.oauth_scope = MCP_SCOPE
+    client._access_token = "soap_sid"
+    client._access_token_is_soap = True
+    client._expires_at = time.time() + 3600
+    client.mcp_required = False
+    client._close_mcp_session = AsyncMock()
+
+    def _load_vault_oauth_token():
+        client._access_token = "oauth_vault_tok"
+        client._access_token_is_soap = False
+        client._expires_at = time.time() + 3600
+        return True
+
+    with patch.object(client, "_load_mcp_scoped_token_from_vault", side_effect=_load_vault_oauth_token), \
+         patch("sfmcp.client.streamable_http_client", _fake_streamable_http_client()), \
+         patch("sfmcp.client.ClientSession", _FakeClientSessionOk):
+        asyncio.run(client._ensure_connected())
+
+    assert client._session is not None
+    assert client.mcp_transport == "MCP"
+    assert client._mcp_unavailable_reason == ""
+
+
+def test_call_tool_rest_only_and_single_ensure_when_oauth_unavailable():
+    import sfmcp.client as mod
+    client = _make_client()
+    client.oauth_scope = MCP_SCOPE
+    client._oauth_unavailable = True
+    client._access_token = "soap_sid"
+    client._access_token_is_soap = True
+    client._expires_at = time.time() + 3600
+    client._session = None
+    client._mcp_ctx = None
+    client._connected = False
+    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
+    client._fallback_rest_api = AsyncMock(return_value={"totalSize": 1, "records": []})
+
+    mcp_connects = []
+    real_ensure = mod.SalesforceMCPClient._ensure_connected
+
+    async def counting_ensure(self):
+        mcp_connects.append(1)
+        return await real_ensure(self)
+
+    with patch.object(mod.SalesforceMCPClient, "_ensure_connected", counting_ensure), \
+         patch("sfmcp.client.streamable_http_client", side_effect=AssertionError("MCP must not connect")):
+        result = asyncio.run(client.call_tool("soqlQuery", {"query": "SELECT Id FROM Account"}))
+
+    assert result == {"totalSize": 1, "records": []}
+    assert len(mcp_connects) == 1
+    assert client.mcp_transport == "REST"
+    assert "rejected" in client._mcp_unavailable_reason
