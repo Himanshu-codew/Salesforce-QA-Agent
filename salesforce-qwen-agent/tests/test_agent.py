@@ -256,18 +256,18 @@ class TestToolRegistry:
 # ──────────────────────────────────────────────────────────────
 
 class TestToolRAGRetriever:
-    """Tests for ToolRAGRetriever tool filtering optimization."""
+    """Tests for ToolRAGRetriever (model-driven passthrough)."""
 
     def setup_method(self):
         from agent.rag import ToolRAGRetriever
         self.retriever = ToolRAGRetriever(default_top_k=4)
 
-    def test_rag_filters_tools_for_query(self):
+    def test_rag_passes_full_registry_to_model(self):
         tools = self.retriever.get_relevant_tools("Show me accounts with SOQL query", top_k=3)
-        assert len(tools) <= 3
+        assert len(tools) == len(self.retriever.all_tools)
         tool_names = [t["function"]["name"] for t in tools]
         assert "soqlQuery" in tool_names
 
-    def test_rag_greeting_returns_small_subset(self):
-        tools = self.retriever.get_relevant_tools("hi", top_k=3)
-        assert len(tools) <= 3
+    def test_rag_degenerate_input_returns_empty(self):
+        tools = self.retriever.get_relevant_tools("h", top_k=3)
+        assert len(tools) == 0

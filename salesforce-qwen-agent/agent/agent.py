@@ -195,6 +195,8 @@ _DATA_INTENT_KEYWORDS = [
     "account", "accounts", "lead", "leads", "contact", "contacts",
     "opportunity", "opportunities", "case", "cases", "task", "tasks",
     "event", "events", "user", "who am i", "schema", "fields",
+    "profile", "identity", "my profile", "my email", "my role",
+    "my username", "user info", "user information",
     "show", "list", "select", "find", "search", "count", "how many",
     "delete", "remove", "update", "edit", "create", "banao", "dikhao",
     "hatao", "badlo", "kitne", "saare",

@@ -913,14 +913,16 @@ class Orchestrator:
             plan = await self._generate_plan_bounded(user_message, memory)
             _record_stage("planner", t_planner)
 
-        # Empty plan means no Salesforce task — route via semantic RAG.
+        # Empty plan means no Salesforce task — decide deterministically whether
+        # this is a general chat message (route to Qwen without tools) or a
+        # Salesforce request the planner failed to decompose (single task).
         if not plan:
             t_rag = time.monotonic()
             tools = await self._get_relevant_tools_or_fallback(user_message)
             _record_stage("rag", t_rag)
-            if not tools:
+            if not _has_salesforce_intent(user_message):
                 logger.info(
-                    "[PLANNER] Decision: General — no Salesforce tools above RAG threshold. "
+                    "[PLANNER] Decision: General — no Salesforce intent detected. "
                     "Routing original query to Qwen."
                 )
                 t_qwen = time.monotonic()
@@ -932,7 +934,7 @@ class Orchestrator:
                 yield _metrics_event()
                 return
             logger.info(
-                "[PLANNER] Empty plan, but Salesforce intent detected via RAG. "
+                "[PLANNER] Empty plan, but Salesforce intent detected via keywords. "
                 "Using single implicit task."
             )
             plan = [

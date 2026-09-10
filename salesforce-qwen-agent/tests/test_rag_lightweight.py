@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import agent.rag as rag
 from agent.rag import ToolRAGRetriever, warm_up
+from agent.agent import filter_tools_for_query
 
 _HEAVY_MODULES = ("torch", "sentence_transformers", "chromadb")
 
@@ -40,22 +41,29 @@ def test_retrieval_does_not_import_heavy_models():
         assert heavy not in sys.modules, f"{heavy} must never be imported by tool retrieval"
 
 
-def test_read_only_query_never_selects_mutation_tools():
+def test_read_only_query_safety_enforced_by_filter():
+    # Retriever now returns the full registry (model decides tool selection).
     tools = _retriever().get_relevant_tools("Show me all Accounts", top_k=6)
     names = _names(tools)
     assert "soqlQuery" in names
+    assert len(tools) == len(_retriever().all_tools)
+    # Read-only safety is enforced downstream by filter_tools_for_query:
+    filtered = filter_tools_for_query(tools, "Show me all Accounts")
+    filtered_names = _names(filtered)
     for mutating in ("createSobjectRecord", "updateSobjectRecord", "updateRelatedRecord",
                      "deleteSobjectRecord", "deleteRelatedRecord"):
-        assert mutating not in names, f"read-only query must not select {mutating}"
+        assert mutating not in filtered_names, f"read-only query must not keep {mutating}"
 
 
 def test_owner_filtered_query_is_clean_and_read_only():
-    # The "show my accounts" style query that previously leaked a mutation tool.
-    names = _names(_retriever().get_relevant_tools("show my accounts", top_k=6))
-    assert "soqlQuery" in names
-    assert "getUserInfo" in names
+    # The "show my accounts" style query: the retriever passes all tools, and
+    # filter_tools_for_query strips mutation tools before the model sees them.
+    tools = _retriever().get_relevant_tools("show my accounts", top_k=6)
+    assert "soqlQuery" in _names(tools)
+    assert "getUserInfo" in _names(tools)
+    filtered_names = _names(filter_tools_for_query(tools, "show my accounts"))
     for mutating in ("createSobjectRecord", "updateSobjectRecord", "deleteSobjectRecord"):
-        assert mutating not in names
+        assert mutating not in filtered_names
 
 
 def test_compound_mutation_query_keeps_required_mutating_tools():
@@ -74,13 +82,15 @@ def test_results_are_deterministic():
     assert first == second and first, "identical inputs must produce identical tool selections"
 
 
-def test_signal_index_is_cached_and_shared():
+def test_instances_share_full_registry_deterministically():
     r1 = _retriever()
     r2 = _retriever()
-    before = rag._signal_cache["sig"]
-    _ = r1.get_relevant_tools("What is my Salesforce user information?", top_k=5)
-    _ = r2.get_relevant_tools("What is my Salesforce user information?", top_k=5)
-    assert rag._signal_cache["sig"] == before, "signal index must be built exactly once"
+    q = "What is my Salesforce user information?"
+    names1 = _names(r1.get_relevant_tools(q, top_k=5))
+    names2 = _names(r2.get_relevant_tools(q, top_k=5))
+    assert names1 == names2, "identical inputs must produce identical tool sets"
+    assert len(names1) == len(r1.all_tools), "full registry must be passed through"
+    assert r1.all_tools is r2.all_tools or r1.all_tools == r2.all_tools
 
 
 def test_query_too_short_returns_empty():
