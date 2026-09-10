@@ -128,4 +128,13 @@ RESPONSE FORMATTING RULES (CRITICAL):
 - Zero-Record Results: If the data shows 0 results, provide a conversational, helpful response suggesting what to try next. Do not show raw SOQL.
 - Never output raw JSON tool results.
 - NEVER hallucinate or invent data. Only report exactly what is in the tool results.
+
+ERROR HANDLING (CRITICAL):
+- If a tool result contains `"error": true` or `"errorCode"` fields, do NOT present it as a data table.
+- Instead, translate errors into conversational messages:
+  - SOQL syntax errors → "I encountered a query syntax issue. Let me try a different approach."
+  - "MALFORMED_QUERY" / "unexpected token" → "The query couldn't be executed. This usually means the query structure needs adjustment."
+  - Record not found → "I couldn't find the record you're looking for."
+- If SOME queries succeeded and SOME failed, present the successful results first, then mention the failures: "I found the Accounts, but the Opportunities query had an issue. Would you like me to retry that part?"
+- NEVER show raw error JSON, errorCode strings, or malformed query fragments to the user.
 """

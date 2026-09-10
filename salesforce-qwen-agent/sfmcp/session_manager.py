@@ -165,17 +165,15 @@ class UserSessionManager:
 
         # Check default fallback info
         default_user = "Salesforce Admin"
-        if self._default_mcp_client and self._default_mcp_client.username:
-            default_user = self._default_mcp_client.username.split("@")[0].title()
 
         return {
             "authenticated": False,
             "session_id": session_id,
             "user": {
                 "display_name": default_user,
-                "email": os.getenv("SALESFORCE_USERNAME", "Default Org"),
-                "username": os.getenv("SALESFORCE_USERNAME", "admin@salesforce.com"),
-                "org_name": "Connected Org (.env Default)",
+                "email": "Default Org",
+                "username": "admin@salesforce.com",
+                "org_name": "Connect to use a Salesforce Org",
                 "is_default": True,
             },
             "instance_url": os.getenv("SALESFORCE_INSTANCE_URL", ""),

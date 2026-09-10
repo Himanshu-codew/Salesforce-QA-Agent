@@ -897,14 +897,13 @@ function buildTable(rows) {
     return html;
 }
 
-// ─── Salesforce Direct Login Modal Logic ───
+// ─── Salesforce Connection Modal Logic ───
 const connectSfBtn = document.getElementById('connectSfBtn');
 const userProfileBadge = document.getElementById('userProfileBadge');
 const userDisplayName = document.getElementById('userDisplayName');
 const logoutBtn = document.getElementById('logoutBtn');
 const sfConnectModal = document.getElementById('sfConnectModal');
 const closeModalBtn = document.getElementById('closeModalBtn');
-const submitDirectPassBtn = document.getElementById('submitDirectPassBtn');
 const modalStatusMsg = document.getElementById('modalStatusMsg');
 
 function showModalMsg(text, type = 'error') {
@@ -933,8 +932,6 @@ function hideModalMsg() {
 function openConnectModal() {
     hideModalMsg();
     if (sfConnectModal) sfConnectModal.classList.remove('hidden');
-    const userField = document.getElementById('directUsername');
-    if (userField) userField.focus();
 }
 
 function closeConnectModal() {
@@ -963,72 +960,6 @@ async function checkUserAuthStatus() {
     }
 }
 
-async function handleDirectPasswordConnect() {
-    hideModalMsg();
-    const usernameInput = document.getElementById('directUsername');
-    const passwordInput = document.getElementById('directPassword');
-    const secTokenInput = document.getElementById('directSecToken');
-    const domainSelect = document.getElementById('directDomainSelect');
-
-    const username = usernameInput ? usernameInput.value.trim() : '';
-    const password = passwordInput ? passwordInput.value.trim() : '';
-    const securityToken = secTokenInput ? secTokenInput.value.trim() : '';
-    const domain = domainSelect ? domainSelect.value : 'login';
-
-    if (!username || !password) {
-        showModalMsg('Please enter your Salesforce Username and Password.', 'error');
-        return;
-    }
-
-    const origBtnContent = submitDirectPassBtn ? submitDirectPassBtn.innerHTML : '';
-    if (submitDirectPassBtn) {
-        submitDirectPassBtn.disabled = true;
-        submitDirectPassBtn.innerHTML = `
-            <svg class="spin-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 0.8s linear infinite;">
-                <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="12"/>
-            </svg>
-            <span>Authenticating...</span>
-        `;
-    }
-
-    try {
-        const res = await fetch('/api/auth/connect_direct', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                session_id: sessionId,
-                mode: 'password',
-                username,
-                password,
-                security_token: securityToken,
-                domain
-            })
-        });
-
-        const data = await res.json();
-        if (res.ok && data.success) {
-            showModalMsg('Connected successfully to Salesforce!', 'success');
-            await checkUserAuthStatus();
-            if (typeof addSystemMessage === 'function') {
-                const user = data.user || {};
-                addSystemMessage(`✅ Connected to Salesforce Org as **${user.display_name || user.username || 'Salesforce User'}** (${user.org_name || 'Connected'})`);
-            }
-            setTimeout(() => {
-                closeConnectModal();
-            }, 800);
-        } else {
-            showModalMsg(data.error || 'Authentication failed. Check your username & password.', 'error');
-        }
-    } catch (err) {
-        showModalMsg(`Connection error: ${err.message}`, 'error');
-    } finally {
-        if (submitDirectPassBtn) {
-            submitDirectPassBtn.disabled = false;
-            submitDirectPassBtn.innerHTML = origBtnContent;
-        }
-    }
-}
-
 async function logoutSfUser() {
     try {
         await fetch(`/api/auth/logout?session_id=${sessionId}`, { method: 'POST' });
@@ -1041,39 +972,72 @@ async function logoutSfUser() {
     }
 }
 
-function initiateSfOAuth() {
-    const domainSelect = document.getElementById('directDomainSelect');
-    const domain = domainSelect ? domainSelect.value : 'login';
+async function initiateSfOAuth() {
+    const domain = 'login';
     const customDomainInput = document.getElementById('oauthCustomDomain');
     const clientIdInput = document.getElementById('oauthClientId');
     const clientSecretInput = document.getElementById('oauthClientSecret');
 
+    const customDomain = customDomainInput && customDomainInput.value.trim()
+        ? customDomainInput.value.trim()
+        : null;
+    const byoClientId = clientIdInput && clientIdInput.value.trim()
+        ? clientIdInput.value.trim()
+        : null;
+    const byoClientSecret = clientSecretInput && clientSecretInput.value.trim()
+        ? clientSecretInput.value.trim()
+        : null;
+
     // Salesforce Consumer Keys are org-local: a custom org can only be
     // authorized with a Connected App created inside THAT org. Catch it here
     // instead of letting Salesforce return invalid_client_id.
-    if (customDomainInput && customDomainInput.value.trim() && !(clientIdInput && clientIdInput.value.trim())) {
+    if (customDomain && !byoClientId) {
         showModalMsg(
             'Your own org needs its own Connected App. In YOUR org: Setup → App Manager → ' +
             'New Connected App → enable OAuth (callback: this site + /api/auth/callback, scopes api, refresh_token, id), ' +
-            'then paste its Consumer Key & Secret below and retry. Or use Direct Login with username/password.',
+            'then paste its Consumer Key & Secret below and retry.',
             'error'
         );
         if (clientIdInput) clientIdInput.focus();
         return;
     }
-
-    const params = new URLSearchParams({ session_id: sessionId, domain });
-
-    // Custom My Domain overrides the standard login/test endpoints
-    if (customDomainInput && customDomainInput.value.trim()) {
-        params.set('domain', customDomainInput.value.trim());
+    if (byoClientId && !byoClientSecret) {
+        showModalMsg('Paste the Consumer Secret that belongs to that Consumer Key.', 'error');
+        if (clientSecretInput) clientSecretInput.focus();
+        return;
     }
-    // BYO Connected App credentials (required for orgs other than the server's default)
-    if (clientIdInput && clientIdInput.value.trim()) {
-        params.set('client_id', clientIdInput.value.trim());
-    }
-    if (clientSecretInput && clientSecretInput.value.trim()) {
-        params.set('client_secret', clientSecretInput.value.trim());
+
+    const params = new URLSearchParams({ session_id: sessionId, domain: customDomain || domain });
+
+    // Credentials are secrets: they are POSTed to a short-lived server-side
+    // setup and referenced from the popup URL by a one-time nonce. They never
+    // ride in the URL itself (browser history / access logs / Referer).
+    if (byoClientId) {
+        try {
+            const setupRes = await fetch('/api/auth/oauth_setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    domain: customDomain || domain,
+                    client_id: byoClientId,
+                    client_secret: byoClientSecret
+                })
+            });
+            const setupBody = await setupRes.json().catch(() => ({}));
+            if (!setupRes.ok || !setupBody.nonce) {
+                showModalMsg(
+                    (setupBody && setupBody.detail) ? setupBody.detail : 'OAuth setup failed. Please retry.',
+                    'error'
+                );
+                return;
+            }
+            params.set('oauth_setup', setupBody.nonce);
+        } catch (e) {
+            console.error('OAuth setup error:', e);
+            showModalMsg('OAuth setup failed. Please retry.', 'error');
+            return;
+        }
     }
 
     const width = 600;
@@ -1088,26 +1052,17 @@ const startOAuthBtn = document.getElementById('startOAuthBtn');
 if (connectSfBtn) connectSfBtn.addEventListener('click', openConnectModal);
 if (closeModalBtn) closeModalBtn.addEventListener('click', closeConnectModal);
 if (startOAuthBtn) startOAuthBtn.addEventListener('click', initiateSfOAuth);
-if (submitDirectPassBtn) submitDirectPassBtn.addEventListener('click', handleDirectPasswordConnect);
 if (logoutBtn) logoutBtn.addEventListener('click', logoutSfUser);
 
 window.addEventListener('message', (event) => {
+    // Only accept handshakes from the OAuth popup we opened (same-origin). A
+    // hostile page must never be able to spoof an oauth_success frame.
+    if (event.origin !== window.location.origin) return;
     if (event.data && event.data.type === 'oauth_success') {
         checkUserAuthStatus();
         closeConnectModal();
     }
 });
-
-// Allow Enter key submission in password field
-const directPasswordElem = document.getElementById('directPassword');
-if (directPasswordElem) {
-    directPasswordElem.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            handleDirectPasswordConnect();
-        }
-    });
-}
 
 // Run auth check on initialization
 document.addEventListener('DOMContentLoaded', checkUserAuthStatus);

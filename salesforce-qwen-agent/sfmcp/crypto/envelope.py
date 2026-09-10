@@ -246,6 +246,38 @@ class TokenVault:
         with self._lock:
             return list(self._sessions.keys())
 
+    def cleanup_stale_sessions(self, max_age_seconds: float = 86400) -> int:
+        """Remove sessions older than max_age_seconds (default 24 hours).
+        
+        Returns the number of sessions removed.
+        """
+        import time
+        now = time.time()
+        stale_sessions = []
+        
+        with self._lock:
+            for session_id, record in self._sessions.items():
+                expires_at = record.get("expires_at")
+                # Consider a session stale if:
+                # 1. It has no expires_at (unknown age), OR
+                # 2. expires_at is in the past AND more than max_age_seconds ago
+                if expires_at is None or expires_at <= 0:
+                    # No expiry recorded - could be very old, remove if no refresh token
+                    if not record.get("refresh_token"):
+                        stale_sessions.append(session_id)
+                elif now > expires_at and (now - expires_at) > max_age_seconds:
+                    # Token expired more than max_age_seconds ago
+                    stale_sessions.append(session_id)
+            
+            # Remove stale sessions
+            for session_id in stale_sessions:
+                self._sessions.pop(session_id, None)
+            
+            if stale_sessions:
+                self._persist_locked()
+        
+        return len(stale_sessions)
+
 
 token_vault = TokenVault()
 

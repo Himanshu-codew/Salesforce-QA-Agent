@@ -11,9 +11,9 @@ An AI-powered Salesforce assistant that lets you interact with your Salesforce o
 ## ✨ Features
 
 - **Natural Language Interface** — Ask questions, create records, run queries in plain English
-- **11 Salesforce Tools** — Full CRUD, SOQL/SOSL queries, schema exploration, and more
+- **12 Salesforce Tools** — Full CRUD, SOQL/SOSL queries, schema exploration, and more
 - **Real-time Chat UI** — Premium dark-themed interface with live tool execution visualization
-- **Multi-Tenant Auth** — Connect ANY Salesforce Org via 1-Click OAuth or direct credentials
+- **Multi-Tenant Auth** — Connect ANY Salesforce Org via OAuth 2.0 Authorization Code + PKCE browser login
 - **Safety Guardrails** — Destructive operations require explicit user confirmation
 - **Multi-step Reasoning** — Agent can chain multiple tool calls to answer complex questions
 - **Conversation Memory** — Maintains context across messages within a session
@@ -21,16 +21,15 @@ An AI-powered Salesforce assistant that lets you interact with your Salesforce o
 
 ---
 
-## 🔐 Authentication — Multi-Tenant & Zero-Token
+## 🔐 Authentication — OAuth 2.0 Authorization Code + PKCE (Sole Method)
 
 Connect any Salesforce Org from the sidebar (**Connect Salesforce Org**):
 
 | Method | How it works | Security Token needed? |
 |--------|--------------|------------------------|
 | **1-Click OAuth** | Popup authenticates on Salesforce's official consent screen (OAuth 2.0 Authorization Code + PKCE, SHA-256 S256) against the org's own My-Domain host | ❌ No |
-| **Direct Credentials** | Username + Password (+ Security Token) via SOAP Partner API on `login.salesforce.com` | ✅ Yes (from untrusted IPs such as Render) |
 
-> ℹ️ 1-Click OAuth never touches security tokens. Direct Login does require one when the server's IP isn't trusted by the target org.
+> ℹ️ OAuth never touches security tokens. Tokens are stored encrypted (AES-256-GCM) in the vault.
 
 ### Bring Your Own Org
 
@@ -134,10 +133,9 @@ Edit the `.env` file with your credentials:
 # Required: Your DashScope API key for Qwen3
 QWEN_API_KEY=your_dashscope_api_key_here
 
-# Salesforce credentials (pre-configured)
-SALESFORCE_USERNAME=your_username
-SALESFORCE_PASSWORD=your_password
-SALESFORCE_SECURITY_TOKEN=your_token
+# Salesforce Connected App (OAuth PKCE)
+SALESFORCE_CLIENT_ID=your_consumer_key
+SALESFORCE_CLIENT_SECRET=your_consumer_secret
 # ... (see .env for all options)
 ```
 
@@ -216,9 +214,9 @@ python -m pytest tests/ -v
 | `/chat` | POST | HTTP chat (JSON request/response) |
 | `/ws/{session_id}` | WebSocket | Real-time streaming chat |
 | `/health` | GET | Health check + Connected App status |
-| `/api/auth/login` | GET | Start 1-Click OAuth popup flow (supports BYO `client_id`/`client_secret` + `domain`) |
+| `/api/auth/login` | GET | Start 1-Click OAuth popup flow (`session_id`, `domain`, optional `oauth_setup` nonce). Only Salesforce-owned OAuth hosts accepted; credentials never travel in the URL |
+| `/api/auth/oauth_setup` | POST | Securely register BYO Connected App credentials (returns a short-lived single-use nonce) |
 | `/api/auth/callback` | GET | OAuth redirect handler with PKCE token exchange |
-| `/api/auth/connect_direct` | POST | Direct login: username/password/token or access-token mode |
 | `/api/auth/me` | GET | Current connection profile for session |
 | `/api/auth/logout` | POST | Disconnect the session's Salesforce user |
 

@@ -1230,9 +1230,30 @@ class Orchestrator:
 
                 exec_err = _executor_error_message(res, tc_name)
                 if exec_err:
-                    raise AgentError(
-                        ERR_MCP_SALESFORCE, f"Salesforce call '{tc_name}' failed: {exec_err}"
-                    )
+                    # For SOQL errors in batch queries with multiple tool calls,
+                    # convert to a clean error message and continue with remaining
+                    # tool calls instead of aborting the entire batch. For single
+                    # tool call queries, raise the error immediately.
+                    is_mutation = is_mutating(tc_name) or is_destructive(tc_name)
+                    is_batch = len(tool_calls) > 1
+                    if is_mutation or not is_batch:
+                        raise AgentError(
+                            ERR_MCP_SALESFORCE, f"Salesforce call '{tc_name}' failed: {exec_err}"
+                        )
+                    else:
+                        # Read-only tool error in a multi-tool batch:
+                        # convert to a user-friendly error message and continue
+                        # so other batch queries still execute.
+                        logger.warning(
+                            f"[BATCH-ERROR] Read-only tool '{tc_name}' failed: {exec_err}; "
+                            "continuing with remaining batch queries."
+                        )
+                        res = json.dumps({
+                            "error": True,
+                            "tool": tc_name,
+                            "message": f"The query for {tc_name} failed: {exec_err}",
+                            "suggestion": "Please try rephrasing the query or use a different approach.",
+                        })
 
                 # #8 MULTI-TOOL-CALL SAFETY: once a mutation in this response fails
                 # validation, STOP — the remaining tool calls in the same response
@@ -1378,9 +1399,14 @@ class Orchestrator:
             return None
         user_id = _extract_user_id(raw)
         if user_id is None:
+            # Diagnostic: log a truncated, non-sensitive prefix of the raw result
+            # (never the user id itself) so we can see whether getUserInfo returns
+            # an error envelope, an empty/blank payload, or an unexpected shape.
+            diag = (raw or "")[:400]
             logger.error(
                 "[MY-RECORDS] getUserInfo returned no valid Salesforce User ID; "
-                "owner-filtered query will not be generated."
+                "owner-filtered query will not be generated. "
+                f"raw_getuserinfo_prefix={diag!r}"
             )
             return None
         return user_id

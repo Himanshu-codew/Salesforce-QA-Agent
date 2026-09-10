@@ -1,24 +1,11 @@
 """
-Regression tests: MCP auth preference fix (Option 1) + one-time 401 noise reduction.
+Regression tests: PKCE-only auth simplification.
 
-Problem: with SALESFORCE_OAUTH_SCOPE configured carrying MCP scopes
-(mcp_api / sfap_api / legacy sfap:mcp:*), the hosted Salesforce MCP server still
-returned 401 on every boot. Root cause: `authenticate()` preferred the SOAP
-partner login whenever username+password+security_token were present, and a SOAP
-session token carries no MCP scope -> MCP endpoint rejects it with 401 -> silent
-REST fallback.
-
-Fix:
-  - `authenticate()` prefers the OAuth password grant when an MCP-capable scope
-    is configured (the grant forwards `scope`, so the token is MCP-capable),
-    keeping SOAP-first for REST-only (no-scope) setups.
-  - The password-grant path now captures `refresh_token` so later refreshes stay
-    MCP-capable.
-  - `_needs_mcp_token()` treats an unexpired SOAP-derived token as needing
-    replacement when an MCP scope is configured, so it is never blindly reused
-    against the MCP endpoint.
-  - A persistent 401 during MCP session init is reported with ONE actionable
-    warning; subsequent boots/retries stay quiet (DEBUG).
+The auth system now uses ONLY OAuth 2.0 Authorization Code + PKCE. The
+client-credentials grant, OAuth password grant, and SOAP partner login have
+all been removed. Authentication flows are:
+  - Interactive browser: /api/auth/login (PKCE) -> token stored in vault
+  - Server-side clients: load a PKCE token from vault OR use refresh_token
 
 Pure unit tests (mocked HTTP / MCP internals, no live credentials).
 """
@@ -42,21 +29,20 @@ REST_ONLY_SCOPE = "api refresh_token offline_access"
 
 
 def _make_client():
-    """A bare client with the attrs `authenticate`/`_ensure_fresh_token` touch."""
+    """A bare client with the attrs touch_authenticate paths."""
     client = SalesforceMCPClient.__new__(SalesforceMCPClient)
     client._access_token = None
     client._refresh_token = None
     client._expires_at = 0.0
-    client._access_token_is_soap = False
     client.oauth_scope = None
     client.auth_host = None
     client.domain = "login"
     client.instance_url = "https://x.salesforce.com"
     client.client_id = "cid"
     client.client_secret = "csec"
-    client.username = "u@x.com"
-    client.password = "pwd"
-    client.security_token = "tok"
+    client.username = ""
+    client.password = ""
+    client.security_token = ""
     client.mcp_url = "https://api.salesforce.com/platform/mcp/v1/platform/sobject-all"
     client.token_vault = None
     client.session_id = None
@@ -65,26 +51,7 @@ def _make_client():
     client._mcp_401_warned = False
     client._http_client = AsyncMock()
     client._persist_tokens = Mock()
-    client._soap_authenticate = AsyncMock(return_value="soap_tok")
     return client
-
-
-def test_default_mcp_client_uses_client_credentials_grant():
-    client = _make_client()
-    client.session_id = "default"
-    client.oauth_scope = MCP_SCOPE
-    client._http_client.post = AsyncMock(return_value=_oauth_response())
-
-    result = asyncio.run(client.authenticate())
-
-    assert result == "oauth_tok"
-    payload = client._http_client.post.call_args.kwargs["data"]
-    assert payload == {
-        "grant_type": "client_credentials",
-        "client_id": "cid",
-        "client_secret": "csec",
-    }
-    client._soap_authenticate.assert_not_awaited()
 
 
 def _oauth_response(access_token="oauth_tok", refresh_token="rt", expires_in=3600):
@@ -107,75 +74,131 @@ def _make_http401():
 
 
 # ─────────────────────────────────────────────
-# authenticate(): OAuth-first when MCP scope set
+# authenticate(): PKCE-only — no client-credentials/password/SOAP
 # ─────────────────────────────────────────────
 
-def test_authenticate_uses_oauth_password_grant_when_mcp_scope():
+def test_authenticate_uses_refresh_token_grant_when_available():
     client = _make_client()
-    client.oauth_scope = MCP_SCOPE
-    client._http_client.post = AsyncMock(return_value=_oauth_response())
+    client._refresh_token = "rt"
+
+    async def _fake_refresh():
+        client._access_token = "refreshed_tok"
+        return True
+
+    client._try_oauth_refresh = AsyncMock(side_effect=_fake_refresh)
+    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
 
     result = asyncio.run(client.authenticate())
 
-    assert result == "oauth_tok"
-    assert client._access_token == "oauth_tok"
-    assert client._access_token_is_soap is False
-    assert client._refresh_token == "rt"
-    client._soap_authenticate.assert_not_awaited()
-    client._persist_tokens.assert_called_once()
-    # The grant must forward the configured MCP scope.
-    call_kwargs = client._http_client.post.call_args
-    payload = call_kwargs.kwargs.get("data") or call_kwargs.args[1]
-    assert payload["grant_type"] == "password"
-    assert payload["scope"] == MCP_SCOPE
+    assert result == "refreshed_tok"
+    client._try_oauth_refresh.assert_awaited_once()
+    client._load_mcp_scoped_token_from_vault.assert_not_called()
 
 
-def test_authenticate_captures_refresh_token_from_grant():
+def test_authenticate_loads_from_vault_when_no_refresh_token():
     client = _make_client()
-    client.oauth_scope = MCP_SCOPE
-    client._http_client.post = AsyncMock(return_value=_oauth_response(refresh_token="new_rt"))
-
-    asyncio.run(client.authenticate())
-
-    assert client._refresh_token == "new_rt"
-
-
-def test_authenticate_falls_back_to_soap_when_oauth_grant_fails():
-    client = _make_client()
-    client.oauth_scope = MCP_SCOPE
-    client._http_client.post = AsyncMock(side_effect=RuntimeError("oauth down"))
+    client._access_token = "vault_tok"
+    client._load_mcp_scoped_token_from_vault = Mock(return_value=True)
+    client._try_oauth_refresh = AsyncMock(return_value=False)
 
     result = asyncio.run(client.authenticate())
 
-    assert result == "soap_tok"
-    client._soap_authenticate.assert_awaited_once()
+    assert result == "vault_tok"
+    client._load_mcp_scoped_token_from_vault.assert_called_once()
 
 
-# ─────────────────────────────────────────────
-# authenticate(): SOAP-first preserved for REST-only
-# ─────────────────────────────────────────────
-
-def test_authenticate_keeps_soap_first_when_no_mcp_scope():
+def test_authenticate_warns_when_no_token_available(caplog):
     client = _make_client()
-    client.oauth_scope = None
+    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
+    client._try_oauth_refresh = AsyncMock(return_value=False)
 
+    with caplog.at_level(logging.WARNING, logger="sfmcp.client"):
+        result = asyncio.run(client.authenticate())
+
+    assert result == ""
+    assert "No PKCE token available" in caplog.text
+
+
+def test_authenticate_never_calls_legacy_methods():
+    """Guard: client-credentials / password / SOAP must not exist."""
+    client = _make_client()
+    assert not hasattr(client, "_client_credentials_authenticate")
+    assert not hasattr(client, "_soap_authenticate")
+    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
+    client._try_oauth_refresh = AsyncMock(return_value=False)
     result = asyncio.run(client.authenticate())
-
-    assert result == "soap_tok"
-    client._soap_authenticate.assert_awaited_once()
+    assert result == ""
     client._http_client.post.assert_not_awaited()
 
 
-def test_authenticate_falls_to_oauth_when_soap_fails_without_scope():
+# ─────────────────────────────────────────────
+# _needs_mcp_token: simple missing/expired check
+# ─────────────────────────────────────────────
+
+def test_needs_mcp_token_false_when_token_valid():
     client = _make_client()
-    client.oauth_scope = REST_ONLY_SCOPE
-    client._soap_authenticate = AsyncMock(side_effect=RuntimeError("soap down"))
-    client._http_client.post = AsyncMock(return_value=_oauth_response())
+    client._access_token = "oauth_tok"
+    client._expires_at = time.time() + 3600
+    assert client._needs_mcp_token() is False
 
-    result = asyncio.run(client.authenticate())
 
-    assert result == "oauth_tok"
-    client._soap_authenticate.assert_awaited_once()
+def test_needs_mcp_token_true_when_missing():
+    client = _make_client()
+    assert client._needs_mcp_token() is True
+
+
+def test_needs_mcp_token_true_when_expired():
+    client = _make_client()
+    client._access_token = "tok"
+    client._expires_at = time.time() - 10
+    assert client._needs_mcp_token() is True
+
+
+# ─────────────────────────────────────────────
+# _ensure_fresh_token: refresh or re-auth when needed
+# ─────────────────────────────────────────────
+
+def test_ensure_fresh_token_noop_when_token_valid():
+    client = _make_client()
+    client._access_token = "oauth_tok"
+    client._expires_at = time.time() + 3600
+    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
+    client._try_oauth_refresh = AsyncMock(return_value=True)
+    client.authenticate = AsyncMock(return_value="oauth_tok")
+
+    asyncio.run(client._ensure_fresh_token())
+
+    client._try_oauth_refresh.assert_not_awaited()
+    client.authenticate.assert_not_awaited()
+    client._load_mcp_scoped_token_from_vault.assert_not_called()
+
+
+def test_ensure_fresh_token_refreshes_expired_token():
+    client = _make_client()
+    client._access_token = "expired_tok"
+    client._expires_at = time.time() - 10
+    client._refresh_token = "rt"
+    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
+    client._try_oauth_refresh = AsyncMock(return_value=True)
+    client.authenticate = AsyncMock(return_value="oauth_tok")
+
+    asyncio.run(client._ensure_fresh_token())
+
+    client._try_oauth_refresh.assert_awaited_once()
+    client.authenticate.assert_not_awaited()
+
+
+def test_ensure_fresh_token_reauths_when_refresh_fails():
+    client = _make_client()
+    client._expires_at = 0.0
+    client._refresh_token = None
+    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
+    client._try_oauth_refresh = AsyncMock(return_value=False)
+    client.authenticate = AsyncMock(return_value="oauth_tok")
+
+    asyncio.run(client._ensure_fresh_token())
+
+    client.authenticate.assert_awaited_once()
 
 
 # ─────────────────────────────────────────────
@@ -189,101 +212,6 @@ def test_scope_has_mcp_capability():
     assert not SalesforceMCPClient._scope_has_mcp_capability(REST_ONLY_SCOPE)
     assert not SalesforceMCPClient._scope_has_mcp_capability("")
     assert not SalesforceMCPClient._scope_has_mcp_capability("api")
-
-
-# ─────────────────────────────────────────────
-# _needs_mcp_token: SOAP token must be replaced for MCP
-# ─────────────────────────────────────────────
-
-def test_needs_mcp_token_true_for_soap_token_when_mcp_scope():
-    client = _make_client()
-    client._access_token = "soap_sid"
-    client._access_token_is_soap = True
-    client._expires_at = time.time() + 3600
-    client.oauth_scope = MCP_SCOPE
-    assert client._needs_mcp_token() is True
-
-
-def test_needs_mcp_token_false_for_soap_token_without_scope():
-    client = _make_client()
-    client._access_token = "soap_sid"
-    client._access_token_is_soap = True
-    client._expires_at = time.time() + 3600
-    client.oauth_scope = None
-    assert client._needs_mcp_token() is False
-
-
-def test_needs_mcp_token_false_for_oauth_token_when_mcp_scope():
-    client = _make_client()
-    client._access_token = "oauth_tok"
-    client._access_token_is_soap = False
-    client._expires_at = time.time() + 3600
-    client.oauth_scope = MCP_SCOPE
-    assert client._needs_mcp_token() is False
-
-
-def test_needs_mcp_token_true_when_missing_or_expired():
-    client = _make_client()
-    client.oauth_scope = MCP_SCOPE
-    assert client._needs_mcp_token() is True  # no access token
-    client._access_token = "tok"
-    client._access_token_is_soap = False
-    client._expires_at = time.time() - 10
-    assert client._needs_mcp_token() is True  # expired
-
-
-# ─────────────────────────────────────────────
-# _ensure_fresh_token: routes SOAP token to refresh/re-auth
-# ─────────────────────────────────────────────
-
-def test_ensure_fresh_token_refreshes_soap_token_when_mcp_scope():
-    client = _make_client()
-    client._access_token = "soap_sid"
-    client._access_token_is_soap = True
-    client._expires_at = time.time() + 3600
-    client.oauth_scope = MCP_SCOPE
-    client._refresh_token = "rt"
-    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
-    client._try_oauth_refresh = AsyncMock(return_value=True)
-    client.authenticate = AsyncMock(return_value="oauth_tok")
-
-    asyncio.run(client._ensure_fresh_token())
-
-    client._try_oauth_refresh.assert_awaited_once()
-    client.authenticate.assert_not_awaited()
-
-
-def test_ensure_fresh_token_reauths_soap_token_via_authenticate_without_refresh():
-    client = _make_client()
-    client._access_token = "soap_sid"
-    client._access_token_is_soap = True
-    client._expires_at = time.time() + 3600
-    client.oauth_scope = MCP_SCOPE
-    client._refresh_token = None
-    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
-    client._try_oauth_refresh = AsyncMock(return_value=False)
-    client.authenticate = AsyncMock(return_value="oauth_tok")
-
-    asyncio.run(client._ensure_fresh_token())
-
-    client.authenticate.assert_awaited_once()
-
-
-def test_ensure_fresh_token_noop_when_token_valid():
-    client = _make_client()
-    client._access_token = "oauth_tok"
-    client._access_token_is_soap = False
-    client._expires_at = time.time() + 3600
-    client.oauth_scope = MCP_SCOPE
-    client._load_mcp_scoped_token_from_vault = Mock(return_value=False)
-    client._try_oauth_refresh = AsyncMock(return_value=True)
-    client.authenticate = AsyncMock(return_value="oauth_tok")
-
-    asyncio.run(client._ensure_fresh_token())
-
-    client._try_oauth_refresh.assert_not_awaited()
-    client.authenticate.assert_not_awaited()
-    client._load_mcp_scoped_token_from_vault.assert_not_called()
 
 
 # ─────────────────────────────────────────────

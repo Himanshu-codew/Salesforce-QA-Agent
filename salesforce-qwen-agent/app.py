@@ -16,7 +16,6 @@ import shutil
 import sys
 import time
 import urllib.parse
-import xml.etree.ElementTree as ET
 from contextlib import asynccontextmanager
 from xml.sax.saxutils import escape as xml_escape
 
@@ -82,9 +81,9 @@ def create_mcp_client() -> SalesforceMCPClient:
         instance_url=os.getenv("SALESFORCE_INSTANCE_URL", ""),
         client_id=os.getenv("SALESFORCE_CLIENT_ID") or os.getenv("SF_CLIENT_ID", ""),
         client_secret=os.getenv("SALESFORCE_CLIENT_SECRET") or os.getenv("SF_CLIENT_SECRET", ""),
-        username=os.getenv("SALESFORCE_USERNAME", ""),
-        password=os.getenv("SALESFORCE_PASSWORD", ""),
-        security_token=os.getenv("SALESFORCE_SECURITY_TOKEN", ""),
+        username="",
+        password="",
+        security_token="",
         domain=os.getenv("SALESFORCE_DOMAIN", "login"),
         access_token=os.getenv("SALESFORCE_ACCESS_TOKEN"),
         refresh_token=os.getenv("SALESFORCE_REFRESH_TOKEN"),
@@ -180,6 +179,15 @@ async def lifespan(app: FastAPI):
         llm=llm,
     )
 
+    # 7. Clean up stale vault entries from previous sessions
+    from sfmcp.crypto.envelope import token_vault
+    try:
+        stale_count = token_vault.cleanup_stale_sessions(max_age_seconds=86400)
+        if stale_count > 0:
+            logger.info(f"Cleaned up {stale_count} stale vault session(s) older than 24 hours.")
+    except Exception as e:
+        logger.warning(f"Failed to clean up stale vault sessions: {e}")
+
     logger.info("✅ Salesforce Agent ready! Server running on port 8000.")
     logger.info("=" * 60)
 
@@ -232,9 +240,6 @@ from sfmcp.session_manager import session_manager
 _oauth_pending_flows: dict[str, dict] = {}
 _OAUTH_STATE_TTL_SECONDS = 600
 
-# SOAP Partner API version used for direct credential logins.
-SOAP_API_VERSION = "58.0"
-
 
 def _generate_pkce_pair() -> tuple[str, str]:
     """Generate (code_verifier, code_challenge) tuple for OAuth 2.0 PKCE."""
@@ -259,20 +264,6 @@ def _resolve_auth_host(domain: str | None) -> str:
     "login" / default ALWAYS resolves to the canonical login.salesforce.com so
     external users never see (or depend on) the server's own org domain in the
     popup URL. Custom My-Domain hosts pass through untouched.
-    """
-    d = (domain or "").strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
-    if d in ("", "login", "production", "prod", "developer", "dev"):
-        return "login.salesforce.com"
-    if d == "test":
-        return "test.salesforce.com"
-    return d
-
-
-def _resolve_login_host(domain: str | None) -> str:
-    """
-    Host for CREDENTIAL logins (SOAP login / password grant).
-    Salesforce only accepts username+password logins on the canonical
-    login/test hosts (or a login-enabled My Domain) — never on an instance URL.
     """
     d = (domain or "").strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
     if d in ("", "login", "production", "prod", "developer", "dev"):
@@ -647,243 +638,6 @@ async def oauth_callback(request: Request):
 async def get_user_me(session_id: str = Query("default")):
     """Get current user connection profile for session."""
     return session_manager.get_user_info(session_id)
-
-
-class DirectConnectRequest(BaseModel):
-    session_id: str = "default"
-    mode: str = "password"  # "password" or "token"
-    username: str | None = None
-    password: str | None = None
-    security_token: str | None = None
-    instance_url: str | None = None
-    access_token: str | None = None
-    domain: str = "login"
-
-
-def _extract_soap_fault(response_text: str) -> tuple[str, str]:
-    """Return (faultcode, faultstring) from a Salesforce SOAP fault envelope."""
-    try:
-        root = ET.fromstring(response_text)
-    except ET.ParseError:
-        return "", response_text.strip()[:300]
-    fault = root.find(".//soapenv:Fault", {"soapenv": "http://schemas.xmlsoap.org/soap/envelope/"})
-    if fault is None:
-        return "", ""
-    fault_code = (fault.findtext(".//faultcode", "") or "").strip()
-    fault_string = (fault.findtext(".//faultstring", "") or "").strip()
-    return fault_code, fault_string
-
-
-def _friendly_direct_login_error(fault_code: str, fault_string: str) -> str:
-    """Translate raw Salesforce SOAP faults into actionable user guidance."""
-    blob = f"{fault_code} {fault_string}".upper()
-
-    if "LOGIN_MUST_USE_SECURITY_TOKEN" in blob or ("INVALID_LOGIN" in blob and "TOKEN" in blob):
-        return (
-            "Salesforce rejected this login because it originates from an untrusted IP. "
-            "Paste your Security Token in the 'Security Token' field "
-            "(get it: Setup → My Personal Information → Reset Security Token), or add your "
-            "IP under Setup → Security → Network Access."
-        )
-    if "INVALID_LOGIN" in blob or "INVALID_USERNAME" in blob or "INVALID_PASSWORD" in blob:
-        return (
-            "Invalid username, password, or security token. Note: when logging in from an "
-            "untrusted IP/network you must append your Security Token to the password "
-            "(enter it in the Security Token field)."
-        )
-    if "IP_RESTRICTED" in blob or "LOGIN_ADDRESS" in blob or "RESTRICTED_IP" in blob:
-        return (
-            "Your IP address is blocked by the org's login restrictions. Ask an admin to add it "
-            "under Setup → Security → Network Access (Trusted IP Ranges)."
-        )
-    if "API_DISABLED" in blob or "UNSUPPORTED_CLIENT" in blob or "API_CURRENTLY_DISABLED" in blob:
-        return (
-            "API access is disabled for this org/user. Enable the 'API Enabled' permission "
-            "(requires Enterprise/Unlimited/Developer edition) and retry."
-        )
-    if "ORG_LOCKED" in blob or "LOCKED_OUT" in blob or "PASSWORD_LOCKOUT" in blob:
-        return "This user account is locked out. Wait a few minutes or ask an admin to unlock it under Setup → Users."
-    if "SERVER_UNAVAILABLE" in blob or "REQUEST_LIMIT_EXCEEDED" in blob:
-        return "Salesforce is temporarily unavailable or the org hit its API request limit. Please try again shortly."
-    return f"Salesforce rejected the login: {fault_string or fault_code or 'unknown error'}"
-
-
-@app.post("/api/auth/connect_direct")
-async def connect_direct_endpoint(req: DirectConnectRequest):
-    """
-    Connect any user's Salesforce Org using Username + Password + Security Token
-    OR Access Token + Instance URL.
-
-    Direct password logins use the SOAP Partner API; from untrusted IPs
-    Salesforce requires the Security Token appended to the password.
-    """
-    try:
-        access_token = ""
-        instance_url = ""
-        display_name = ""
-        email = ""
-        username = req.username or ""
-
-        if req.mode == "password":
-            if not req.username or not req.password:
-                return JSONResponse(status_code=400, content={"error": "Username and Password are required."})
-
-            auth_host = _resolve_login_host(req.domain)
-            sec_token = (req.security_token or "").strip()
-            full_password = req.password + sec_token
-
-            # SOAP Partner API login. XML-escape all user input to keep the
-            # envelope well-formed (& < > are common in passwords).
-            soap_body = (
-                '<?xml version="1.0" encoding="utf-8"?>'
-                '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" '
-                'xmlns:urn="urn:partner.soap.sforce.com">'
-                "<soapenv:Body>"
-                "<urn:login>"
-                f"<urn:username>{xml_escape(req.username)}</urn:username>"
-                f"<urn:password>{xml_escape(full_password)}</urn:password>"
-                "</urn:login>"
-                "</soapenv:Body>"
-                "</soapenv:Envelope>"
-            )
-
-            fault_code, fault_string = "", ""
-            rest_error = ""
-
-            try:
-                async with httpx.AsyncClient(timeout=20.0) as http:
-                    # ── Attempt 1: SOAP Partner Login ──
-                    try:
-                        res = await http.post(
-                            f"https://{auth_host}/services/Soap/u/{SOAP_API_VERSION}",
-                            data=soap_body.encode("utf-8"),
-                            headers={
-                                "Content-Type": "text/xml; charset=utf-8",
-                                "SOAPAction": "login",
-                            },
-                        )
-
-                        if res.status_code == 200:
-                            try:
-                                root = ET.fromstring(res.text)
-                                ns = {"urn": "urn:partner.soap.sforce.com"}
-                                session_id_elem = root.findtext(".//urn:sessionId", "", ns) or ""
-                                server_url = root.findtext(".//urn:serverUrl", "", ns) or ""
-
-                                if session_id_elem:
-                                    access_token = session_id_elem
-                                    parsed = urllib.parse.urlparse(server_url)
-                                    instance_url = (
-                                        f"{parsed.scheme}://{parsed.netloc}"
-                                        if parsed.netloc else f"https://{auth_host}"
-                                    )
-                                    display_name = root.findtext(".//urn:userFullName", "", ns) or ""
-                                    email = root.findtext(".//urn:userEmail", "", ns) or ""
-                            except ET.ParseError as parse_err:
-                                logger.warning(f"Unexpected SOAP success payload: {parse_err}")
-                        else:
-                            fault_code, fault_string = _extract_soap_fault(res.text)
-                            logger.warning(
-                                f"SOAP login failed ({res.status_code}) via {auth_host}: "
-                                f"{fault_code} {fault_string}"
-                            )
-                    except httpx.RequestError as req_err:
-                        logger.warning(f"SOAP login unreachable at {auth_host}: {req_err}")
-
-                    # ── Attempt 2: REST OAuth password grant fallback ──
-                    if not access_token:
-                        client_id = os.getenv("SALESFORCE_CLIENT_ID", "")
-                        client_secret = os.getenv("SALESFORCE_CLIENT_SECRET", "")
-                        if client_id and client_secret:
-                            try:
-                                rest_res = await http.post(
-                                    f"https://{auth_host}/services/oauth2/token",
-                                    data={
-                                        "grant_type": "password",
-                                        "client_id": client_id,
-                                        "client_secret": client_secret,
-                                        "username": req.username,
-                                        "password": full_password,
-                                    },
-                                )
-                                if rest_res.status_code == 200:
-                                    rest_json = rest_res.json()
-                                    access_token = rest_json.get("access_token", "")
-                                    instance_url = rest_json.get("instance_url", "")
-                                    id_url = rest_json.get("id", "")
-                                    if id_url:
-                                        id_res = await http.get(
-                                            id_url, headers={"Authorization": f"Bearer {access_token}"}
-                                        )
-                                        if id_res.status_code == 200:
-                                            id_data = id_res.json()
-                                            display_name = id_data.get("display_name") or id_data.get("username", "")
-                                            email = id_data.get("email", "")
-                                elif not (fault_code or fault_string):
-                                    try:
-                                        err_json = rest_res.json()
-                                        rest_error = (
-                                            f"{err_json.get('error', '')}: {err_json.get('error_description', '')}"
-                                        ).strip(": ")
-                                    except Exception:
-                                        rest_error = rest_res.text[:200]
-                                    logger.warning(
-                                        "Password-grant token exchange failed (%s) via %s: %s",
-                                        rest_res.status_code, auth_host, rest_error,
-                                    )
-                            except httpx.RequestError as rest_req_err:
-                                rest_error = str(rest_req_err)
-            except Exception as net_exc:
-                logger.error(f"Direct connect network failure: {net_exc}", exc_info=True)
-                return JSONResponse(
-                    status_code=502,
-                    content={"error": f"Could not reach Salesforce at https://{auth_host}. Check the selected Environment Domain."},
-                )
-
-            if not access_token:
-                if fault_code or fault_string:
-                    error_message = _friendly_direct_login_error(fault_code, fault_string)
-                elif rest_error:
-                    error_message = f"Salesforce rejected the login: {rest_error}"
-                else:
-                    error_message = (
-                        "Invalid Salesforce Username or Password. If this org is a Sandbox, "
-                        "switch Environment Domain to Sandbox; from untrusted networks also supply your Security Token."
-                    )
-                return JSONResponse(status_code=401, content={"error": error_message})
-
-        elif req.mode == "token":
-            if not req.access_token or not req.instance_url:
-                return JSONResponse(status_code=400, content={"error": "Access Token and Instance URL are required."})
-            access_token = req.access_token.strip()
-            instance_url = req.instance_url.strip().rstrip("/")
-
-        if not access_token or not instance_url:
-            return JSONResponse(status_code=400, content={"error": "Failed to authenticate with Salesforce credentials."})
-
-        # Register session
-        user_info = {
-            "display_name": display_name or (username.split("@")[0].title() if username else "Salesforce User"),
-            "email": email or username,
-            "username": username,
-            "org_name": f"Org ({instance_url.replace('https://', '')[:16]})",
-            "authenticated": True,
-        }
-
-        await session_manager.register_oauth_session(
-            session_id=req.session_id,
-            access_token=access_token,
-            refresh_token="",
-            instance_url=instance_url,
-            user_info=user_info,
-        )
-
-        logger.info(f"✅ User connected via direct credentials for session '{req.session_id}': {user_info['display_name']} ({instance_url})")
-        return {"success": True, "session_id": req.session_id, "user": user_info}
-
-    except Exception as e:
-        logger.error(f"Direct Salesforce connection error: {e}", exc_info=True)
-        return JSONResponse(status_code=500, content={"error": f"Authentication failed: {str(e)}"})
 
 
 @app.post("/api/auth/logout")

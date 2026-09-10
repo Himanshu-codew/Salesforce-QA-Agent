@@ -1317,6 +1317,7 @@ _SOQL_ERROR_PATTERNS = [
     (r"DATEADD\s*\(", "Replace DATEADD() with SOQL date literals (LAST_N_DAYS:N, etc.)"),
     (r"NOW\s*\(\s*\)", "Replace NOW() with TODAY or use datetime literals"),
     (r"GETDATE\s*\(\s*\)", "Replace GETDATE() with TODAY"),
+    (r"WHERE\s+\w+\s*=\s*\(\s*SELECT", "SOQL does not support correlated subqueries in WHERE clauses. Use parent-to-child subqueries in SELECT, or filter by Account.Name = 'X', or use a literal ID from a prior query."),
 ]
 
 _SOQL_FIX_SUGGESTIONS = {
@@ -1327,6 +1328,8 @@ _SOQL_FIX_SUGGESTIONS = {
     "malformed": "Check SOQL syntax: ensure SELECT, FROM, WHERE, and LIMIT clauses are correct.",
     "invalid_field": "Check field API names using getObjectSchema if unsure.",
     "group by": "SOQL does not allow GROUP BY inside semi-join subqueries. Query the child object directly.",
+    "unexpected token": "SOQL does not support subqueries in WHERE clauses. Use parent-to-child subqueries in the SELECT clause instead (e.g., SELECT Id, Name, (SELECT Id, Name FROM Opportunities) FROM Account WHERE Name = 'X'), or filter by relationship name (e.g., WHERE Account.Name = 'X').",
+    "MALFORMED_QUERY": "The SOQL query structure is invalid. If using a subquery in WHERE, replace with: (a) parent-to-child subquery in SELECT, or (b) filter by Account.Name = 'X', or (c) use a literal ID from a prior query.",
 }
 
 
