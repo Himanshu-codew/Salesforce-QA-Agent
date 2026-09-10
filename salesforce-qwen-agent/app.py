@@ -188,6 +188,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to clean up stale vault sessions: {e}")
 
+    # 7b. Restore any pending OAuth login flows saved by a previous process so
+    #     Salesforce's authorization redirect survives a restart mid-round-trip.
+    try:
+        _load_oauth_flows()
+    except Exception as e:
+        logger.warning(f"Failed to restore pending OAuth flows: {e}")
+
     logger.info("✅ Salesforce Agent ready! Server running on port 8000.")
     logger.info("=" * 60)
 
@@ -253,8 +260,105 @@ def _prune_expired_states() -> None:
     """Evict stale pending OAuth states to bound memory usage."""
     cutoff = time.time() - _OAUTH_STATE_TTL_SECONDS
     expired = [s for s, meta in _oauth_pending_flows.items() if meta["created_at"] < cutoff]
+    removed = False
     for s in expired:
         _oauth_pending_flows.pop(s, None)
+        removed = True
+    if removed:
+        _persist_oauth_flows()
+
+
+# ── Pending OAuth flow persistence ──────────────────────────────────────────
+# Pending login flows (state -> session/verifier/credentials) are mirrored to
+# an encrypted file so a process restart in the middle of the OAuth round trip
+# (uvicorn --reload, Render container recycle, crash) does NOT orphan the
+# callback with "state not found" 400s. The file is AES-256-GCM encrypted with
+# the same KEK the token vault uses; nothing sensitive is stored in plaintext.
+# NOTE: Render's default filesystem is ephemeral across NEW containers, so this
+# protects against in-place restarts/recycles, not full redeploys.
+
+_OAUTH_FLOW_STORE_PATH = os.getenv("SF_OAUTH_STORE_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "oauth_pending.enc"
+)
+
+
+def _oauth_flows_file_key(kek: bytes) -> bytes:
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    return HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=b"sf-oauth-pending-v1", info=b"pending-flows"
+    ).derive(kek)
+
+
+def _persist_oauth_flows() -> None:
+    """Best-effort encrypted mirror of _oauth_pending_flows to disk."""
+    try:
+        from sfmcp.crypto.envelope import _b64, load_or_create_kek
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except Exception as e:
+        logger.warning(f"[OAUTH] Could not load crypto for flow persistence: {e}")
+        return
+    kek = load_or_create_kek()
+    path = _OAUTH_FLOW_STORE_PATH
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        payload = json.dumps(_oauth_pending_flows, ensure_ascii=False).encode("utf-8")
+        iv = secrets.token_bytes(12)
+        ciphertext = AESGCM(_oauth_flows_file_key(kek)).encrypt(iv, payload, None)
+        blob = {"v": 1, "iv": _b64(iv), "data": _b64(ciphertext)}
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(blob, fh)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+        try:
+            os.chmod(path, 0o600)  # Windows: no-op or raises OSError -> ignored
+        except OSError:
+            pass
+    except Exception as e:
+        logger.warning(f"[OAUTH] Failed to persist pending OAuth flows: {e}")
+
+
+def _load_oauth_flows() -> None:
+    """Restore pending flows saved by a previous process. Never overwrites
+    states already present in memory (a newer process wins)."""
+    try:
+        from sfmcp.crypto.envelope import _b64d, load_or_create_kek
+        from cryptography.exceptions import InvalidTag
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except Exception as e:
+        logger.warning(f"[OAUTH] Could not load crypto for flow restore: {e}")
+        return
+    path = _OAUTH_FLOW_STORE_PATH
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            blob = json.load(fh)
+        if blob.get("v") != 1:
+            return
+        kek = load_or_create_kek()
+        payload = AESGCM(_oauth_flows_file_key(kek)).decrypt(
+            _b64d(blob["iv"]), _b64d(blob["data"]), None
+        )
+        restored = json.loads(payload.decode("utf-8"))
+    except (OSError, ValueError, InvalidTag, KeyError) as e:
+        logger.error("[OAUTH] Could not restore pending flows (%s): %s", path, e)
+        return
+    now = time.time()
+    restored_count = 0
+    for state, meta in restored.items():
+        if not isinstance(meta, dict) or meta.get("created_at", 0) < now - _OAUTH_STATE_TTL_SECONDS:
+            continue  # skip expired states
+        if state not in _oauth_pending_flows:
+            _oauth_pending_flows[state] = meta
+            restored_count += 1
+    if restored_count:
+        logger.info(
+            f"[OAUTH] Restored {restored_count} pending OAuth flow(s) from disk "
+            f"(callbacks survive restarts)."
+        )
 
 
 def _resolve_auth_host(domain: str | None) -> str:
@@ -470,6 +574,7 @@ async def oauth_login(
         "created_at": time.time(),
     }
     _prune_expired_states()
+    _persist_oauth_flows()
 
     oauth_url = (
         f"https://{auth_host}/services/oauth2/authorize?"
@@ -540,6 +645,11 @@ async def oauth_callback(request: Request):
         )
 
     code = params.get("code")
+    flow = _oauth_pending_flows.pop(state, None) if state else None
+    if state:
+        # Keep the disk mirror in sync so a consumed/expired state is never
+        # replayed after a restart.
+        _persist_oauth_flows()
     if not code or not flow:
         return HTMLResponse(
             content=_popup_html(
@@ -963,6 +1073,74 @@ def _is_duplicate_request(session_id: str, request_id: str | None) -> bool:
     )
 
 
+# ── Completed-turn output cache (replay on reconnect-resend) ────────────────
+# When a turn completes but the client has already disconnected before the
+# terminal response was delivered ("final response not deliverable"), the
+# frontend reconnects and automatically resends the SAME request_id. The dedupe
+# layer above would normally drop it silently — leaving the user without the
+# answer. Here the finalized events of the last completed turn are cached per
+# session so a duplicate resend REPLAYS the terminal response/error instead of
+# dropping it, while the one-submission==one-mutation guarantee is unchanged.
+_SESSION_OUTPUT_TTL = float(os.getenv("WS_OUTPUT_CACHE_TTL", "300"))
+_MAX_SESSION_OUTPUTS = 256
+_MAX_CAPTURED_EVENTS = 200
+_session_outputs: dict[str, dict] = {}
+
+_TERMINAL_TYPES = ("response", "error", "confirmation")
+
+
+def _capture_event(capture: list, finalized_event: dict) -> None:
+    capture.append(finalized_event)
+    if len(capture) > _MAX_CAPTURED_EVENTS:
+        del capture[: len(capture) - _MAX_CAPTURED_EVENTS]
+
+
+def _terminal_event(capture: list) -> dict | None:
+    """Return the last terminal (response/error/confirmation) event, if any."""
+    for event in reversed(capture):
+        if event.get("type") in _TERMINAL_TYPES:
+            return event
+    return None
+
+
+def _remember_output(session_id: str, request_id: str | None, capture: list) -> None:
+    if not request_id or not capture:
+        return
+    terminal = _terminal_event(capture)
+    if terminal is None:
+        return  # turn was interrupted; nothing complete to replay
+    now = time.monotonic()
+    _session_outputs[session_id] = {
+        "request_id": request_id,
+        "event": terminal,
+        "ts": now,
+        "complete": True,
+    }
+    stale = [
+        sid for sid, meta in _session_outputs.items()
+        if now - meta.get("ts", 0) > _SESSION_OUTPUT_TTL
+    ]
+    for sid in stale:
+        _session_outputs.pop(sid, None)
+    while len(_session_outputs) > _MAX_SESSION_OUTPUTS:
+        _session_outputs.pop(next(iter(_session_outputs)))
+
+
+def _cached_output(session_id: str, request_id: str | None) -> dict | None:
+    """Return the cached terminal event for a re-sent request_id, or None."""
+    if not request_id:
+        return None
+    meta = _session_outputs.get(session_id)
+    if not meta or not meta.get("complete"):
+        return None
+    if meta.get("request_id") != request_id:
+        return None
+    if time.monotonic() - meta.get("ts", 0) > _SESSION_OUTPUT_TTL:
+        _session_outputs.pop(session_id, None)
+        return None
+    return meta["event"]
+
+
 def _finalized_ws_event(event: dict) -> dict:
     """Apply the LAST-MILE USER OUTPUT GUARD to an event before delivery.
 
@@ -1053,11 +1231,26 @@ async def _idle_keepalive(websocket: WebSocket, session_id: str) -> None:
         logger.warning(f"[WS] Keepalive task ended ({session_id})", exc_info=True)
 
 
-async def _ws_produce(websocket: WebSocket, agent, session_id: str, user_message: str) -> None:
-    """Consume the agent event stream and forward events while disconnect-safe."""
+async def _ws_produce(
+    websocket: WebSocket,
+    agent,
+    session_id: str,
+    user_message: str,
+    capture: list | None = None,
+) -> None:
+    """Consume the agent event stream and forward events while disconnect-safe.
+
+    Every finalized event is also appended into ``capture`` (if provided) BEFORE
+    the send attempt: a failed send (client gone mid-turn) must not lose the
+    terminal event, because the caller stores it in the session output cache so
+    the client's reconnect-resend can replay the final answer.
+    """
     try:
         async for event in agent.process_message(user_message, session_id):
-            if not await _ws_send_json(websocket, _finalized_ws_event(event)):
+            finalized = _finalized_ws_event(event)
+            if capture is not None:
+                _capture_event(capture, finalized)
+            if not await _ws_send_json(websocket, finalized):
                 break
     except Exception as e:
         logger.error(f"[WS] Agent error ({session_id}): {e}", exc_info=True)
@@ -1154,17 +1347,30 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 # Dedupe re-sent submissions: the SAME request_id within TTL is a
                 # replay (reconnect / double-submit / auto-resend). Drop it so a
                 # mutating request (e.g. "create a lead") can never run twice.
+                # If the original turn COMPLETED but its terminal response was
+                # lost to a disconnect, replay the cached answer instead of
+                # silently discarding the user's question.
                 request_id = data.get("request_id")
                 if _is_duplicate_request(session_id, request_id):
-                    logger.info(
-                        f"[WS] Duplicate request dropped: session={session_id} request_id={request_id!r}"
-                    )
-                    await _ws_send_json(websocket, {
-                        "type": "dedupe",
-                        "data": "This request was already processed; skipping the duplicate. "
-                                "If you did not receive the final answer before the connection "
-                                "dropped, please ask again and I will start fresh.",
-                    })
+                    replayed = _cached_output(session_id, request_id)
+                    if replayed is not None:
+                        logger.info(
+                            f"[WS] Replaying cached result for duplicate request: "
+                            f"session={session_id} request_id={request_id!r}"
+                        )
+                        await _ws_send_json(websocket, replayed)
+                        if _ws_is_connected(websocket):
+                            await _ws_send_json(websocket, {"type": "idle"})
+                    else:
+                        logger.info(
+                            f"[WS] Duplicate request dropped: session={session_id} request_id={request_id!r}"
+                        )
+                        await _ws_send_json(websocket, {
+                            "type": "dedupe",
+                            "data": "This request was already processed; skipping the duplicate. "
+                                    "If you did not receive the final answer before the connection "
+                                    "dropped, please ask again and I will start fresh.",
+                        })
                     continue
                 if request_id:
                     _remember_request(session_id, request_id)
@@ -1190,9 +1396,14 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
 
                 logger.info(f"[WS] Qwen request started: session={session_id}")
 
+                # Capture every finalized event the agent yields (even ones a
+                # failed send could not deliver) so a turn that completes after
+                # the client disconnects can be replayed on reconnect-resend.
+                captured_events: list = []
+
                 # Producer: forwards agent events as they stream out.
                 producer = asyncio.create_task(
-                    _ws_produce(websocket, target_agent, session_id, user_message)
+                    _ws_produce(websocket, target_agent, session_id, user_message, captured_events)
                 )
 
                 # Heartbeat: while the producer is running, push a progress frame
@@ -1243,6 +1454,10 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                     if not heartbeat.done():
                         heartbeat.cancel()
                     await asyncio.gather(producer, heartbeat, return_exceptions=True)
+                    # Cache the completed turn's terminal event so a reconnect
+                    # resend of the same request_id can replay the final answer
+                    # that a disconnect may have swallowed.
+                    _remember_output(session_id, request_id, captured_events)
                     _session_busy[session_id] = False
 
                 # `idle` is cosmetic and the client ignores it. Never send it

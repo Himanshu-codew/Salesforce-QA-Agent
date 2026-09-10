@@ -52,6 +52,7 @@ def _make_app(monkeypatch, agent):
     monkeypatch.setattr(app_module, "session_manager", _fake_session_manager_returning(agent))
     monkeypatch.setattr(app_module, "_session_busy", {})
     monkeypatch.setattr(app_module, "_recent_requests", {})
+    monkeypatch.setattr(app_module, "_session_outputs", {})
     test_app = FastAPI()
     test_app.websocket("/ws/{session_id}")(app_module.websocket_chat)
     return test_app
@@ -91,6 +92,11 @@ def test_same_request_id_resubmission_is_dropped(monkeypatch):
             }))
             first = _read_until(ws)
             assert "response" in first
+
+            # The completed turn is normally cached for replay on resend; drop
+            # the cache here so the pure-dedupe path (no replay available) is
+            # the one exercised.
+            app_module._session_outputs.pop("dedupe_1", None)
 
             # Same request_id re-sent (e.g. an automatic resend after reconnect).
             ws.send_text(json.dumps({

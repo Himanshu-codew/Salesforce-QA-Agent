@@ -7,6 +7,7 @@ uploads/
 # Token vault security — never commit the KEK or stored (encrypted) tokens
 .sf_kek
 mcp_tokens.enc
+oauth_pending.enc
 
 # Runtime server logs — commit hygiene
 /server_stdout.log
