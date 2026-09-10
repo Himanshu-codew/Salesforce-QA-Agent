@@ -645,10 +645,9 @@ async def oauth_callback(request: Request):
         )
 
     code = params.get("code")
-    flow = _oauth_pending_flows.pop(state, None) if state else None
     if state:
         # Keep the disk mirror in sync so a consumed/expired state is never
-        # replayed after a restart.
+        # replayed after a restart. `flow` was already consumed (popped) above.
         _persist_oauth_flows()
     if not code or not flow:
         return HTMLResponse(
@@ -1523,3 +1522,4 @@ if __name__ == "__main__":
         reload_excludes=["uploads/*", "*.csv", "*.html", "*.xlsx", "*.log", ".pytest_cache/*", "__pycache__/*"],
         log_level="info",
     )
+
