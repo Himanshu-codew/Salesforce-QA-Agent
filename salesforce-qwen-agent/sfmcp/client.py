@@ -153,6 +153,7 @@ class SalesforceMCPClient:
         self._access_token = access_token
         self._refresh_token = refresh_token
         self._expires_at = expires_at
+        self.token_scopes: str | None = None
         # True when the current _access_token came from a SOAP partner-login
         # session. SOAP tokens are REST-capable but carry no MCP scope, so when
         # an MCP-capable OAuth scope is configured they must be replaced before
@@ -193,19 +194,6 @@ class SalesforceMCPClient:
         # but not noisy. Clear on a successful MCP init so a real fix is always
         # reported.
         self._mcp_401_warned = False
-        # MCP attempts are gated by SALESFORCE_MCP_ENABLED (=false forces a clean
-        # REST-only setup). Defaults ON when a SALESFORCE_MCP_URL is configured.
-        self._mcp_enabled = os.getenv("SALESFORCE_MCP_ENABLED", "true").lower() not in (
-            "false", "0", "no", "off",
-        )
-        # Boot-scoped OAuth failure cache: the org/Connected App rejected the
-        # OAuth password or refresh grant (e.g. invalid_scope, password flow
-        # disabled, unknown client). Once set we stop burning failed OAuth calls
-        # every turn and fall straight back to SOAP for REST, with one actionable
-        # reason surfaced in the logs and /health.
-        self._oauth_unavailable = False
-        self._oauth_reason = ""
-        self._mcp_unavailable_reason = ""
 
     @property
     def is_connected(self) -> bool:
@@ -267,89 +255,32 @@ class SalesforceMCPClient:
             logger.error(f"Salesforce SOAP auth error: {err}")
             raise RuntimeError(f"Salesforce authentication failed: {err}")
 
-    # Map common Salesforce token-endpoint errors to the actionable fix so a
-    # single clear warning guides the user instead of a silent OAuth storm.
-    _OAUTH_ERROR_FIX = {
-        "invalid_client": "SALESFORCE_CLIENT_ID / SALESFORCE_CLIENT_SECRET do not match a valid Connected App "
-                          "(the env is possibly falling back to the default app)",
-        "invalid_grant": "the Connected App does not allow this OAuth grant (e.g. Username-Password flow disabled), "
-                         "or the scopes are not authorized",
-        "unsupported_grant_type": "the Connected App does not permit this OAuth grant type",
-        "invalid_scope": "the Connected App / org does not permit the requested OAuth scopes "
-                         "(mcp_api / sfap_api) — MCP scopes must be enabled in the org or granted on the app",
-    }
-
-    def _record_oauth_failure(self, exc: Exception) -> None:
-        """Cache definitive Salesforce OAuth rejections for the rest of the boot.
-
-        Only 4xx responses from the token endpoint prove the org/Connected App
-        rejects the grant (password or refresh). Transient network errors and
-        5xx responses are NOT cached so a temporary outage does not permanently
-        disable OAuth for the process.
-        """
-        response = getattr(exc, "response", None)
-        status = getattr(response, "status_code", None)
-        if status is None or not (400 <= status < 500):
-            return
-        body = ""
-        try:
-            body = getattr(response, "text", "") or ""
-        except Exception:
-            body = ""
-        err = ""
-        desc = ""
-        if body:
-            try:
-                payload = json.loads(body[:8000])
-                err = str(payload.get("error") or "")
-                desc = str(payload.get("error_description") or "")
-            except Exception:
-                err = ""
-                desc = ""
-        hint = self._OAUTH_ERROR_FIX.get(err, "")
-        reason_parts = [f"error={err}"] if err else []
-        if hint:
-            reason_parts.append(hint)
-        if desc:
-            reason_parts.append(f"detail={desc}")
-        if not reason_parts:
-            reason_parts.append(body[:300] or "unknown")
-        reason = "; ".join(reason_parts)
-        if not self._oauth_unavailable:
-            logger.warning(
-                "[MCP] OAuth token grant rejected by Salesforce (HTTP %s): %s. "
-                "Using SOAP/REST fallback; MCP stays disabled until OAuth works "
-                "(see /health).",
-                status,
-                reason,
-            )
-        self._oauth_unavailable = True
-        self._oauth_reason = f"OAuth grant rejected (HTTP {status}): {reason}"
-
-    async def authenticate(self, force_oauth: bool = False) -> str:
+    async def authenticate(self) -> str:
         """
         Authenticate with Salesforce.
 
-        REST-first strategy: when SOAP credentials are configured, the fast SOAP
-        partner login is the primary path because it works even in orgs where the
-        OAuth grant is rejected (password flow disabled, invalid scope, unknown
-        client). The OAuth password grant is only attempted when an MCP-capable
-        token is genuinely needed (``force_oauth``) and OAuth has not already
-        been proven unavailable this boot. When OAuth is unavailable we fall back
-        to SOAP (REST-capable) instead of re-attempting it on every call.
+        The default hosted-MCP client uses the Connected App client-credentials
+        grant, whose token is issued for the app's configured Run As user.
+        Interactive user sessions keep their authorization-code token. When no
+        MCP scope is configured (REST-only setup), the fast SOAP partner login
+        remains the primary path.
         """
-        want_mcp = force_oauth or bool(
-            self.oauth_scope and self._scope_has_mcp_capability(self.oauth_scope)
-        )
+        want_mcp = self.oauth_scope and self._scope_has_mcp_capability(self.oauth_scope)
 
-        if self._oauth_unavailable:
-            # OAuth already rejected by Salesforce this boot — never re-attempt.
-            if self.username and self.password and self.security_token:
-                return await self._soap_authenticate()
-            raise RuntimeError(
-                "Salesforce authentication unavailable (OAuth grant rejected): "
-                f"{self._oauth_reason}"
-            )
+        # The hosted MCP server's machine-to-machine setup uses the Connected
+        # App's configured Run As user. A SOAP session or password-grant token
+        # can authenticate to REST but is not accepted by hosted MCP. Keep
+        # this limited to the default client; interactive user sessions bring
+        # their own authorization-code token and must remain user-scoped.
+        if self.mcp_url and self.session_id == "default" and self.client_id and self.client_secret:
+            try:
+                return await self._client_credentials_authenticate()
+            except Exception as client_credentials_err:
+                logger.warning(
+                    "Salesforce MCP client-credentials auth failed (%s). "
+                    "Trying user/password auth for REST fallback.",
+                    client_credentials_err,
+                )
 
         if not want_mcp and self.username and self.password and self.security_token:
             try:
@@ -384,6 +315,7 @@ class SalesforceMCPClient:
 
             self._access_token = data["access_token"]
             self._access_token_is_soap = False
+            self.token_scopes = data.get("scope") or getattr(self, "token_scopes", None)
             # Capture the refresh token so later refreshes stay MCP-capable
             # (previously this path never recorded refresh_token, so the token
             # lapsed into a full re-auth instead of a clean refresh).
@@ -398,13 +330,46 @@ class SalesforceMCPClient:
             return self._access_token
 
         except Exception as e:
-            self._record_oauth_failure(e)
-            if self.username and self.password and self.security_token:
-                return await self._soap_authenticate()
-            raise RuntimeError(
-                "Salesforce OAuth authentication failed and no SOAP credentials "
-                "are configured."
-            ) from e
+            logger.warning(f"OAuth authentication failed ({e}). Falling back to SOAP Login...")
+            return await self._soap_authenticate()
+
+    async def _client_credentials_authenticate(self) -> str:
+        """Authenticate the default hosted-MCP client as the Connected App Run As user."""
+        payload = {
+            "grant_type": "client_credentials",
+            "client_id": self.client_id,
+            "client_secret": self.client_secret,
+        }
+        try:
+            response = await self._http_client.post(
+                self._token_url(),
+                data=payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            response.raise_for_status()
+            data = response.json()
+            self._access_token = data["access_token"]
+            self._access_token_is_soap = False
+            self.token_scopes = data.get("scope") or getattr(self, "token_scopes", None)
+            self._refresh_token = data.get("refresh_token", self._refresh_token)
+            self.instance_url = data.get("instance_url", self.instance_url)
+            self._expires_at = time.time() + int(data.get("expires_in", 3600))
+            self._persist_tokens()
+            logger.info(
+                "Authenticated with Salesforce via OAuth client credentials. Instance: %s",
+                self.instance_url,
+            )
+            return self._access_token
+        except Exception as err:
+            detail = ""
+            response = getattr(err, "response", None)
+            if response is not None:
+                try:
+                    detail = response.text[:300]
+                except Exception:
+                    detail = ""
+            suffix = f": {detail}" if detail else ""
+            raise RuntimeError(f"{err}{suffix}") from err
 
     async def refresh_access_token(self) -> str:
         """Refresh the access token via OAuth refresh_token grant."""
@@ -420,46 +385,36 @@ class SalesforceMCPClient:
         """
         Establish connection to the Salesforce MCP Server.
         Ensures a fresh OAuth token (auto-refresh), then opens a
-        Streamable HTTP session via the official mcp SDK. MCP is gated:
-        it is only attempted when enabled AND an OAuth-scoped token exists.
+        Streamable HTTP session via the official mcp SDK.
         """
         try:
             await self._ensure_fresh_token()
         except Exception as e:
             logger.warning(f"Initial token refresh warning ({e}). Will retry on tool execution.")
 
-        if not self._mcp_enabled:
-            self._set_mcp_unavailable(
-                "MCP is disabled (SALESFORCE_MCP_ENABLED=false); REST-only."
-            )
-            return
-        if not self.mcp_url:
-            self._set_mcp_unavailable(
-                "No Salesforce MCP URL configured (SALESFORCE_MCP_URL); REST-only."
-            )
-            return
-
         logger.info(f"Connecting to Salesforce MCP Server: {self.mcp_url}")
         await self._ensure_connected()
         if self._session is not None:
             logger.info("MCP Client ready (Streamable HTTP transport).")
-        elif self.mcp_transport == "REST":
-            logger.debug("MCP session not established; REST fallback active.")
+        elif self._mcp_401_warned:
+            logger.debug("MCP session not established (401); REST fallback active.")
+        else:
+            logger.warning("MCP session not established; falls back to REST API.")
 
     # ──────────────────────────────────────────────────────────
     # OAuth token lifecycle (auto-refresh)
     # ──────────────────────────────────────────────────────────
 
     def _token_url(self) -> str:
-        auth_host = self.auth_host or self.domain
+        auth_host = (self.auth_host or self.domain or "login").strip().rstrip("/")
+        if auth_host.startswith(("https://", "http://")):
+            return f"{auth_host}/services/oauth2/token"
+        if "." in auth_host:
+            return f"https://{auth_host}/services/oauth2/token"
         return f"https://{auth_host}.salesforce.com/services/oauth2/token"
 
     async def _try_oauth_refresh(self) -> bool:
         """Refresh via OAuth refresh_token grant. Returns True on success."""
-        if self._oauth_unavailable:
-            # A definitive OAuth rejection was already observed this boot; a
-            # refresh would hit exactly the same wall. Skip rather than churn.
-            return False
         if not self._refresh_token:
             return False
         payload = {
@@ -485,6 +440,7 @@ class SalesforceMCPClient:
                 return False
             self._access_token = new_token
             self._access_token_is_soap = False
+            self.token_scopes = data.get("scope") or getattr(self, "token_scopes", None)
             self._refresh_token = data.get("refresh_token", self._refresh_token)
             self._expires_at = time.time() + int(data.get("expires_in", 3600))
             if data.get("instance_url"):
@@ -493,7 +449,6 @@ class SalesforceMCPClient:
             logger.info("Access token refreshed via OAuth refresh_token grant.")
             return True
         except Exception as e:
-            self._record_oauth_failure(e)
             logger.warning(f"OAuth refresh_token grant failed: {e}")
             return False
 
@@ -502,41 +457,35 @@ class SalesforceMCPClient:
         # Prefer a live MCP-capable OAuth token already stored in the vault
         # (produced by the interactive /api/auth/login flow). Only fall back to
         # SOAP/password auth when no valid scoped token exists, because SOAP
-        # session tokens lack the MCP scopes the hosted server requires. When
-        # OAuth is known to be rejected this boot (or MCP is disabled), a valid
-        # unexpired SOAP token is reused for REST and never replaced per turn.
+        # session tokens lack the MCP scopes the hosted server requires.
         if not self._needs_mcp_token():
             return
         self._load_mcp_scoped_token_from_vault()
         want_mcp_scope = bool(self.oauth_scope and self._scope_has_mcp_capability(self.oauth_scope))
-        token_unusable = self._needs_mcp_token()
+        token_unusable = (
+            not self._access_token
+            or not self._expires_at
+            or time.time() > self._expires_at - 30
+            or (self._access_token_is_soap and want_mcp_scope)
+        )
         if self._refresh_token and token_unusable:
             if await self._try_oauth_refresh():
                 return
-        if token_unusable:
+        if (not self._access_token or self._access_token_is_soap and want_mcp_scope
+                or self._expires_at and time.time() > self._expires_at - 30):
             try:
-                # Pass the MCP intent through so authenticate() only spends an
-                # OAuth grant attempt when it can actually help MCP and OAuth is
-                # not already known to be rejected this boot.
-                await self.authenticate(force_oauth=want_mcp_scope)
+                await self.authenticate()
             except Exception as e:
                 logger.warning(f"Token acquisition failed: {e}")
 
     def _needs_mcp_token(self) -> bool:
         """True when the current token is missing/expired or unusable for MCP and would need replacement."""
         want_mcp_scope = bool(self.oauth_scope and self._scope_has_mcp_capability(self.oauth_scope))
-        # Only bother replacing a (valid, unexpired) SOAP token with an OAuth
-        # one when MCP is actually enabled AND OAuth has not already been proven
-        # rejected this boot — otherwise the SOAP token is perfectly usable for
-        # REST and re-authenticating every turn is pure churn.
-        mcp_worth_replacing = (
-            want_mcp_scope and self._mcp_enabled and not self._oauth_unavailable
-        )
         return (
             not self._access_token
             or not self._expires_at
             or time.time() > self._expires_at - 30
-            or (self._access_token_is_soap and mcp_worth_replacing)
+            or (self._access_token_is_soap and want_mcp_scope)
         )
 
     @staticmethod
@@ -643,54 +592,13 @@ class SalesforceMCPClient:
     # MCP SDK session (Streamable HTTP)
     # ──────────────────────────────────────────────────────────
 
-    def _set_mcp_unavailable(self, reason: str) -> None:
-        """Record why the hosted MCP server is unavailable and report it once per boot."""
-        self._mcp_unavailable_reason = reason
-        self._connected = False
-        self.mcp_transport = "REST"
-        if not self._mcp_401_warned:
-            logger.warning(f"[MCP] {reason}")
-            self._mcp_401_warned = True
-
     async def _ensure_connected(self) -> None:
-        """Lazily open the mcp SDK session if it is not already active.
-
-        Gated: a session is only attempted when MCP is enabled AND we hold a
-        non-SOAP OAuth access token. A SOAP session token can never authenticate
-        against the hosted MCP server (it lacks the MCP scopes), so trying anyway
-        would just burn a doomed connect + 401 on every turn.
-        """
+        """Lazily open the mcp SDK session if it is not already active."""
         if self._session is not None:
-            return
-        if not self._mcp_enabled:
-            self._set_mcp_unavailable(
-                "MCP is disabled (SALESFORCE_MCP_ENABLED=false); REST-only."
-            )
-            return
-        if not self.mcp_url:
-            self._set_mcp_unavailable(
-                "No Salesforce MCP URL configured (SALESFORCE_MCP_URL); REST-only."
-            )
             return
         await self._ensure_fresh_token()
         if not self._access_token:
-            self._set_mcp_unavailable(
-                "No Salesforce access token available; REST fallback active."
-            )
-            return
-        if self._access_token_is_soap:
-            if self._oauth_unavailable:
-                reason = (
-                    f"OAuth grants are rejected by Salesforce ({self._oauth_reason}); "
-                    "MCP cannot authenticate. REST fallback active."
-                )
-            else:
-                reason = (
-                    "No OAuth access token with MCP scope is available (only a SOAP "
-                    "session token). Use the interactive /api/auth/login OAuth flow "
-                    "or a working OAuth grant so MCP can authenticate."
-                )
-            self._set_mcp_unavailable(reason)
+            logger.warning("No access token available; MCP session cannot be opened.")
             return
         try:
             logger.info(f"[MCP] Connecting... → {self.mcp_url}")
@@ -715,7 +623,6 @@ class SalesforceMCPClient:
             self.mcp_transport = "MCP"
             self._name_map = {}
             self._mcp_401_warned = False
-            self._mcp_unavailable_reason = ""
             logger.info("[MCP] MCP SDK session initialized; is_connected=True. Transport: MCP")
         except Exception as e:
             # Noise reduction: a persistent 401 (token lacks MCP scope) is
@@ -738,8 +645,6 @@ class SalesforceMCPClient:
             else:
                 logger.warning(f"[MCP] Session init failed: {e}.")
             self._connected = False
-            self.mcp_transport = "REST"
-            self._mcp_unavailable_reason = str(e)[:300]
             await self._close_mcp_session()
             if self.mcp_required:
                 raise RuntimeError(
@@ -840,7 +745,7 @@ class SalesforceMCPClient:
                         break
                     status_code = getattr(getattr(e, "response", None), "status_code", None)
                     is_auth = status_code == 401 or "Unauthorized" in str(e)
-                    if is_auth and not reconnect_retried and not self._oauth_unavailable:
+                    if is_auth and not reconnect_retried:
                         logger.warning("MCP session returned 401; refreshing token and retrying MCP once.")
                         await self._close_mcp_session()
                         if await self._try_oauth_refresh():
@@ -879,20 +784,14 @@ class SalesforceMCPClient:
                     break
             else:
                 # _ensure_connected() left us without a live session (e.g. MCP init
-                # rejected with 401 before initialize, or MCP was gated off because
-                # no OAuth-scoped token exists this boot). Refreshing only helps
-                # when OAuth has not already been rejected by Salesforce; otherwise
-                # fall straight through to REST instead of looping a doomed retry.
-                if (
-                    not reconnect_retried
-                    and not self._oauth_unavailable
-                    and not self._access_token_is_soap
-                ):
-                    refreshed = await self._try_oauth_refresh()
+                # rejected with 401 before initialize). Refresh the token and retry
+                # MCP connection once before REST.
+                if not reconnect_retried:
+                    logger.warning("No live MCP session; refreshing token and retrying MCP connection once.")
+                    await self._try_oauth_refresh()
                     await self._close_mcp_session()
                     reconnect_retried = True
-                    if refreshed:
-                        continue
+                    continue
             break
 
         if self.mcp_required and self._session is None:

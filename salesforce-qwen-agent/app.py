@@ -68,11 +68,20 @@ agent: SalesforceAgent | None = None
 def create_mcp_client() -> SalesforceMCPClient:
     """Create and configure the Salesforce MCP Client."""
     from sfmcp.crypto.envelope import token_vault
+    # Support the reference MCP service's SF_* names while retaining the
+    # existing SALESFORCE_* names used by this application.
+    mcp_url = os.getenv("SALESFORCE_MCP_URL") or os.getenv("SF_MCP_URL", "")
+    auth_host = (
+        os.getenv("SALESFORCE_AUTH_HOST")
+        or os.getenv("SF_LOGIN_URL")
+        or os.getenv("SALESFORCE_DOMAIN")
+        or "login"
+    )
     return SalesforceMCPClient(
-        mcp_url=os.getenv("SALESFORCE_MCP_URL", ""),
+        mcp_url=mcp_url,
         instance_url=os.getenv("SALESFORCE_INSTANCE_URL", ""),
-        client_id=os.getenv("SALESFORCE_CLIENT_ID", ""),
-        client_secret=os.getenv("SALESFORCE_CLIENT_SECRET", ""),
+        client_id=os.getenv("SALESFORCE_CLIENT_ID") or os.getenv("SF_CLIENT_ID", ""),
+        client_secret=os.getenv("SALESFORCE_CLIENT_SECRET") or os.getenv("SF_CLIENT_SECRET", ""),
         username=os.getenv("SALESFORCE_USERNAME", ""),
         password=os.getenv("SALESFORCE_PASSWORD", ""),
         security_token=os.getenv("SALESFORCE_SECURITY_TOKEN", ""),
@@ -80,7 +89,7 @@ def create_mcp_client() -> SalesforceMCPClient:
         access_token=os.getenv("SALESFORCE_ACCESS_TOKEN"),
         refresh_token=os.getenv("SALESFORCE_REFRESH_TOKEN"),
         oauth_scope=os.getenv("SALESFORCE_OAUTH_SCOPE", ""),
-        auth_host=os.getenv("SALESFORCE_AUTH_HOST", "login"),
+        auth_host=auth_host,
         token_vault=token_vault,
         session_id="default",
     )
@@ -915,7 +924,6 @@ async def health_check():
         mcp_available = mcp_status["any_mcp"]
         mcp_transport = "MCP" if mcp_available else "REST"
         mcp_src = "session"
-        mcp_unavailable_reason = mcp_status.get("unavailable_reason", "")
     else:
         # No authenticated user session yet: report the server default client.
         mcp_connected = mcp_client.is_connected if mcp_client else False
@@ -927,12 +935,6 @@ async def health_check():
             getattr(mcp_client, "mcp_transport", "REST") if mcp_client else "N/A"
         )
         mcp_src = "global-default"
-        if mcp_client:
-            mcp_unavailable_reason = (
-                getattr(mcp_client, "mcp_unavailable_reason", "") or ""
-            )
-        else:
-            mcp_unavailable_reason = ""
     return {
         "status": "healthy",
         "mcp_connected": mcp_connected,
@@ -940,7 +942,6 @@ async def health_check():
         "mcp_transport": mcp_transport,
         "mcp_source": mcp_src,
         "mcp_sessions": mcp_status["connected_sessions"],
-        "mcp_unavailable_reason": mcp_unavailable_reason,
         "mcp_required": (
             getattr(mcp_client, "mcp_required", False) if mcp_client else False
         ),
@@ -955,6 +956,45 @@ async def health_check():
             "oauth_login_available": connected_app_status["valid"] is not False,
         },
     }
+
+
+@app.get("/api/mcp/tools")
+async def discover_mcp_tools():
+    """Discover the tools exposed by Salesforce MCP using a fresh client."""
+    client = create_mcp_client()
+    if not client.mcp_url or not client.client_id or not client.client_secret:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": (
+                    "MCP is not configured. Set SF_MCP_URL, SF_LOGIN_URL, "
+                    "SF_CLIENT_ID and SF_CLIENT_SECRET."
+                ),
+            },
+        )
+    try:
+        await client.connect()
+        tools = await client.list_tools()
+        return {
+            "success": True,
+            "granted_scopes": client.token_scopes or client.oauth_scope,
+            "transport": client.mcp_transport,
+            "count": len(tools),
+            "tools": tools,
+        }
+    except Exception as exc:
+        logger.exception("Salesforce MCP tool discovery failed")
+        return JSONResponse(
+            status_code=502,
+            content={
+                "success": False,
+                "error": str(exc),
+                "granted_scopes": client.token_scopes or client.oauth_scope,
+            },
+        )
+    finally:
+        await client.disconnect()
 
 
 @app.post("/upload")
