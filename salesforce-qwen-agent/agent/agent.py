@@ -15,7 +15,7 @@ from sfmcp.executor import ToolExecutor
 from tools.salesforce import get_tool_definitions, is_read_only, is_mutating, is_destructive
 from .memory import ConversationMemory
 from .planner import TaskPlanner
-from .prompts import SYSTEM_PROMPT, ERROR_MESSAGES
+from .prompts import SYSTEM_PROMPT, TOOL_CALLING_PROMPT, ERROR_MESSAGES
 from .rag import ToolRAGRetriever
 
 logger = logging.getLogger(__name__)
@@ -236,6 +236,55 @@ def filter_tools_for_query(tools: list[dict[str, Any]], user_message: str) -> li
             f"tools from Qwen schema: {removed}"
         )
     return [t for t in tools if is_read_only(t.get("function", {}).get("name", ""))]
+
+
+def _detect_direct_intent(user_message: str) -> tuple[str, dict[str, Any]] | None:
+    """
+    Zero-latency deterministic router for standard common queries.
+    Bypasses LLM prefill delay on slow backends (e.g. 32B model on Kaggle)
+    and directly dispatches the exact MCP tool.
+    """
+    if not user_message:
+        return None
+    cleaned = re.sub(r"[^\w\s]", " ", user_message.lower()).strip()
+    words = cleaned.split()
+
+    # 1. User info / profile ("who am i", "my user info", etc.)
+    user_info_phrases = [
+        "who am i", "my user info", "show my user info", "show user info",
+        "user info", "my profile", "current user info", "show my salesforce user info",
+    ]
+    if any(phrase in cleaned for phrase in user_info_phrases):
+        if not any(w in words for w in ["update", "delete", "create", "change", "set"]):
+            return ("getUserInfo", {})
+
+    # 2. Objects available / schema list
+    # e.g., "What objects are available in my Salesforce org?", "list objects", "available objects"
+    object_schema_triggers = [
+        "what objects are available", "available objects", "list objects",
+        "show objects", "all objects in my salesforce", "all objects in salesforce",
+        "list all objects", "kya objects hai", "show available objects",
+        "objects are available", "objects available", "what objects are in",
+    ]
+    if any(trigger in cleaned for trigger in object_schema_triggers):
+        if not any(w in words for w in ["record", "records", "count", "where", "delete", "update", "create", "insert"]):
+            return ("getObjectSchema", {})
+
+    # 3. Recent records (recent accounts, recent leads, etc.)
+    if "recent" in words:
+        if "account" in words or "accounts" in words:
+            return ("listRecentSobjectRecords", {"sobject-name": "Account"})
+        if "lead" in words or "leads" in words:
+            return ("listRecentSobjectRecords", {"sobject-name": "Lead"})
+        if "contact" in words or "contacts" in words:
+            return ("listRecentSobjectRecords", {"sobject-name": "Contact"})
+        if "opportunity" in words or "opportunities" in words or "opp" in words or "opps" in words:
+            return ("listRecentSobjectRecords", {"sobject-name": "Opportunity"})
+        if "case" in words or "cases" in words:
+            return ("listRecentSobjectRecords", {"sobject-name": "Case"})
+
+    return None
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1583,46 +1632,64 @@ class SalesforceAgent:
         while iteration < self.max_iterations:
             iteration += 1
 
-            try:
-                messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
-
-                # ── SPEED FIX: On Turn 1 of multi-query, inject batch instruction ──
-                # ONLY for pure READ queries — create/update/delete are sequential by nature.
-                # Intent classification is shared with filter_tools_for_query (see `_write_keywords`).
-                _is_read_only = not _has_write_intent(user_msg_lower)
-
-                if iteration == 1 and _is_multi and _is_read_only:
-                    batch_hint = (
-                        "BATCH MODE — SPEED CRITICAL: The user has asked multiple independent READ questions. "
-                        f"There are approximately {len(query_lines)} sub-queries. "
-                        "You MUST return ALL required tool calls in THIS SINGLE RESPONSE right now. "
-                        "Do NOT make one tool call and wait — output every tool call simultaneously. "
-                        "This is mandatory for fast response."
+            # ── FAST ROUTER: Zero-latency direct dispatch for standard queries ──
+            direct_handled = False
+            if iteration == 1:
+                direct_intent = _detect_direct_intent(user_message)
+                if direct_intent:
+                    tool_name, tool_args = direct_intent
+                    logger.info(
+                        f"⚡ [FAST ROUTER] Zero-latency direct matched tool '{tool_name}' "
+                        f"with args {tool_args} for query: '{user_message}'"
                     )
-                    messages = messages + [{"role": "user", "content": batch_hint}]
+                    llm_result = {
+                        "content": "",
+                        "tool_calls": [{"id": f"direct_tc_{iteration}", "name": tool_name, "arguments": tool_args}],
+                        "finish_reason": "tool_calls",
+                    }
+                    direct_handled = True
 
-                llm_result = await _bounded_call(
-                    self.llm.chat_with_tools(
-                        messages=messages,
-                        tools=tools,
-                        temperature=0.0,  # Zero temp = fastest, most deterministic
-                    ),
-                    AGENT_LLM_TIMEOUT,
-                    "LLM tool-call generation",
-                )
+            if not direct_handled:
+                try:
+                    messages = memory.get_messages_for_llm(TOOL_CALLING_PROMPT)
 
-            except AgentTimeoutError as e:
-                error_event = _timeout_error_event(e.stage)
-                logger.error(f"[TIMEOUT] {error_event['message']}")
-                memory.add_assistant_message(error_event["message"])
-                yield error_event
-                return
-            except Exception as e:
-                error_msg = ERROR_MESSAGES["llm_error"].format(error=str(e))
-                logger.error(f"LLM error: {e}")
-                yield {"type": "error", "data": error_msg}
-                memory.add_assistant_message(error_msg)
-                return
+                    # ── SPEED FIX: On Turn 1 of multi-query, inject batch instruction ──
+                    # ONLY for pure READ queries — create/update/delete are sequential by nature.
+                    # Intent classification is shared with filter_tools_for_query (see `_write_keywords`).
+                    _is_read_only = not _has_write_intent(user_msg_lower)
+
+                    if iteration == 1 and _is_multi and _is_read_only:
+                        batch_hint = (
+                            "BATCH MODE — SPEED CRITICAL: The user has asked multiple independent READ questions. "
+                            f"There are approximately {len(query_lines)} sub-queries. "
+                            "You MUST return ALL required tool calls in THIS SINGLE RESPONSE right now. "
+                            "Do NOT make one tool call and wait — output every tool call simultaneously. "
+                            "This is mandatory for fast response."
+                        )
+                        messages = messages + [{"role": "user", "content": batch_hint}]
+
+                    llm_result = await _bounded_call(
+                        self.llm.chat_with_tools(
+                            messages=messages,
+                            tools=tools,
+                            temperature=0.0,  # Zero temp = fastest, most deterministic
+                        ),
+                        AGENT_LLM_TIMEOUT,
+                        "LLM tool-call generation",
+                    )
+
+                except AgentTimeoutError as e:
+                    error_event = _timeout_error_event(e.stage)
+                    logger.error(f"[TIMEOUT] {error_event['message']}")
+                    memory.add_assistant_message(error_event["message"])
+                    yield error_event
+                    return
+                except Exception as e:
+                    error_msg = ERROR_MESSAGES["llm_error"].format(error=str(e))
+                    logger.error(f"LLM error: {e}")
+                    yield {"type": "error", "data": error_msg}
+                    memory.add_assistant_message(error_msg)
+                    return
 
             # --- INTERCEPTORS (Pre-process LLM result) ---
 
@@ -1650,7 +1717,7 @@ class SalesforceAgent:
                         f"⚠️ [INTERCEPTOR] LLM returned text without tool call on Turn 1 for query: '{user_message[:40]}...'. "
                         "Forcing tool execution retry."
                     )
-                    interceptor_messages = memory.get_messages_for_llm(SYSTEM_PROMPT)
+                    interceptor_messages = memory.get_messages_for_llm(TOOL_CALLING_PROMPT)
                     interceptor_messages.append({
                         "role": "user",
                         "content": (
