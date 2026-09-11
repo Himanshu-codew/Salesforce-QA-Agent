@@ -800,12 +800,22 @@ def format_sf_records_as_markdown(
 
     # `listRecentSobjectRecords` can return a bare array (REST `/recent`
     # fallback) instead of the {totalSize, records} envelope from `/query`.
+    # The Salesforce Platform MCP API may also use different key names
+    # (recentItems, items, results) depending on the endpoint and SDK version.
     if isinstance(data, list):
         records = data
         total_size = len(records)
     elif isinstance(data, dict):
-        records = data.get("records", [])
-        total_size = data.get("totalSize", len(records))
+        # Try all known Salesforce record-list key shapes in priority order
+        records = (
+            data.get("records")
+            or data.get("recentItems")   # /recent REST endpoint shape
+            or data.get("items")         # some MCP structuredContent shapes
+            or data.get("results")       # alternative MCP shapes
+            or data.get("edges")         # GraphQL-style shapes
+            or []
+        )
+        total_size = data.get("totalSize", data.get("total", len(records)))
     else:
         return None
 
@@ -822,10 +832,14 @@ def format_sf_records_as_markdown(
 
     first = records[0]
 
-    # Detect object type
+    # Detect object type from records (attributes may be stripped by the cleaner).
+    # Fall back to the top-level type hint the MCP API sometimes injects.
     obj_type = None
     if isinstance(first.get("attributes"), dict):
         obj_type = first["attributes"].get("type")
+    if not obj_type and isinstance(data, dict):
+        # Some MCP responses include a top-level 'objectType' or 'sobjectType' hint
+        obj_type = data.get("objectType") or data.get("sobjectType") or data.get("type")
 
     # Case 1: Aggregate/COUNT result. Semantic branching (shared classifier in
     # _classify_expr_count, so this never diverges from result_types.py):
@@ -2009,10 +2023,16 @@ class SalesforceAgent:
                     for tc in safe_calls:
                         if tc["id"] in python_tables:
                             _, table_md = python_tables[tc["id"]]
-                            # Derive section header from SOQL query or tool name
+                            # Derive section header from SOQL query or tool name/args
                             soql = tc.get("arguments", {}).get("q", tc.get("arguments", {}).get("query", ""))
                             obj_match = re.search(r"FROM\s+(\w+)", soql, re.IGNORECASE)
-                            obj_name = obj_match.group(1) if obj_match else "Records"
+                            if obj_match:
+                                obj_name = obj_match.group(1)
+                            elif tc["name"] == "listRecentSobjectRecords":
+                                # listRecentSobjectRecords uses 'sobject-name' not SOQL
+                                obj_name = tc.get("arguments", {}).get("sobject-name", "Records")
+                            else:
+                                obj_name = "Records"
                             # Friendly header
                             _headers = {
                                 "Account": "### 🏢 Accounts Found",
