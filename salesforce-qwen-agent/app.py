@@ -1083,6 +1083,11 @@ def _is_duplicate_request(session_id: str, request_id: str | None) -> bool:
 _SESSION_OUTPUT_TTL = float(os.getenv("WS_OUTPUT_CACHE_TTL", "300"))
 _MAX_SESSION_OUTPUTS = 256
 _MAX_CAPTURED_EVENTS = 200
+# How long an abandoned turn may keep running (silently) so its final answer is
+# generated and cached for replay, and how long a duplicate resend waits for
+# that cache before falling back to the dedupe message.
+_PRODUCER_DRAIN_SECONDS = float(os.getenv("WS_PRODUCER_DRAIN_SECONDS", "180"))
+_REPLAY_WAIT_SECONDS = float(os.getenv("WS_REPLAY_WAIT_SECONDS", "45"))
 _session_outputs: dict[str, dict] = {}
 
 _TERMINAL_TYPES = ("response", "error", "confirmation")
@@ -1138,6 +1143,30 @@ def _cached_output(session_id: str, request_id: str | None) -> dict | None:
         _session_outputs.pop(session_id, None)
         return None
     return meta["event"]
+
+
+async def _replay_or_wait(session_id: str, request_id: str | None) -> dict | None:
+    """Return the cached terminal event for a re-sent request_id.
+
+    If the answer is not cached yet but the session is still busy finishing the
+    original turn server-side (client left mid-turn; the producer silently runs
+    to completion), wait a short bounded window for it to land in the cache
+    before giving up — so a fast reconnect-resend still gets the real answer
+    instead of the "already processed" message.
+    """
+    replayed = _cached_output(session_id, request_id)
+    if replayed is None and _session_busy.get(session_id):
+        replay_deadline = time.monotonic() + _REPLAY_WAIT_SECONDS
+        while time.monotonic() < replay_deadline and replayed is None:
+            await asyncio.sleep(0.5)
+            replayed = _cached_output(session_id, request_id)
+            if replayed is not None:
+                break
+            if not _session_busy.get(session_id):
+                # Session free but no cache: the original turn ended without a
+                # replayable terminal event. Stop waiting.
+                break
+    return replayed
 
 
 def _finalized_ws_event(event: dict) -> dict:
@@ -1244,21 +1273,31 @@ async def _ws_produce(
     terminal event, because the caller stores it in the session output cache so
     the client's reconnect-resend can replay the final answer.
     """
+    disconnected = False
     try:
         async for event in agent.process_message(user_message, session_id):
             finalized = _finalized_ws_event(event)
             if capture is not None:
                 _capture_event(capture, finalized)
+            if disconnected:
+                # Client is gone; keep draining the generator so the terminal
+                # response is still produced and lands in the output cache for
+                # replay on the client's reconnect-resend.
+                continue
             if not await _ws_send_json(websocket, finalized):
-                break
+                disconnected = True
     except Exception as e:
         logger.error(f"[WS] Agent error ({session_id}): {e}", exc_info=True)
-        await _ws_send_json(websocket, {
+        error_event = _finalized_ws_event({
             "type": "error",
             "data": "I ran into an unexpected issue while processing your request. Please try again.",
             "code": "INTERNAL_ERROR",
             "message": "I ran into an unexpected issue while processing your request. Please try again.",
         })
+        if capture is not None:
+            _capture_event(capture, error_event)
+        if not disconnected:
+            await _ws_send_json(websocket, error_event)
 
 
 @app.websocket("/ws/{session_id}")
@@ -1351,7 +1390,7 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 # silently discarding the user's question.
                 request_id = data.get("request_id")
                 if _is_duplicate_request(session_id, request_id):
-                    replayed = _cached_output(session_id, request_id)
+                    replayed = await _replay_or_wait(session_id, request_id)
                     if replayed is not None:
                         logger.info(
                             f"[WS] Replaying cached result for duplicate request: "
@@ -1448,10 +1487,26 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                         if not _ws_is_connected(websocket):
                             break
                 finally:
-                    if not producer.done():
-                        producer.cancel()
                     if not heartbeat.done():
                         heartbeat.cancel()
+                    if not producer.done():
+                        # Normal completion: the producer is already done and the
+                        # gather below is a no-op. If the client left MID-turn, do
+                        # NOT cancel the producer: it must finish (silently, since
+                        # its sends now fail fast and it keeps draining) so the
+                        # final answer is generated and cached for replay on the
+                        # client's reconnect-resend.
+                        if _ws_is_connected(websocket):
+                            producer.cancel()
+                        else:
+                            try:
+                                await asyncio.wait_for(producer, timeout=_PRODUCER_DRAIN_SECONDS)
+                            except (asyncio.TimeoutError, asyncio.CancelledError):
+                                logger.warning(
+                                    f"[WS] Abandoned turn exceeded drain window; "
+                                    f"no replay available: session={session_id}"
+                                )
+                                producer.cancel()
                     await asyncio.gather(producer, heartbeat, return_exceptions=True)
                     # Cache the completed turn's terminal event so a reconnect
                     # resend of the same request_id can replay the final answer
