@@ -281,7 +281,7 @@ function connectWebSocket() {
             if (ws === socket && socket.readyState === WebSocket.OPEN) {
                 try { socket.send(JSON.stringify({ type: 'ping' })); } catch (e) {}
             }
-        }, 20000);
+        }, 8000);
         if (pendingResendRequest) {
             // Auto-resend safe (read-only) requests after reconnect.
             // Mutating requests show the manual banner so the user confirms.

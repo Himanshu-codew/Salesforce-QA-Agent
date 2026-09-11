@@ -258,8 +258,27 @@ def _detect_direct_intent(user_message: str) -> tuple[str, dict[str, Any]] | Non
         if not any(w in words for w in ["update", "delete", "create", "change", "set"]):
             return ("getUserInfo", {})
 
-    # 2. Objects available / schema list
-    # e.g., "What objects are available in my Salesforce org?", "list objects", "available objects"
+    # 2. Objects available / schema list / specific schema
+    # e.g., "What objects are available in my Salesforce org?", "Show me the schema for Account and Contact objects", "Account schema"
+    known_objects = {
+        "account": "Account", "accounts": "Account",
+        "contact": "Contact", "contacts": "Contact",
+        "lead": "Lead", "leads": "Lead",
+        "opportunity": "Opportunity", "opportunities": "Opportunity", "opp": "Opportunity", "opps": "Opportunity",
+        "case": "Case", "cases": "Case",
+        "task": "Task", "tasks": "Task",
+        "event": "Event", "events": "Event",
+    }
+    if "schema" in words or "fields" in words:
+        if not any(w in words for w in ["delete", "update", "create", "insert"]):
+            matched_objs = []
+            for w in words:
+                if w in known_objects and known_objects[w] not in matched_objs:
+                    matched_objs.append(known_objects[w])
+            if matched_objs:
+                return ("getObjectSchema", {"objects": ",".join(matched_objs)})
+            return ("getObjectSchema", {})
+
     object_schema_triggers = [
         "what objects are available", "available objects", "list objects",
         "show objects", "all objects in my salesforce", "all objects in salesforce",

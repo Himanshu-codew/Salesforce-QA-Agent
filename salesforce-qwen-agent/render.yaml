@@ -42,9 +42,9 @@ services:
 
       # ── WebSocket / timeouts ──────────────────────────────────
       - key: WS_HEARTBEAT_SECONDS
-        value: "12"
+        value: "8"
       - key: WS_KEEPALIVE_SECONDS
-        value: "20"
+        value: "10"
       - key: WS_PRODUCER_DRAIN_SECONDS
         value: "180"
       - key: WS_REPLAY_WAIT_SECONDS

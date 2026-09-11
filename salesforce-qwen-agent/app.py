@@ -1025,14 +1025,14 @@ async def chat_endpoint(request: ChatRequest):
 # and a slow Qwen turn can sit silent for 30+ seconds (long blocking LLM call with
 # no intermediate agent event). A concurrent heartbeat task keeps bytes flowing so
 # the connection survives until the final response is streamed.
-WS_HEARTBEAT_SECONDS = float(os.getenv("WS_HEARTBEAT_SECONDS", "12"))
+WS_HEARTBEAT_SECONDS = float(os.getenv("WS_HEARTBEAT_SECONDS", "8"))
 
 # Idle keepalive: while NO turn is running the heartbeat task above is inert,
 # and a connection that sits silent (or in a background tab where the browser
 # throttles the client-side pings to ~1/minute) can be silently closed by an
 # edge/proxy idle timeout. A concurrent keepalive task pushes lightweight ping
 # frames over the server->client leg so the socket stays alive when idle too.
-WS_KEEPALIVE_SECONDS = float(os.getenv("WS_KEEPALIVE_SECONDS", "20"))
+WS_KEEPALIVE_SECONDS = float(os.getenv("WS_KEEPALIVE_SECONDS", "10"))
 
 # Set of processes currently running per session. Guards against a client that
 # reconnects/re-sends the same message and inadvertently starts a second
