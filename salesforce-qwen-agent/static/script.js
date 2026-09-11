@@ -283,7 +283,29 @@ function connectWebSocket() {
             }
         }, 20000);
         if (pendingResendRequest) {
-            showResendBanner();
+            // Auto-resend safe (read-only) requests after reconnect.
+            // Mutating requests show the manual banner so the user confirms.
+            const isMutation = /\b(create|add|delete|remove|update|edit|change|insert|drop|erase|upload|attach)\b/i
+                .test(pendingResendRequest.content || '');
+            if (!isMutation) {
+                // Short delay so the socket is fully settled before sending.
+                setTimeout(() => {
+                    if (ws === socket && socket.readyState === WebSocket.OPEN && pendingResendRequest) {
+                        headerSubtitle.textContent = 'Reconnected — retrying your question...';
+                        socket.send(JSON.stringify({
+                            type: 'message',
+                            content: pendingResendRequest.content,
+                            file_info: pendingResendRequest.file_info,
+                            request_id: pendingResendRequest.request_id,
+                        }));
+                        clearPendingResend();
+                        isProcessing = true;
+                    }
+                }, 800);
+            } else {
+                // Mutating request — show banner and let user decide.
+                showResendBanner();
+            }
         } else {
             removeResendBanner();
         }

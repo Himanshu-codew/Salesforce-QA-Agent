@@ -1,0 +1,63 @@
+services:
+  - type: web
+    name: salesforce-qwen-agent
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # ── LLM ─────────────────────────────────────────────────
+      - key: QWEN_BASE_URL
+        sync: false          # Set in Render dashboard
+      - key: QWEN_MODEL
+        sync: false
+      - key: QWEN_API_KEY
+        sync: false
+
+      # ── Salesforce OAuth / MCP ───────────────────────────────
+      - key: SALESFORCE_CLIENT_ID
+        sync: false
+      - key: SALESFORCE_CLIENT_SECRET
+        sync: false
+      - key: SALESFORCE_REDIRECT_URI
+        sync: false
+      - key: SALESFORCE_MCP_URL
+        sync: false
+      - key: SALESFORCE_INSTANCE_URL
+        sync: false
+      - key: SALESFORCE_MCP_REQUIRED
+        value: "false"
+
+      # ── Token KEK (CRITICAL — must be set to survive redeploys) ─
+      # Generate once: python -c "import secrets; print(secrets.token_hex(32))"
+      # Then set as env var on Render dashboard. NEVER commit the value.
+      - key: SF_TOKEN_KEK
+        sync: false
+
+      # ── App ──────────────────────────────────────────────────
+      - key: LOG_LEVEL
+        value: INFO
+      - key: ENABLE_RAG_TOOLS
+        value: "false"
+
+      # ── WebSocket / timeouts ──────────────────────────────────
+      - key: WS_HEARTBEAT_SECONDS
+        value: "12"
+      - key: WS_KEEPALIVE_SECONDS
+        value: "20"
+      - key: WS_PRODUCER_DRAIN_SECONDS
+        value: "180"
+      - key: WS_REPLAY_WAIT_SECONDS
+        value: "45"
+      - key: WS_REQUEST_DEDUPE_TTL
+        value: "120"
+      - key: WS_OUTPUT_CACHE_TTL
+        value: "300"
+      - key: LLM_TIMEOUT
+        value: "120"
+      - key: LLM_STAGE_TIMEOUT
+        value: "90"
+      - key: EXECUTOR_TIMEOUT
+        value: "90"
+      - key: CHAT_OVERALL_TIMEOUT
+        value: "300"
