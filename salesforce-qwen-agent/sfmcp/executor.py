@@ -852,7 +852,11 @@ class ToolExecutor:
 
     @staticmethod
     def _format_schema_table(tool_name: str, data: Any) -> str:
-        """Hard-code a GFM Markdown table for schema results so the LLM passes it through untouched."""
+        """Hard-code a GFM Markdown table for schema results so the LLM passes it through untouched.
+        
+        Extracts high-value, essential columns (Name, Label, Type, Required, Details)
+        instead of dumping 50+ internal Salesforce metadata flags that bloat context.
+        """
         if isinstance(data, str):
             try:
                 data = json.loads(data)
@@ -861,8 +865,10 @@ class ToolExecutor:
 
         # Normalize: find the fields list regardless of nesting shape
         fields = []
+        obj_name = ""
         if isinstance(data, dict):
-            for key in ("fields", "fieldsList", "attributes"):
+            obj_name = data.get("name") or data.get("label") or data.get("object") or ""
+            for key in ("fields", "fieldsList", "attributes", "properties"):
                 if key in data and isinstance(data[key], list):
                     fields = data[key]
                     break
@@ -870,6 +876,8 @@ class ToolExecutor:
                 for key, value in data.items():
                     if isinstance(value, list) and value and isinstance(value[0], dict):
                         fields = value
+                        if not obj_name:
+                            obj_name = key
                         break
         elif isinstance(data, list):
             fields = data
@@ -877,26 +885,97 @@ class ToolExecutor:
         if not fields:
             return json.dumps(data, indent=2, default=str)
 
-        # Collect all unique keys across every field record for the header row
+        # Check if items look like Salesforce field definitions (have 'name' or 'label')
+        first = fields[0] if isinstance(fields[0], dict) else {}
+        is_field_def = any(k in first for k in ("name", "label", "type", "dataType", "soapType"))
+
+        if is_field_def:
+            headers = ["Field Name", "Label", "Type", "Required", "Details / Picklist"]
+            header_str = "| " + " | ".join(headers) + " |"
+            sep_str = "| " + " | ".join(["---"] * len(headers)) + " |"
+            rows = []
+            for f in fields:
+                if not isinstance(f, dict):
+                    continue
+                name = str(f.get("name") or f.get("apiName") or "-")
+                label = str(f.get("label") or "-")
+                ftype = str(f.get("type") or f.get("dataType") or f.get("soapType") or "-")
+
+                # Determine Required status
+                is_nillable = f.get("nillable")
+                is_createable = f.get("createable", True)
+                is_required = f.get("required")
+                if is_required is True or (
+                    is_nillable is False
+                    and is_createable is True
+                    and name.lower() not in (
+                        "id", "createddate", "createdbyid", "lastmodifieddate",
+                        "lastmodifiedbyid", "systemmodstamp"
+                    )
+                ):
+                    required_str = "Yes"
+                else:
+                    required_str = "No"
+
+                # Picklist values or reference info
+                details = []
+                pv = f.get("picklistValues") or f.get("values")
+                if isinstance(pv, list) and pv:
+                    vals = []
+                    for item in pv:
+                        if isinstance(item, dict):
+                            val = item.get("value") or item.get("label")
+                            if val:
+                                vals.append(str(val))
+                        elif isinstance(item, str):
+                            vals.append(item)
+                    if vals:
+                        if len(vals) > 6:
+                            details.append(f"Values: {', '.join(vals[:6])}... ({len(vals)} total)")
+                        else:
+                            details.append(f"Values: {', '.join(vals)}")
+                elif f.get("referenceTo"):
+                    refs = f.get("referenceTo")
+                    if isinstance(refs, list):
+                        details.append(f"Ref: {', '.join(str(r) for r in refs)}")
+                    else:
+                        details.append(f"Ref: {refs}")
+                elif f.get("length") and ftype.lower() in ("string", "textarea"):
+                    details.append(f"Len: {f.get('length')}")
+
+                detail_str = "; ".join(details) if details else "-"
+                rows.append(f"| {name} | {label} | {ftype} | {required_str} | {detail_str} |")
+
+            table = "\n".join([header_str, sep_str] + rows)
+            title = f"### 📋 {obj_name} Fields\n\n" if obj_name else ""
+            return f"[reference_table]\n{title}{table}"
+
+        # Fallback for non-field schema (e.g. object describe lists)
+        # Curate top 6 most relevant keys to avoid massive column explosion
         all_keys: list[str] = []
         seen_keys: set[str] = set()
-        for field in fields:
-            if isinstance(field, dict):
-                for k in field:
-                    if k not in seen_keys:
+        priority_keys = ["name", "label", "keyPrefix", "custom", "queryable", "createable", "updateable", "deletable"]
+        for pk in priority_keys:
+            if any(isinstance(item, dict) and pk in item for item in fields):
+                all_keys.append(pk)
+                seen_keys.add(pk)
+
+        for item in fields:
+            if isinstance(item, dict):
+                for k in item:
+                    if k not in seen_keys and len(all_keys) < 6:
                         all_keys.append(k)
                         seen_keys.add(k)
 
         if not all_keys:
             return json.dumps(data, indent=2, default=str)
 
-        # Build the GFM table string
         header = "| " + " | ".join(all_keys) + " |"
         separator = "| " + " | ".join(["---"] * len(all_keys)) + " |"
         rows = []
-        for field in fields:
-            if isinstance(field, dict):
-                row_values = [str(field.get(k, "-")) if field.get(k) is not None else "-" for k in all_keys]
+        for item in fields:
+            if isinstance(item, dict):
+                row_values = [str(item.get(k, "-")) if item.get(k) is not None else "-" for k in all_keys]
                 rows.append("| " + " | ".join(row_values) + " |")
 
         table = "\n".join([header, separator] + rows)

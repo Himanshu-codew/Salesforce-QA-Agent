@@ -1352,6 +1352,10 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
                 }))
                 continue
 
+            if data.get("type") == "ping":
+                await _ws_send_json(websocket, {"type": "pong", "ts": time.time()})
+                continue
+
             if data.get("type") == "clear":
                 session_files.pop(session_id, None)
                 if target_agent:

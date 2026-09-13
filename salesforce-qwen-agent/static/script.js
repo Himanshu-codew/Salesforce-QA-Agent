@@ -607,6 +607,12 @@ function handleServerEvent(event) {
         // during a long Qwen request. Purely cosmetic; never clears the in-flight
         // "thinking" indicator or resets processing state.
         case 'progress':
+            if (event.data) {
+                headerSubtitle.textContent = event.data;
+            }
+            break;
+
+        case 'pong':
         case 'idle':
         case 'ping':
             break;

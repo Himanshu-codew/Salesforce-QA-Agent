@@ -38,7 +38,7 @@ from .agent import (
     format_sf_records_as_markdown,
 )
 
-_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords"}
+_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords", "getObjectSchema", "describeSObject"}
 
 
 @dataclass
@@ -94,6 +94,8 @@ def classify_result(tool_name: str, result: str, soql: str = "") -> ResultInfo |
         return None
     if not isinstance(result, str):
         return None
+    if result.strip().startswith("[reference_table]"):
+        return ResultInfo("table", "Schema", result=result, tool_name=tool_name)
     try:
         data = json.loads(result)
     except (json.JSONDecodeError, TypeError):

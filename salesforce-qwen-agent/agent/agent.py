@@ -675,7 +675,7 @@ def _is_soql_count(soql_query: str) -> bool:
 # fallback are both flat record lists, so recent-record queries ("show me my
 # recent Accounts") skip the ~67s synthesis step that previously dominated the
 # ~79s end-to-end latency.
-_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords"}
+_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords", "getObjectSchema", "describeSObject"}
 
 # Pluralization for labeled count/section lines. Custom objects (``__c``) keep
 # their returned type verbatim (Salesforce types are already plural-free names).
@@ -861,6 +861,15 @@ def format_sf_records_as_markdown(
     """
     if tool_name not in _FLAT_LIST_TOOLS:
         return None
+
+    if isinstance(result_json, str) and result_json.strip().startswith("[reference_table]"):
+        return result_json.strip().replace("[reference_table]\n", "").strip()
+
+    if tool_name in ("getObjectSchema", "describeSObject"):
+        from sfmcp.executor import ToolExecutor
+        table = ToolExecutor._format_schema_table(tool_name, result_json)
+        return table.replace("[reference_table]\n", "").strip()
+
     try:
         data = json.loads(result_json)
     except Exception:
@@ -2117,6 +2126,8 @@ class SalesforceAgent:
                             elif tc["name"] == "listRecentSobjectRecords":
                                 # listRecentSobjectRecords uses 'sobject-name' not SOQL
                                 obj_name = tc.get("arguments", {}).get("sobject-name", "Records")
+                            elif tc["name"] in ("getObjectSchema", "describeSObject"):
+                                obj_name = tc.get("arguments", {}).get("objects", tc.get("arguments", {}).get("sObjectName", "Object Schema"))
                             else:
                                 obj_name = "Records"
                             # Friendly header
@@ -2130,8 +2141,15 @@ class SalesforceAgent:
                                 "Event": "### 📅 Events Found",
                                 "User": "### 👥 Users Found",
                             }
-                            header = _headers.get(obj_name, f"### {obj_name} Found")
-                            sections.append(f"{header}\n\n{table_md}")
+                            if tc["name"] in ("getObjectSchema", "describeSObject"):
+                                header = f"### 📋 {obj_name} Schema"
+                            else:
+                                header = _headers.get(obj_name, f"### {obj_name} Found")
+
+                            if table_md.strip().startswith("###"):
+                                sections.append(table_md.strip())
+                            else:
+                                sections.append(f"{header}\n\n{table_md}")
 
                     if sections:
                         direct_response = "\n\n---\n\n".join(sections)
