@@ -29,7 +29,8 @@ Your immediate task is to select and call the appropriate Salesforce MCP tool fo
    - Use SOQL date literals (TODAY, THIS_WEEK, NEXT_N_DAYS:7).
    - NEVER use subqueries inside WHERE clauses.
    - When user asks for "ALL" records, use LIMIT 200. Default limit is 10.
-   - For "my records" (my accounts, my leads), call getUserInfo first or filter by OwnerId.
+   - For "how many leads/accounts I have" or counting records: use `SELECT COUNT(Id) FROM Lead` directly.
+   - CRITICAL: NEVER use Apex bind variables like `:$User.Id`, `:UserInfo.getUserId()`, or `:userId`. In API SOQL bind variables are FORBIDDEN and cause MALFORMED_QUERY errors.
 5. If the request is a simple conversational greeting or non-Salesforce question, reply with polite text directly.
 """
 

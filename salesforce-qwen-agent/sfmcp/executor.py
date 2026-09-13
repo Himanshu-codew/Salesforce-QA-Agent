@@ -476,6 +476,16 @@ class ToolExecutor:
                 )
                 return cached
 
+        # Sanitize SOQL query if LLM injected Apex-style bind variables (e.g. :$User.Id or :UserInfo.getUserId())
+        if tool_name == "soqlQuery" and isinstance(arguments, dict):
+            raw_q = arguments.get("q") or arguments.get("query")
+            if raw_q:
+                clean_q = await self._sanitize_soql_query(raw_q)
+                arguments = dict(arguments)
+                arguments["q"] = clean_q
+                if "query" in arguments:
+                    arguments["query"] = clean_q
+
         logger.info(f"Executing tool: {tool_name} with args: {_truncate_args(arguments)}")
 
         try:
@@ -499,6 +509,66 @@ class ToolExecutor:
             error_msg = f"Unexpected error executing {tool_name}: {str(e)}"
             logger.error(error_msg)
             return json.dumps({"error": error_msg, "tool": tool_name})
+
+    async def _sanitize_soql_query(self, query: str) -> str:
+        """
+        Auto-correct common LLM SOQL syntax issues before sending to Salesforce:
+        1. Replace Apex bind variables like :$User.Id or :UserInfo.getUserId()
+           with the actual user ID literal '005...' (or drop the invalid WHERE clause).
+        """
+        if not query or not isinstance(query, str):
+            return query
+
+        cleaned = query.strip()
+
+        # Check for Apex bind variables like :$User.Id, :UserInfo.getUserId(), :userId
+        bind_match = re.search(r":(\$User\.Id|UserInfo\.getUserId\(\)|userId|currentUserId|[A-Za-z0-9_$.()]+)", cleaned, re.IGNORECASE)
+        if bind_match:
+            user_id = getattr(self.mcp_client, "_cached_user_id", None)
+            if not user_id:
+                try:
+                    ui_res = await self.mcp_client.call_tool("getUserInfo", {})
+                    if isinstance(ui_res, dict):
+                        identity = ui_res.get("identity") or {}
+                        user_id = identity.get("userId") or ui_res.get("userId") or ui_res.get("sub") or ui_res.get("user_id")
+                    elif isinstance(ui_res, str):
+                        try:
+                            parsed = json.loads(ui_res)
+                            if isinstance(parsed, dict):
+                                identity = parsed.get("identity") or {}
+                                user_id = identity.get("userId") or parsed.get("userId") or parsed.get("sub") or parsed.get("user_id")
+                        except Exception:
+                            pass
+                    if user_id and str(user_id).startswith("005"):
+                        self.mcp_client._cached_user_id = str(user_id)
+                except Exception as e:
+                    logger.warning(f"Could not auto-resolve user_id for bind variable: {e}")
+
+            if user_id and str(user_id).startswith("005"):
+                cleaned = re.sub(
+                    r":(\$User\.Id|UserInfo\.getUserId\(\)|userId|currentUserId)",
+                    f"'{user_id}'",
+                    cleaned,
+                    flags=re.IGNORECASE
+                )
+                logger.info(f"🔄 [SOQL AUTO-FIX] Inlined literal User ID '{user_id}' in place of Apex bind variable")
+            else:
+                # Strip the invalid WHERE clause so query succeeds cleanly
+                cleaned = re.sub(
+                    r"\s*WHERE\s+OwnerId\s*=\s*:[A-Za-z0-9_$.()]+\b",
+                    "",
+                    cleaned,
+                    flags=re.IGNORECASE
+                )
+                cleaned = re.sub(
+                    r"\s*AND\s+OwnerId\s*=\s*:[A-Za-z0-9_$.()]+\b",
+                    "",
+                    cleaned,
+                    flags=re.IGNORECASE
+                )
+                logger.warning("⚠️ [SOQL AUTO-FIX] Removed invalid Apex bind variable from SOQL query")
+
+        return cleaned
 
     async def validate_mutation(
         self,
