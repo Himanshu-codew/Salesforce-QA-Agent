@@ -32,7 +32,7 @@ When the user asks multiple things or a compound question in ONE message, output
 - `getObjectSchema`: Call for object field definitions, schema, picklist values, or required fields (e.g. `{"objects": "Opportunity"}`).
 - `listRecentSobjectRecords`: Call for recently viewed records (e.g. `{"sobject-name": "Account"}`).
 - `soqlQuery`: Call for reading, filtering, counting, or aggregating records.
-- `find`: Call for full-text search across multiple objects using SOSL.
+- `find`: Call for full-text search across multiple objects using SOSL. Format: `FIND {term} IN ALL FIELDS RETURNING Account(Id, Name), Contact(Id, Name, Email)`. CRITICAL: NEVER wrap term in quotes inside FIND; always use curly braces like `FIND {United}`.
 - `createSobjectRecord`, `updateSobjectRecord`, `deleteSobjectRecord`: Call for creating, updating, or deleting records.
 
 ## SOQL QUERY RULES:

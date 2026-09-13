@@ -675,7 +675,7 @@ def _is_soql_count(soql_query: str) -> bool:
 # fallback are both flat record lists, so recent-record queries ("show me my
 # recent Accounts") skip the ~67s synthesis step that previously dominated the
 # ~79s end-to-end latency.
-_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords", "getObjectSchema", "describeSObject"}
+_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords", "getObjectSchema", "describeSObject", "find"}
 
 # Pluralization for labeled count/section lines. Custom objects (``__c``) keep
 # their returned type verbatim (Salesforce types are already plural-free names).
@@ -869,6 +869,65 @@ def format_sf_records_as_markdown(
         from sfmcp.executor import ToolExecutor
         table = ToolExecutor._format_schema_table(tool_name, result_json)
         return table.replace("[reference_table]\n", "").strip()
+
+    if tool_name == "find":
+        try:
+            data = json.loads(result_json) if isinstance(result_json, str) else result_json
+        except Exception:
+            return None
+
+        search_records = []
+        if isinstance(data, dict):
+            if "searchRecords" in data and isinstance(data["searchRecords"], list):
+                search_records = data["searchRecords"]
+            else:
+                grouped = {}
+                for k, v in data.items():
+                    if isinstance(v, list) and v:
+                        grouped[k] = v
+                if grouped:
+                    sections = []
+                    for obj_name, recs in grouped.items():
+                        sub_md = format_sf_records_as_markdown(json.dumps(recs), "soqlQuery", soql_query=f"FROM {obj_name}")
+                        if sub_md:
+                            sections.append(f"### 📋 {obj_name} Found\n\n{sub_md}")
+                    return "\n\n---\n\n".join(sections) if sections else None
+        elif isinstance(data, list):
+            search_records = data
+
+        if not search_records:
+            return "🔍 **No matching records found** across the searched objects."
+
+        from collections import defaultdict
+        by_type = defaultdict(list)
+        for r in search_records:
+            if isinstance(r, dict):
+                t = None
+                if isinstance(r.get("attributes"), dict):
+                    t = r["attributes"].get("type")
+                if not t:
+                    t = r.get("objectType") or r.get("sobjectType") or r.get("type") or "Records"
+                by_type[t].append(r)
+
+        _headers = {
+            "Account": "### 🏢 Accounts Found",
+            "Lead": "### 📋 Leads Found",
+            "Contact": "### 👤 Contacts Found",
+            "Opportunity": "### 💰 Opportunities Found",
+            "Case": "### 🎫 Cases Found",
+            "Task": "### ✅ Tasks Found",
+            "Event": "### 📅 Events Found",
+            "User": "### 👥 Users Found",
+        }
+
+        sections = []
+        for obj_name, recs in by_type.items():
+            sub_md = format_sf_records_as_markdown(json.dumps(recs), "soqlQuery", soql_query=f"FROM {obj_name}")
+            if sub_md:
+                header = _headers.get(obj_name, f"### 📋 {obj_name} Found")
+                sections.append(f"{header}\n\n{sub_md}")
+
+        return "\n\n---\n\n".join(sections) if sections else None
 
     try:
         data = json.loads(result_json)

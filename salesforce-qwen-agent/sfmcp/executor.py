@@ -486,6 +486,16 @@ class ToolExecutor:
                 if "query" in arguments:
                     arguments["query"] = clean_q
 
+        # Sanitize SOSL search query if tool is 'find' (enforce FIND {term} without quotes)
+        if tool_name == "find" and isinstance(arguments, dict):
+            raw_q = arguments.get("q") or arguments.get("query")
+            if raw_q:
+                clean_q = self._sanitize_sosl_query(raw_q)
+                arguments = dict(arguments)
+                arguments["q"] = clean_q
+                if "query" in arguments:
+                    arguments["query"] = clean_q
+
         logger.info(f"Executing tool: {tool_name} with args: {_truncate_args(arguments)}")
 
         try:
@@ -585,6 +595,39 @@ class ToolExecutor:
                 flags=re.IGNORECASE
             )
             logger.info(f"🔄 [SOQL AUTO-FIX] Converted SQL subquery into native relationship filter 'WHERE {rel_field}.Name = {val}'")
+
+        return cleaned
+
+    @staticmethod
+    def _sanitize_sosl_query(query: str) -> str:
+        """
+        Universally sanitize SOSL search queries before sending to Salesforce.
+        Salesforce SOSL requires FIND {term} without single or double quotes around the term.
+        Handles:
+          - FIND 'term' -> FIND {term}
+          - FIND "term" -> FIND {term}
+          - FIND {'term'} -> FIND {term}
+          - FIND {"term"} -> FIND {term}
+          - FIND term -> FIND {term}
+          - Bare term e.g. "United" -> FIND {United} IN ALL FIELDS RETURNING Account(Id, Name), Contact(Id, Name, Email), Lead(Id, Name, Company)
+        """
+        if not query or not isinstance(query, str):
+            return query
+        cleaned = query.strip()
+
+        # If LLM sent bare search term without FIND
+        if not cleaned.upper().startswith("FIND"):
+            term = cleaned.strip("'\"{} \t\r\n")
+            return f"FIND {{{term}}} IN ALL FIELDS RETURNING Account(Id, Name), Contact(Id, Name, Email), Lead(Id, Name, Company)"
+
+        pattern = r"FIND\s+(?:\{['\"]*([^}\"']+)['\"]*\}|['\"]([^'\"]+)['\"]|([^\s{'\"]+))"
+        m = re.search(pattern, cleaned, re.IGNORECASE)
+        if m:
+            term = m.group(1) or m.group(2) or m.group(3)
+            if term:
+                term = term.strip("'\"{} \t\r\n")
+                cleaned = re.sub(pattern, f"FIND {{{term}}}", cleaned, count=1, flags=re.IGNORECASE)
+                logger.info(f"🔄 [SOSL AUTO-FIX] Sanitized SOSL query to: {cleaned}")
 
         return cleaned
 
