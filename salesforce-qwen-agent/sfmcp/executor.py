@@ -568,6 +568,24 @@ class ToolExecutor:
                 )
                 logger.warning("⚠️ [SOQL AUTO-FIX] Removed invalid Apex bind variable from SOQL query")
 
+        # Convert SQL subqueries like "WHERE AccountId = (SELECT Id FROM Account WHERE Name = 'X')"
+        # into native Salesforce relationship traversal "WHERE Account.Name = 'X'"
+        generic_subquery = re.search(
+            r"WHERE\s+([A-Za-z0-9_]+)Id\s*(?:=|IN)\s*\(\s*SELECT\s+Id\s+FROM\s+([A-Za-z0-9_]+)\s+WHERE\s+(?:Name\s*=\s*|Name\s+LIKE\s*)('[^']+')\s*\)",
+            cleaned,
+            re.IGNORECASE
+        )
+        if generic_subquery:
+            rel_field = generic_subquery.group(1)
+            val = generic_subquery.group(3)
+            cleaned = re.sub(
+                r"WHERE\s+[A-Za-z0-9_]+Id\s*(?:=|IN)\s*\(\s*SELECT\s+Id\s+FROM\s+[A-Za-z0-9_]+\s+WHERE\s+(?:Name\s*=\s*|Name\s+LIKE\s*)'[^']+'\s*\)",
+                f"WHERE {rel_field}.Name = {val}",
+                cleaned,
+                flags=re.IGNORECASE
+            )
+            logger.info(f"🔄 [SOQL AUTO-FIX] Converted SQL subquery into native relationship filter 'WHERE {rel_field}.Name = {val}'")
+
         return cleaned
 
     async def validate_mutation(

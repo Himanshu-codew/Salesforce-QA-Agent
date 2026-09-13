@@ -27,7 +27,7 @@ Your immediate task is to select and call the appropriate Salesforce MCP tool fo
 4. SOQL Rules:
    - Use raw numbers without $ or commas (e.g., Amount > 50000).
    - Use SOQL date literals (TODAY, THIS_WEEK, NEXT_N_DAYS:7).
-   - NEVER use subqueries inside WHERE clauses.
+   - NEVER use subqueries inside WHERE clauses (e.g. NEVER write `WHERE AccountId = (SELECT Id FROM Account WHERE Name = 'X')`). ALWAYS write `WHERE Account.Name = 'X'` directly using relationship traversal.
    - When user asks for "ALL" records, use LIMIT 200. Default limit is 10.
    - For "how many leads/accounts I have" or counting records: use `SELECT COUNT(Id) FROM Lead` directly.
    - CRITICAL: NEVER use Apex bind variables like `:$User.Id`, `:UserInfo.getUserId()`, or `:userId`. In API SOQL bind variables are FORBIDDEN and cause MALFORMED_QUERY errors.
