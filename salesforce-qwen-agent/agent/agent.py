@@ -110,6 +110,12 @@ def _executor_error_message(result: Any) -> str | None:
     except (json.JSONDecodeError, TypeError):
         return None
     if not isinstance(parsed, dict):
+        if isinstance(parsed, list) and len(parsed) > 0 and isinstance(parsed[0], dict):
+            first_err = parsed[0]
+            if "message" in first_err or "errorCode" in first_err:
+                msg = first_err.get("message", "Salesforce error")
+                code = first_err.get("errorCode", "")
+                return f"{msg} ({code})" if code else msg
         return None
     if parsed.get("validation_error") is True:
         return None
@@ -841,6 +847,7 @@ def format_sf_records_as_markdown(
     result_json: str,
     tool_name: str = "soqlQuery",
     soql_query: str = "",
+    allow_hierarchical: bool = False,
 ) -> str | None:
     """
     Parse a Salesforce flat record-list JSON result and return formatted markdown.
@@ -939,6 +946,9 @@ def format_sf_records_as_markdown(
     # The Salesforce Platform MCP API may also use different key names
     # (recentItems, items, results) depending on the endpoint and SDK version.
     if isinstance(data, list):
+        # Do not format raw error arrays (e.g. [{"message": "...", "errorCode": "..."}]) as data tables
+        if data and isinstance(data[0], dict) and ("errorCode" in data[0] or ("message" in data[0] and "records" not in data[0])):
+            return None
         records = data
         total_size = len(records)
     elif isinstance(data, dict):
@@ -1009,6 +1019,8 @@ def format_sf_records_as_markdown(
         len(_detect_subquery_collections(rec)) > 0 for rec in records
     )
     if has_subqueries:
+        if not allow_hierarchical:
+            return None
         cards = [_format_parent_with_children(rec, total_size) for rec in records[:10]]
         rendered = "\n\n---\n\n".join(cards)
         if len(records) > 10:
@@ -1486,6 +1498,8 @@ _SOQL_FIX_SUGGESTIONS = {
     "group by": "SOQL does not allow GROUP BY inside semi-join subqueries. Query the child object directly.",
     "unexpected token": "SOQL does not support subqueries in WHERE clauses. Use parent-to-child subqueries in the SELECT clause instead (e.g., SELECT Id, Name, (SELECT Id, Name FROM Opportunities) FROM Account WHERE Name = 'X'), or filter by relationship name (e.g., WHERE Account.Name = 'X').",
     "MALFORMED_QUERY": "The SOQL query structure is invalid. If using a subquery in WHERE, replace with: (a) parent-to-child subquery in SELECT, or (b) filter by Account.Name = 'X', or (c) use a literal ID from a prior query.",
+    "didn't understand relationship": "The child relationship does not exist on this parent object (e.g. Lead is not a child of Account). Query independent objects in separate tool calls or remove the invalid subquery.",
+    "invalid_type": "The requested relationship or object type does not exist on this parent object. Query the objects separately in independent tool calls.",
 }
 
 
@@ -2158,6 +2172,7 @@ class SalesforceAgent:
                         py_table = format_sf_records_as_markdown(
                             result, tc["name"],
                             soql_query=tc.get("arguments", {}).get("q", tc.get("arguments", {}).get("query", "")),
+                            allow_hierarchical=True,
                         )
                         if py_table:
                             # Store raw result for hallucination checking
