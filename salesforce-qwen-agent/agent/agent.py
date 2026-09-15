@@ -1004,12 +1004,16 @@ def format_sf_records_as_markdown(
         if agg_kind == "aggregate":
             return _render_aggregate_markdown(records, soql_query)
 
-    # Case 2: Subquery results → return None (let LLM handle hierarchical formatting)
+    # Case 2: Subquery results → render hierarchical cards directly in Python
     has_subqueries = any(
         len(_detect_subquery_collections(rec)) > 0 for rec in records
     )
     if has_subqueries:
-        return None
+        cards = [_format_parent_with_children(rec, total_size) for rec in records[:10]]
+        rendered = "\n\n---\n\n".join(cards)
+        if len(records) > 10:
+            rendered += f"\n\n*Showing top 10 of {len(records)} records. Please ask if you want to see specific details or more records.*"
+        return rendered
 
     # Case 3: Flat record list → Standard markdown table
     all_keys = []

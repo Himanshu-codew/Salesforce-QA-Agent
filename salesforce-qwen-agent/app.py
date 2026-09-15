@@ -47,8 +47,7 @@ from llm.qwen import QwenLLM
 from sfmcp.client import SalesforceMCPClient
 from sfmcp.registry import ToolRegistry
 from sfmcp.executor import ToolExecutor
-from agent.multi_agent import Orchestrator as SalesforceAgent
-from agent.agent import finalize_user_response
+from agent.agent import SalesforceAgent, finalize_user_response
 from utils.file_parser import parse_uploaded_file
 from utils.memory_diag import log_startup, log_after_rag_init, log_request_complete
 
