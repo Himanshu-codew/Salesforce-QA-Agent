@@ -1827,10 +1827,13 @@ class SalesforceAgent:
                     llm_result["content"] = ""
 
             # 2. Mandatory Turn 1 Data Query Interceptor
+            # Only force tool execution for READ queries (e.g. "show accounts", "count leads").
+            # For WRITE queries without values (e.g. "create a lead"), the LLM returning text
+            # to ask the user for details is expected and must not be forced into a tool retry.
             if not llm_result.get("tool_calls") and iteration == 1 and tools:
                 user_msg_lower = user_message.lower()
                 data_intent_keywords = _DATA_INTENT_KEYWORDS
-                if any(kw in user_msg_lower for kw in data_intent_keywords):
+                if any(kw in user_msg_lower for kw in data_intent_keywords) and not _has_write_intent(user_msg_lower):
                     logger.warning(
                         f"⚠️ [INTERCEPTOR] LLM returned text without tool call on Turn 1 for query: '{user_message[:40]}...'. "
                         "Forcing tool execution retry."
@@ -2311,7 +2314,7 @@ class SalesforceAgent:
                 # envelopes ARE the grounding: the answer asks the user for the
                 # missing fields instead of guessing at data, so the guard does
                 # not fire. Reuses the D1 controlled error shape (SALESFORCE_FAILED).
-                if _has_salesforce_intent(user_message) and not tool_results_fetched and not validation_blocked:
+                if _has_salesforce_intent(user_message) and not tool_results_fetched and not validation_blocked and not _has_write_intent(user_message):
                     logger.error(
                         "[SALESFORCE_FAILED] Salesforce/data request completed with no "
                         "Salesforce tool result; refusing to return an ungrounded answer."
