@@ -1780,6 +1780,37 @@ class SalesforceAgent:
 
             # --- INTERCEPTORS (Pre-process LLM result) ---
 
+            # 0. Validation-Blocked Tool-Call Suppression & Clarification Fallback
+            if validation_blocked:
+                # Mutations were blocked by fail-closed validation on a prior turn.
+                # Auto-retrying mutations is forbidden (retry_allowed=False).
+                if llm_result.get("tool_calls"):
+                    logger.warning(
+                        f"🛡️ [MUTATION RETRY BLOCKED] LLM attempted to re-call tools "
+                        f"{[tc['name'] for tc in llm_result['tool_calls']]} while validation is blocked. "
+                        "Discarding tool calls and generating deterministic user ask."
+                    )
+                    llm_result["tool_calls"] = []
+                if not (llm_result.get("content") and llm_result["content"].strip()):
+                    from agent.multi_agent import _render_required_fields_ask
+                    tool_results_for_ask = [
+                        {"tool": tc["name"], "result": r} for tc, r in rejected_results
+                    ]
+                    ask_msg = _render_required_fields_ask(tool_results_for_ask)
+                    if not ask_msg and rejected_results:
+                        for tc, r in rejected_results:
+                            try:
+                                parsed_r = json.loads(r)
+                                ask_msg = parsed_r.get("error") or parsed_r.get("suggestion")
+                                if ask_msg:
+                                    break
+                            except Exception:
+                                pass
+                    llm_result["content"] = ask_msg or (
+                        "I could not process the record change because required information was missing. "
+                        "Please provide the required details and try again."
+                    )
+
             # 1. Bare Tool Name Cleanup & Interception
             if llm_result.get("content"):
                 content_clean = llm_result["content"].strip().strip("`'\" \n\r\t").rstrip("()")
