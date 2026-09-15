@@ -1191,12 +1191,19 @@ def _ws_is_connected(websocket: WebSocket) -> bool:
 
 
 async def _ws_send_json(websocket: WebSocket, payload: dict) -> bool:
-    """Best-effort WebSocket send that is safe after client/server disconnects."""
+    """Best-effort WebSocket send that is serialized with a per-connection lock to prevent concurrent ASGI writes."""
     if not _ws_is_connected(websocket):
         return False
+    lock = getattr(websocket, "_send_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        websocket._send_lock = lock
     try:
-        await websocket.send_json(payload)
-        return True
+        async with lock:
+            if not _ws_is_connected(websocket):
+                return False
+            await websocket.send_json(payload)
+            return True
     except (RuntimeError, WebSocketDisconnect, OSError) as send_err:
         logger.warning(f"[WS] Client disconnected during event delivery: {send_err}")
         return False
