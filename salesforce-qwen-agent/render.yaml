@@ -25,6 +25,18 @@ services:
         sync: false
       - key: SALESFORCE_INSTANCE_URL
         sync: false
+      - key: SALESFORCE_DOMAIN
+        sync: false
+      - key: SALESFORCE_USERNAME
+        sync: false
+      - key: SALESFORCE_PASSWORD
+        sync: false
+      - key: SALESFORCE_SECURITY_TOKEN
+        sync: false
+      - key: SALESFORCE_ACCESS_TOKEN
+        sync: false
+      - key: SALESFORCE_REFRESH_TOKEN
+        sync: false
       - key: SALESFORCE_MCP_REQUIRED
         value: "false"
 

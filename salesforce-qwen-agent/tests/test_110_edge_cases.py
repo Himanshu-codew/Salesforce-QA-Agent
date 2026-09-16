@@ -17,6 +17,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import os
 import httpx
 
 try:
@@ -29,8 +30,8 @@ except ImportError:
 
 
 # ── Configuration ──
-CHAT_API_URL = "http://localhost:8000/chat"
-TIMEOUT_SECONDS = 120  # Max wait per query
+CHAT_API_URL = os.getenv("CHAT_API_URL", "https://salesforce-qa-agent-1.onrender.com/chat")
+TIMEOUT_SECONDS = int(os.getenv("TEST_TIMEOUT", "120"))  # Max wait per query
 OUTPUT_DIR = Path(__file__).resolve().parent.parent  # project root
 OUTPUT_FILE = OUTPUT_DIR / "test_results_110_edge_cases.xlsx"
 OUTPUT_CSV_FILE = OUTPUT_DIR / "test_results_110_edge_cases.csv"
@@ -890,7 +891,7 @@ async def send_query(client: httpx.AsyncClient, query: str, session_id: str) -> 
         }
     except httpx.ConnectError:
         return {
-            "answer": "CONNECTION ERROR: Could not connect to chatbot. Is it running on localhost:8000?",
+            "answer": f"CONNECTION ERROR: Could not connect to chatbot at {CHAT_API_URL}",
             "metadata": {},
             "session_id": session_id,
         }
@@ -1183,17 +1184,19 @@ async def run_all_tests():
 
     async with httpx.AsyncClient() as client:
         # Verify server is running
+        health_url = CHAT_API_URL.replace("/chat", "/health")
         try:
-            health = await client.get("http://localhost:8000/health", timeout=10)
-            print(f"\n Health check: {health.json()}\n")
+            health = await client.get(health_url, timeout=15)
+            print(f"\n Health check ({health_url}): {health.json()}\n")
         except Exception as e:
-            print(f"\n Cannot reach server at localhost:8000: {e}")
-            print("   Please make sure the chatbot is running: python app.py")
+            print(f"\n Cannot reach server at {health_url}: {e}")
+            print(f"   Please make sure the chatbot is running at {CHAT_API_URL}")
             return
 
+        target_session = os.getenv("TEST_SESSION_ID", "").strip()
         for i, (test_id, tool_name, category, query, expected, pass_kw, fail_kw) in enumerate(TEST_CASES):
-            # Use unique session per test to avoid context leaking
-            session_id = f"test_{test_id}_{int(time.time())}"
+            # Use specific target session if provided, else unique session per test
+            session_id = target_session if target_session else f"test_{test_id}_{int(time.time())}"
 
             print(f"[{i + 1:3d}/110] {test_id} | {tool_name:30s} | {category:30s} | ", end="", flush=True)
 

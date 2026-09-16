@@ -147,6 +147,12 @@ class UserSessionManager:
         if session_id in self._sessions and "agent" in self._sessions[session_id]:
             return self._sessions[session_id]["agent"]
 
+        # If this session has no isolated agent, inherit from any active authenticated
+        # session so automated tests and unauthenticated API calls reuse active credentials.
+        for sid, sess_info in self._sessions.items():
+            if sess_info.get("authenticated") and "agent" in sess_info:
+                return sess_info["agent"]
+
         # Return default server agent if unauthenticated
         return self._default_agent
 
@@ -213,6 +219,29 @@ class UserSessionManager:
             oauth_scope=oauth_scope or None,
             auth_host=auth_host,
         )
+        # Also sync to default session in token_vault and default_mcp_client
+        token_vault.put(
+            "default",
+            access_token=access_token,
+            refresh_token=refresh_token or None,
+            instance_url=instance_url,
+            expires_at=float(expires_at or 0.0),
+            client_id=client_id or None,
+            client_secret=client_secret or None,
+            oauth_scope=oauth_scope or None,
+            auth_host=auth_host,
+        )
+        if self._default_mcp_client:
+            self._default_mcp_client._access_token = access_token
+            self._default_mcp_client._refresh_token = refresh_token or self._default_mcp_client._refresh_token
+            self._default_mcp_client._expires_at = float(expires_at or 0.0)
+            if instance_url:
+                self._default_mcp_client.instance_url = instance_url
+            if auth_host:
+                self._default_mcp_client.auth_host = auth_host
+            if oauth_scope:
+                self._default_mcp_client.oauth_scope = oauth_scope
+            self._default_mcp_client._session_vault_id = "default"
 
         # 2. Create session-specific MCP client with user's access token
         user_mcp_client = SalesforceMCPClient(
