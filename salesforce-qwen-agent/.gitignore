@@ -12,3 +12,8 @@ oauth_pending.enc
 # Runtime server logs — commit hygiene
 /server_stdout.log
 /server_stderr.log
+*.log
+
+# Evaluation results and temporary scratch scripts
+test_results_*
+scratch/
