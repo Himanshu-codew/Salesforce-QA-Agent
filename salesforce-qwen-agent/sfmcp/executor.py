@@ -206,13 +206,16 @@ def _extract_user_provided_fields(user_message: str) -> dict[str, frozenset[str]
         boundary = r"(?:(?:\s*(?:,|;|，|；|。|\n|\b(?:" + stop_alt + r")\b)|\s*[.。](?=\s|$))|\s*$)"
         value_re = "([" + _VALUE_START + "][" + _VALUE_CHARS + "]*?)"
 
+        mid_opt = r"(?:\s+of\s+[^,;:]+?)?"
+        verb_sep = r"(?:is|are|as|to|set\s+to|change\s+to|equals|becomes)"
+
         pat_colon = re.compile(
             leading + escaped + r"\s*[:：=]\s*" + value_re +
             r"(?=" + boundary + r")",
             re.IGNORECASE,
         )
         pat_is = re.compile(
-            leading + escaped + r"\s+(?:is|are|as)\s+" + value_re +
+            leading + escaped + mid_opt + r"\s+(?:" + verb_sep + r")\s+" + value_re +
             r"(?=" + boundary + r")",
             re.IGNORECASE,
         )
@@ -221,7 +224,7 @@ def _extract_user_provided_fields(user_message: str) -> dict[str, frozenset[str]
             re.IGNORECASE,
         )
         pat_is_quoted = re.compile(
-            leading + escaped + r"\s+(?:is|are|as)\s+(['\"])([^'\"]*)\1",
+            leading + escaped + mid_opt + r"\s+(?:" + verb_sep + r")\s+(['\"])([^'\"]*)\1",
             re.IGNORECASE,
         )
         # Label lookahead used ONLY to blank the label span (so a shorter term
@@ -229,7 +232,7 @@ def _extract_user_provided_fields(user_message: str) -> dict[str, frozenset[str]
         # 'last name').  It matches the label only when a binding separator
         # follows; it never consumes the separator or the value.
         label_re = re.compile(
-            leading + escaped + r"(?=\s*[:：=]|\s+(?:is|are|as)\s+)",
+            leading + escaped + mid_opt + r"(?=\s*[:：=]|\s+(?:" + verb_sep + r")\s+)",
             re.IGNORECASE,
         )
 
