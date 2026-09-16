@@ -16,6 +16,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import os
 import httpx
 
 # Add project root to sys.path
@@ -32,12 +33,13 @@ except ImportError:
 
 
 # ── Configuration ──
-CHAT_API_URL = "http://localhost:8000/chat"
-TIMEOUT_SECONDS = 120
+CHAT_API_URL = os.getenv("CHAT_API_URL", "https://salesforce-qa-agent-1.onrender.com/chat")
+TIMEOUT_SECONDS = int(os.getenv("TEST_TIMEOUT", "120"))
+MAX_QUERIES = int(os.getenv("MAX_TESTS", "100"))
 OUTPUT_DIR = PROJECT_ROOT
-OUTPUT_FILE = OUTPUT_DIR / "test_results_200_queries.xlsx"
-OUTPUT_CSV_FILE = OUTPUT_DIR / "test_results_200_queries.csv"
-OUTPUT_HTML_FILE = OUTPUT_DIR / "test_results_200_queries.html"
+OUTPUT_FILE = OUTPUT_DIR / "test_results_100_of_200_queries.xlsx"
+OUTPUT_CSV_FILE = OUTPUT_DIR / "test_results_100_of_200_queries.csv"
+OUTPUT_HTML_FILE = OUTPUT_DIR / "test_results_100_of_200_queries.html"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -832,16 +834,19 @@ async def run_200_test_suite():
 
     async with httpx.AsyncClient() as client:
         # Check server health
+        health_url = CHAT_API_URL.replace("/chat", "/health")
         try:
-            health = await client.get("http://localhost:8000/health", timeout=10)
-            print(f" Server health: {health.json()}\n")
+            health = await client.get(health_url, timeout=15)
+            print(f" Server health ({health_url}): {health.json()}\n")
         except Exception as e:
-            print(f" Server unreachable at localhost:8000: {e}")
+            print(f" Server unreachable at {health_url}: {e}")
             return
 
-        for idx, (qid, category, query, expected, pass_kw, fail_kw) in enumerate(TEST_QUERIES_200, 1):
+        queries_to_run = TEST_QUERIES_200[:MAX_QUERIES]
+        print(f" Running {len(queries_to_run)} queries against {CHAT_API_URL}...\n")
+        for idx, (qid, category, query, expected, pass_kw, fail_kw) in enumerate(queries_to_run, 1):
             session_id = f"test_{qid}_{int(time.time())}"
-            print(f"[{idx:3d}/200] {qid} | {category:30s} | ", end="", flush=True)
+            print(f"[{idx:3d}/{len(queries_to_run)}] {qid} | {category:30s} | ", end="", flush=True)
 
             start = time.time()
             res = await send_chat_query(client, query, session_id)

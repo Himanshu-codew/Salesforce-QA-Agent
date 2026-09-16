@@ -599,6 +599,30 @@ class ToolExecutor:
             )
             logger.info(f"🔄 [SOQL AUTO-FIX] Converted SQL subquery into native relationship filter 'WHERE {rel_field}.Name = {val}'")
 
+        # Auto-fix aggregate aliases in ORDER BY:
+        # e.g. "SELECT OwnerId, SUM(Amount) totalSales ... ORDER BY totalSales DESC"
+        # SOQL requires "ORDER BY SUM(Amount) DESC" because aliases cannot be used in ORDER BY
+        alias_matches = re.findall(
+            r"\b(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*([A-Za-z0-9_$.]+|\*)\s*\)\s+([A-Za-z0-9_]+)\b",
+            cleaned,
+            re.IGNORECASE,
+        )
+        if alias_matches:
+            order_by_idx = cleaned.upper().find("ORDER BY")
+            if order_by_idx != -1:
+                before_part = cleaned[:order_by_idx]
+                after_part = cleaned[order_by_idx:]
+                for fn, arg, alias in alias_matches:
+                    if re.search(r"\b" + re.escape(alias) + r"\b", after_part, re.IGNORECASE):
+                        after_part = re.sub(
+                            r"\b" + re.escape(alias) + r"\b",
+                            f"{fn.upper()}({arg})",
+                            after_part,
+                            flags=re.IGNORECASE,
+                        )
+                        logger.info(f"🔄 [SOQL AUTO-FIX] Replaced invalid alias '{alias}' in ORDER BY with '{fn.upper()}({arg})'")
+                cleaned = before_part + after_part
+
         return cleaned
 
     @staticmethod
