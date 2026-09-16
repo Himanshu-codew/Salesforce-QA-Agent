@@ -1024,7 +1024,7 @@ async def chat_endpoint(request: ChatRequest):
 # and a slow Qwen turn can sit silent for 30+ seconds (long blocking LLM call with
 # no intermediate agent event). A concurrent heartbeat task keeps bytes flowing so
 # the connection survives until the final response is streamed.
-WS_HEARTBEAT_SECONDS = float(os.getenv("WS_HEARTBEAT_SECONDS", "8"))
+WS_HEARTBEAT_SECONDS = float(os.getenv("WS_HEARTBEAT_SECONDS", "4"))
 
 # Idle keepalive: while NO turn is running the heartbeat task above is inert,
 # and a connection that sits silent (or in a background tab where the browser

@@ -3,7 +3,7 @@ services:
     name: salesforce-qwen-agent
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --ws-ping-interval 15 --ws-ping-timeout 60
     healthCheckPath: /health
     envVars:
       # ── LLM ─────────────────────────────────────────────────
@@ -42,7 +42,7 @@ services:
 
       # ── WebSocket / timeouts ──────────────────────────────────
       - key: WS_HEARTBEAT_SECONDS
-        value: "8"
+        value: "4"
       - key: WS_KEEPALIVE_SECONDS
         value: "10"
       - key: WS_PRODUCER_DRAIN_SECONDS

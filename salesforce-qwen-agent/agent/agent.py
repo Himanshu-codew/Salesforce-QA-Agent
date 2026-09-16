@@ -681,7 +681,7 @@ def _is_soql_count(soql_query: str) -> bool:
 # fallback are both flat record lists, so recent-record queries ("show me my
 # recent Accounts") skip the ~67s synthesis step that previously dominated the
 # ~79s end-to-end latency.
-_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords", "getObjectSchema", "describeSObject", "find"}
+_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords", "getObjectSchema", "describeSObject", "find", "getUserInfo", "getRelatedRecords"}
 
 # Pluralization for labeled count/section lines. Custom objects (``__c``) keep
 # their returned type verbatim (Salesforce types are already plural-free names).
@@ -876,6 +876,38 @@ def format_sf_records_as_markdown(
         from sfmcp.executor import ToolExecutor
         table = ToolExecutor._format_schema_table(tool_name, result_json)
         return table.replace("[reference_table]\n", "").strip()
+
+    if tool_name == "getUserInfo":
+        try:
+            data = json.loads(result_json) if isinstance(result_json, str) else result_json
+        except Exception:
+            return None
+        if not isinstance(data, dict):
+            return None
+        info = data.get("identity") if isinstance(data.get("identity"), dict) else data
+        name = info.get("displayName") or info.get("name") or info.get("Name") or "Salesforce User"
+        email = info.get("email") or info.get("Email") or "-"
+        user_id = info.get("userId") or info.get("user_id") or info.get("Id") or "-"
+        username = info.get("preferred_username") or info.get("username") or info.get("Username") or "-"
+        org_name = info.get("organizationName") or info.get("company") or info.get("Company") or "-"
+        org_id = info.get("organizationId") or info.get("organization_id") or "-"
+        role = info.get("profileName") or info.get("userType") or "-"
+
+        lines = [
+            f"- **Display Name:** {name}",
+            f"- **Email:** {email}",
+        ]
+        if org_name != "-":
+            lines.append(f"- **Company / Org:** {org_name}")
+        if username != "-":
+            lines.append(f"- **Username:** {username}")
+        if user_id != "-":
+            lines.append(f"- **User ID:** {user_id}")
+        if org_id != "-":
+            lines.append(f"- **Organization ID:** {org_id}")
+        if role != "-":
+            lines.append(f"- **Profile / Role:** {role}")
+        return "\n".join(lines)
 
     if tool_name == "find":
         try:
@@ -1412,6 +1444,20 @@ def finalize_user_response(text: str) -> str:
     """
     if not text:
         return "I processed your request. How else can I assist you?"
+
+    # 0. If output was wrapped in a JSON envelope (e.g. {"response": "..."}), unwrap it first.
+    stripped_text = text.strip()
+    if stripped_text.startswith("{") and stripped_text.endswith("}"):
+        try:
+            parsed_json = json.loads(stripped_text)
+            if isinstance(parsed_json, dict):
+                for candidate in ("response", "answer", "message", "summary", "content", "text", "output"):
+                    val = parsed_json.get(candidate)
+                    if isinstance(val, str) and val.strip():
+                        text = val.strip()
+                        break
+        except Exception:
+            pass
 
     cleaned = sanitize_response_output(text)
 
@@ -2240,6 +2286,10 @@ class SalesforceAgent:
                                 obj_name = tc.get("arguments", {}).get("sobject-name", "Records")
                             elif tc["name"] in ("getObjectSchema", "describeSObject"):
                                 obj_name = tc.get("arguments", {}).get("objects", tc.get("arguments", {}).get("sObjectName", "Object Schema"))
+                            elif tc["name"] == "getUserInfo":
+                                obj_name = "UserInfo"
+                            elif tc["name"] == "getRelatedRecords":
+                                obj_name = tc.get("arguments", {}).get("relationship-path", "Related Records")
                             else:
                                 obj_name = "Records"
                             # Friendly header
@@ -2255,6 +2305,8 @@ class SalesforceAgent:
                             }
                             if tc["name"] in ("getObjectSchema", "describeSObject"):
                                 header = f"### 📋 {obj_name} Schema"
+                            elif tc["name"] == "getUserInfo":
+                                header = "### 👤 Salesforce User Profile"
                             else:
                                 header = _headers.get(obj_name, f"### {obj_name} Found")
 

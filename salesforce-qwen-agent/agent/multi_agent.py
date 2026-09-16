@@ -455,6 +455,9 @@ def _split_reference_results(
         result = item.get("result", "")
         if not isinstance(result, str):
             continue
+        if tool in _METADATA_ONLY_TOOLS:
+            raw_remainder.append(item)
+            continue
         table = format_sf_records_as_markdown(result, tool_name=tool)
         if table:
             ref_tables.append(table)
