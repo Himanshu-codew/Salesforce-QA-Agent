@@ -105,6 +105,13 @@ def _executor_error_message(result: Any) -> str | None:
     """
     if not isinstance(result, str):
         return None
+    # Intercept any raw HTML maintenance response that failed JSON decoding
+    lower_res = result.lower()
+    if "<html" in lower_res or "down for maintenance" in lower_res or "<table bgcolor=" in lower_res:
+        return (
+            "Salesforce is currently undergoing maintenance or connection synchronization. "
+            "Please wait a moment and try again."
+        )
     try:
         parsed = json.loads(result)
     except (json.JSONDecodeError, TypeError):
@@ -122,7 +129,14 @@ def _executor_error_message(result: Any) -> str | None:
     error = parsed.get("error")
     if not isinstance(error, str) or not error.strip():
         return None
-    suggestion = parsed.get("suggestion")
+    if "<html" in error.lower() or "down for maintenance" in error.lower() or "<table" in error.lower():
+        error = (
+            "Salesforce is currently undergoing maintenance or connection synchronization. "
+            "Please wait a moment and try again."
+        )
+        suggestion = "Wait 1-2 minutes for Salesforce to complete maintenance, then retry."
+    else:
+        suggestion = parsed.get("suggestion")
     if isinstance(suggestion, str) and suggestion.strip():
         return f"{error} Suggestion: {suggestion}"
     return error
@@ -161,11 +175,17 @@ def _blocked_mutation_result(tc: dict) -> str:
 
 def _salesforce_failed_event(message: str) -> dict[str, Any]:
     """Build the agent.agent structured error event for an executor failure."""
+    clean_msg = message
+    if "<html" in clean_msg.lower() or "down for maintenance" in clean_msg.lower() or "<table" in clean_msg.lower():
+        clean_msg = (
+            "Salesforce is currently undergoing maintenance or connection synchronization. "
+            "Please wait a moment and try again."
+        )
     return {
         "type": "error",
         "code": SALESFORCE_FAILED,
-        "message": message,
-        "data": message,
+        "message": clean_msg,
+        "data": clean_msg,
     }
 
 

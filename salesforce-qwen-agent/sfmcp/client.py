@@ -4,6 +4,7 @@ via the official mcp SDK (Streamable HTTP transport) with OAuth Bearer
 token authentication, envelope-encrypted token storage and auto-refresh.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -18,6 +19,45 @@ from sfmcp.crypto.envelope import TokenVault
 from tools.salesforce import is_mutating, is_destructive
 
 logger = logging.getLogger(__name__)
+
+
+def _is_transient_salesforce_error(exc_or_text: Any) -> bool:
+    """Check if an error represents a temporary/transient Salesforce error
+    (503 maintenance, 502/504 gateway timeout, network reset/timeout, or HTML maintenance page).
+    """
+    if exc_or_text is None:
+        return False
+    if isinstance(exc_or_text, httpx.HTTPStatusError):
+        code = getattr(exc_or_text.response, "status_code", 0)
+        if code in (502, 503, 504):
+            return True
+        text = getattr(exc_or_text.response, "text", "")
+        if "<table bgcolor=" in text or "down for maintenance" in text.lower():
+            return True
+    elif isinstance(exc_or_text, (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout, httpx.RemoteProtocolError)):
+        return True
+    elif isinstance(exc_or_text, Exception):
+        s = str(exc_or_text).lower()
+        if any(kw in s for kw in ("503", "down for maintenance", "service unavailable", "connection reset", "session terminated", "broken pipe", "<table bgcolor=")):
+            return True
+    elif isinstance(exc_or_text, str):
+        s = exc_or_text.lower()
+        if any(kw in s for kw in ("503", "down for maintenance", "service unavailable", "<table bgcolor=", "<html")):
+            return True
+    return False
+
+
+def _clean_salesforce_error_text(err_text: str) -> str:
+    """Strip raw HTML maintenance error markup and return a clean, human-friendly message."""
+    if not err_text:
+        return err_text
+    lower = err_text.lower()
+    if "down for maintenance" in lower or "<table bgcolor=" in lower or "<html" in lower:
+        return (
+            "Salesforce is temporarily undergoing maintenance or connection synchronization. "
+            "Please wait a moment and try again."
+        )
+    return err_text
 
 
 def _extract_sobject(arguments: dict[str, Any]) -> str:
@@ -575,29 +615,55 @@ class SalesforceMCPClient:
         Execute a tool call against Salesforce.
         Primary: mcp SDK session (Streamable HTTP). Fallback: direct REST API.
         Auto-reauthenticates on 401/expired token.
+        Auto-retries on transient 503 / maintenance / network blips for read operations.
         """
         await self._ensure_fresh_token()
 
         plain_name = tool_name.rsplit(":", 1)[-1]
-
-        # A MUTATING/DESTRUCTIVE tool (create/update/delete/upload) writes to
-        # Salesforce. Its outcome is UNKNOWN whenever the MCP call fails without
-        # a definitive signal (connection drop, timeout, transport error): the
-        # server may or may not have already executed it. Such an uncertain
-        # mutation must NEVER be re-invoked automatically — not by an MCP
-        # reconnect-retry and not by the REST fallback — or one user submission
-        # would create two Leads. Only AUTH rejections (401: request refused
-        # before execution) and DEFINITIVE tool errors (isError: execution
-        # failed) are safe to retry/fall back for writes. Read-only tools keep
-        # the full reconnect-then-fallback behavior so a dropped idle MCP
-        # session never spuriously routes a normal query to REST.
         is_write = is_mutating(plain_name) or is_destructive(plain_name)
 
-        # MCP is the primary path. On an auth/session/transient failure we give
-        # MCP ONE clean reconnect before EVER falling back to REST, so a normal
-        # Salesforce query does not spuriously route to REST just because the
-        # idle Streamable HTTP session was dropped or a token lapsed. REST is
-        # only used when MCP genuinely cannot complete the call.
+        # For read operations, retry transient 503 / maintenance / connection drops
+        max_attempts = 3 if not is_write else 1
+        last_error: Exception | None = None
+
+        for attempt_idx in range(max_attempts):
+            try:
+                return await self._call_tool_core(plain_name, tool_name, arguments, is_write)
+            except Exception as e:
+                last_error = e
+                # Transient error check for read operations
+                if not is_write and attempt_idx < max_attempts - 1 and _is_transient_salesforce_error(e):
+                    backoff = 1.5 * (attempt_idx + 1)
+                    logger.warning(
+                        f"[SALESFORCE-RETRY] Transient error/maintenance during '{tool_name}' ({e}). "
+                        f"Retrying in {backoff:.1f}s (attempt {attempt_idx + 1}/{max_attempts - 1})..."
+                    )
+                    await self._close_mcp_session()
+                    await asyncio.sleep(backoff)
+                    try:
+                        await self._try_oauth_refresh()
+                    except Exception:
+                        pass
+                    continue
+
+                # Final failure: sanitize any raw HTML before raising
+                err_str = str(e)
+                cleaned = _clean_salesforce_error_text(err_str)
+                if cleaned != err_str:
+                    raise RuntimeError(cleaned) from e
+                raise
+
+        if last_error:
+            cleaned = _clean_salesforce_error_text(str(last_error))
+            raise RuntimeError(cleaned) from last_error
+
+    async def _call_tool_core(
+        self,
+        plain_name: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        is_write: bool,
+    ) -> Any:
         reconnect_retried = False
         definitive_mcp_error = False
         for attempt in range(2):
@@ -699,7 +765,8 @@ class SalesforceMCPClient:
                 except Exception as auth_err:
                     logger.error(f"Re-authentication retry failed: {auth_err}")
                     raise RuntimeError(f"Salesforce API 401 Unauthorized: {status_err.response.text}") from auth_err
-            raise
+            err_text = _clean_salesforce_error_text(status_err.response.text)
+            raise RuntimeError(f"Salesforce API error for {tool_name}: {err_text}") from status_err
 
     async def _fallback_rest_api(
         self,
@@ -749,7 +816,10 @@ class SalesforceMCPClient:
                 except Exception:
                     # Fallback to querying User via SOQL for current logged-in username
                     url = f"{base}/services/data/{api_version}/query"
-                    query = f"SELECT Id, Name, Username, Email, Profile.Name FROM User WHERE Username = '{self.username}' LIMIT 1"
+                    if self.username:
+                        query = f"SELECT Id, Name, Username, Email, Profile.Name FROM User WHERE Username = '{self.username}' LIMIT 1"
+                    else:
+                        query = "SELECT Id, Name, Username, Email, Profile.Name FROM User ORDER BY LastLoginDate DESC LIMIT 1"
                     resp = await self._http_client.get(url, params={"q": query}, headers=headers)
                     resp.raise_for_status()
                     return resp.json()
@@ -1000,7 +1070,7 @@ class SalesforceMCPClient:
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 401 or "INVALID_SESSION_ID" in e.response.text:
                 raise  # Re-raise so call_tool catches 401 and auto-reauthenticates
-            error_body = e.response.text
+            error_body = _clean_salesforce_error_text(e.response.text)
             logger.error(f"REST API fallback failed for {tool_name}: {error_body}")
             raise RuntimeError(f"Salesforce API error for {tool_name}: {error_body}")
 
@@ -1029,15 +1099,21 @@ class SalesforceMCPClient:
         base = self.instance_url.rstrip("/")
         api_version = "v62.0"
         url = f"{base}/services/data/{api_version}/sobjects/{sobject_name}/describe"
-        try:
-            resp = await self._http_client.get(url, headers=headers)
-            resp.raise_for_status()
-            raw = resp.json()
-        except Exception as exc:  # noqa: BLE001 - resolver failure fails closed
-            logger.error(
-                f"[MUTATION-VALIDATION] describe failed for '{sobject_name}': {exc}"
-            )
-            return None
+        raw = None
+        for describe_attempt in range(2):
+            try:
+                resp = await self._http_client.get(url, headers=headers)
+                resp.raise_for_status()
+                raw = resp.json()
+                break
+            except Exception as exc:  # noqa: BLE001 - resolver failure fails closed
+                if describe_attempt == 0 and _is_transient_salesforce_error(exc):
+                    await asyncio.sleep(1.0)
+                    continue
+                logger.error(
+                    f"[MUTATION-VALIDATION] describe failed for '{sobject_name}': {_clean_salesforce_error_text(str(exc))}"
+                )
+                return None
 
         simplified = _simplify_describe_fields(raw)
         self._schema_cache[cache_key] = {

@@ -928,6 +928,8 @@ class ToolExecutor:
         instead of dumping 50+ internal Salesforce metadata flags that bloat context.
         """
         if isinstance(data, str):
+            if "<html" in data.lower() or "down for maintenance" in data.lower() or "<table" in data.lower():
+                return "The Salesforce instance is temporarily undergoing maintenance or connection synchronization. Please wait a moment and try again."
             try:
                 data = json.loads(data)
             except (json.JSONDecodeError, TypeError):
@@ -1142,6 +1144,8 @@ class ToolExecutor:
             )
         elif "401" in error_lower or "unauthorized" in error_lower:
             return "Your session may have expired. Try reconnecting."
+        elif "maintenance" in error_lower or "503" in error_lower or "service unavailable" in error_lower:
+            return "Salesforce is temporarily undergoing maintenance or connection throttling. Wait a moment and retry."
         else:
             return "Check the error message above for details."
 
