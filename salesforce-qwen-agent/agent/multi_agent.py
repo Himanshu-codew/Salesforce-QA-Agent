@@ -173,6 +173,8 @@ def _executor_error_message(result: str, tool_name: str) -> str | None:
     try:
         parsed = json.loads(result)
     except (json.JSONDecodeError, TypeError):
+        if "<html" in result.lower() or "down for maintenance" in result.lower() or "<table" in result.lower():
+            return "Salesforce is temporarily undergoing maintenance or connection synchronization. Please wait a moment and try again."
         return None
     if not isinstance(parsed, dict):
         return None
@@ -180,8 +182,16 @@ def _executor_error_message(result: str, tool_name: str) -> str | None:
         return None
     error = parsed.get("error")
     if isinstance(error, str) and error.strip() and "tool" in parsed:
+        if "<html" in error.lower() or "down for maintenance" in error.lower() or "<table" in error.lower():
+            error = "Salesforce is temporarily undergoing maintenance or connection synchronization. Please wait a moment and try again."
+        else:
+            error = re.sub(r"<[^>]+>", "", error).strip()
         suggestion = parsed.get("suggestion")
         if isinstance(suggestion, str) and suggestion.strip():
+            if "<html" in suggestion.lower() or "<table" in suggestion.lower():
+                suggestion = "Wait a moment and retry."
+            else:
+                suggestion = re.sub(r"<[^>]+>", "", suggestion).strip()
             return f"{error} Suggestion: {suggestion}"
         return error
     return None

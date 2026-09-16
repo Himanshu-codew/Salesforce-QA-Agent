@@ -899,6 +899,8 @@ class ToolExecutor:
     def _format_result(self, tool_name: str, result: Any) -> str:
         """Format tool result as a clean JSON string."""
         if isinstance(result, str):
+            if "<html" in result.lower() or "down for maintenance" in result.lower() or "<table" in result.lower():
+                return "The Salesforce instance is temporarily undergoing maintenance or connection synchronization. Please wait a moment and try again."
             try:
                 parsed = json.loads(result)
                 if tool_name == "getObjectSchema":
@@ -927,9 +929,11 @@ class ToolExecutor:
         Extracts high-value, essential columns (Name, Label, Type, Required, Details)
         instead of dumping 50+ internal Salesforce metadata flags that bloat context.
         """
+        data_str = str(data).lower()
+        if "<html" in data_str or "down for maintenance" in data_str or "<table" in data_str:
+            return "The Salesforce instance is temporarily undergoing maintenance or connection synchronization. Please wait a moment and try again."
+
         if isinstance(data, str):
-            if "<html" in data.lower() or "down for maintenance" in data.lower() or "<table" in data.lower():
-                return "The Salesforce instance is temporarily undergoing maintenance or connection synchronization. Please wait a moment and try again."
             try:
                 data = json.loads(data)
             except (json.JSONDecodeError, TypeError):
