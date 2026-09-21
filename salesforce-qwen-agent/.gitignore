@@ -2,7 +2,8 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-uploads/
+uploads/*
+!uploads/.gitkeep
 
 # Token vault security — never commit the KEK or stored (encrypted) tokens
 .sf_kek

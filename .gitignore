@@ -4,4 +4,16 @@ salesforce-qwen-agent/.env
 __pycache__/
 *.pyc
 .pytest_cache/
-salesforce-qwen-agent/uploads/
+salesforce-qwen-agent/uploads/*
+!salesforce-qwen-agent/uploads/.gitkeep
+
+# Token vault security — never commit the KEK or stored (encrypted) tokens
+.sf_kek
+*.enc
+
+# Runtime server logs — commit hygiene
+*.log
+
+# Evaluation results and temporary scratch scripts
+test_results_*
+scratch/
