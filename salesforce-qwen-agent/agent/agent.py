@@ -902,7 +902,7 @@ def format_sf_records_as_markdown(
 
     Returns None if the result is not a parseable flat record list.
     """
-    if tool_name not in _FLAT_LIST_TOOLS:
+    if tool_name not in _FLAT_LIST_TOOLS and tool_name not in ("getObjectSchema", "describeSObject", "getUserInfo"):
         return None
 
     if isinstance(result_json, str) and result_json.strip().startswith("[reference_table]"):

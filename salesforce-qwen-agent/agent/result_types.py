@@ -90,7 +90,7 @@ def classify_result(tool_name: str, result: str, soql: str = "") -> ResultInfo |
     (hierarchical records, non-listing tools, error/schema payloads, malformed
     JSON) so the caller keeps its existing LLM synthesis behavior.
     """
-    if tool_name not in _FLAT_LIST_TOOLS:
+    if tool_name not in _FLAT_LIST_TOOLS and tool_name not in ("getObjectSchema", "describeSObject", "getUserInfo"):
         return None
     if not isinstance(result, str):
         return None
