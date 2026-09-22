@@ -984,6 +984,16 @@ class ToolExecutor:
             except (json.JSONDecodeError, TypeError):
                 return str(data)
 
+        # Handle multiple schemas: client.py returns {"Account": {"name": "Account", "fields": [...]}, "Contact": ...}
+        if isinstance(data, dict) and "fields" not in data and "name" not in data:
+            is_multi = len(data) > 0 and all(isinstance(v, dict) and "name" in v for v in data.values())
+            if is_multi:
+                tables = []
+                for obj_name, obj_data in data.items():
+                    sub_res = ToolExecutor._format_schema_table(tool_name, obj_data)
+                    tables.append(sub_res)
+                return "\n\n".join(tables)
+
         # Normalize: find the fields list regardless of nesting shape
         fields = []
         obj_name = ""
