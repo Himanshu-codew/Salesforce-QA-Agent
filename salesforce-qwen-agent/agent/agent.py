@@ -176,10 +176,26 @@ def _blocked_mutation_result(tc: dict) -> str:
 def _salesforce_failed_event(message: str) -> dict[str, Any]:
     """Build the agent.agent structured error event for an executor failure."""
     clean_msg = message
-    if "<html" in clean_msg.lower() or "down for maintenance" in clean_msg.lower() or "<table" in clean_msg.lower():
+    lower = clean_msg.lower()
+    if "<html" in lower or "down for maintenance" in lower or "<table" in lower:
         clean_msg = (
             "Salesforce is currently undergoing maintenance or connection synchronization. "
             "Please wait a moment and try again."
+        )
+    elif "didn't understand relationship 'account'" in lower:
+        clean_msg = (
+            "In Salesforce, Leads are independent prospects and do not have an Account relationship. "
+            "Company names on Leads are stored in the 'Company' field."
+        )
+    elif "didn't understand relationship" in lower:
+        clean_msg = (
+            "The requested relationship does not exist in your Salesforce schema. "
+            "Please check the relationship name or query the objects separately."
+        )
+    elif "no such column" in lower or "invalid_field" in lower:
+        clean_msg = (
+            "One or more fields in the query do not exist on this Salesforce object. "
+            "Please verify the field name or ask me for the object schema."
         )
     return {
         "type": "error",
@@ -701,7 +717,7 @@ def _is_soql_count(soql_query: str) -> bool:
 # fallback are both flat record lists, so recent-record queries ("show me my
 # recent Accounts") skip the ~67s synthesis step that previously dominated the
 # ~79s end-to-end latency.
-_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords", "getObjectSchema", "describeSObject", "find", "getUserInfo", "getRelatedRecords"}
+_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords"}
 
 # Pluralization for labeled count/section lines. Custom objects (``__c``) keep
 # their returned type verbatim (Salesforce types are already plural-free names).
@@ -905,28 +921,49 @@ def format_sf_records_as_markdown(
         if not isinstance(data, dict):
             return None
         info = data.get("identity") if isinstance(data.get("identity"), dict) else data
-        name = info.get("displayName") or info.get("name") or info.get("Name") or "Salesforce User"
-        email = info.get("email") or info.get("Email") or "-"
-        user_id = info.get("userId") or info.get("user_id") or info.get("Id") or "-"
-        username = info.get("preferred_username") or info.get("username") or info.get("Username") or "-"
-        org_name = info.get("organizationName") or info.get("company") or info.get("Company") or "-"
-        org_id = info.get("organizationId") or info.get("organization_id") or "-"
-        role = info.get("profileName") or info.get("userType") or "-"
+        user_rec = data.get("salesforce_user_record", {}) if isinstance(data.get("salesforce_user_record"), dict) else {}
+        name = data.get("name") or user_rec.get("Name") or info.get("displayName") or info.get("name") or "Salesforce User"
+        email = data.get("email") or user_rec.get("Email") or info.get("email") or "-"
+        user_id = data.get("userId") or data.get("id") or user_rec.get("Id") or info.get("userId") or info.get("user_id") or "-"
+        username = data.get("username") or user_rec.get("Username") or info.get("preferred_username") or info.get("username") or "-"
+        company = data.get("company") or user_rec.get("CompanyName") or info.get("organizationName") or "-"
+        org_id = data.get("organizationId") or info.get("organizationId") or info.get("organization_id") or "-"
+        profile = data.get("profile") or (user_rec.get("Profile") or {}).get("Name") or info.get("profileName") or "-"
+        role = data.get("role") or (user_rec.get("UserRole") or {}).get("Name") or "-"
+        title = data.get("title") or user_rec.get("Title")
+        department = data.get("department") or user_rec.get("Department")
+        phone = data.get("phone") or user_rec.get("Phone")
+        mobile = data.get("mobile_phone") or user_rec.get("MobilePhone")
+        timezone = data.get("timezone") or user_rec.get("TimeZoneSidKey")
+        is_active = data.get("is_active") if "is_active" in data else user_rec.get("IsActive")
 
         lines = [
             f"- **Display Name:** {name}",
             f"- **Email:** {email}",
+            f"- **Username:** {username}",
+            f"- **User ID:** `{user_id}`",
         ]
-        if org_name != "-":
-            lines.append(f"- **Company / Org:** {org_name}")
-        if username != "-":
-            lines.append(f"- **Username:** {username}")
-        if user_id != "-":
-            lines.append(f"- **User ID:** {user_id}")
-        if org_id != "-":
-            lines.append(f"- **Organization ID:** {org_id}")
-        if role != "-":
-            lines.append(f"- **Profile / Role:** {role}")
+        if profile and profile != "-":
+            lines.append(f"- **Profile:** {profile}")
+        if role and role not in ("-", "None"):
+            lines.append(f"- **Role:** {role}")
+        if title and title != "Not Specified":
+            lines.append(f"- **Title / Designation:** {title}")
+        if department and department != "Not Specified":
+            lines.append(f"- **Department:** {department}")
+        if company and company not in ("-", "Not Specified"):
+            lines.append(f"- **Company / Org:** {company}")
+        if org_id and org_id != "-":
+            lines.append(f"- **Organization ID:** `{org_id}`")
+        if phone and phone != "Not Specified":
+            lines.append(f"- **Phone:** {phone}")
+        if mobile and mobile != "Not Specified":
+            lines.append(f"- **Mobile:** {mobile}")
+        if timezone and timezone != "Not Specified":
+            lines.append(f"- **Timezone:** {timezone}")
+        if is_active is not None:
+            lines.append(f"- **Status:** {'Active ✅' if is_active else 'Inactive ❌'}")
+
         return "\n".join(lines)
 
     if tool_name == "find":
@@ -1564,6 +1601,7 @@ _SOQL_FIX_SUGGESTIONS = {
     "group by": "SOQL does not allow GROUP BY inside semi-join subqueries. Query the child object directly.",
     "unexpected token": "SOQL does not support subqueries in WHERE clauses. Use parent-to-child subqueries in the SELECT clause instead (e.g., SELECT Id, Name, (SELECT Id, Name FROM Opportunities) FROM Account WHERE Name = 'X'), or filter by relationship name (e.g., WHERE Account.Name = 'X').",
     "MALFORMED_QUERY": "The SOQL query structure is invalid. If using a subquery in WHERE, replace with: (a) parent-to-child subquery in SELECT, or (b) filter by Account.Name = 'X', or (c) use a literal ID from a prior query.",
+    "didn't understand relationship 'account'": "In Salesforce, Lead does NOT have an 'Account' or 'AccountId' relationship. The company name is stored in 'Company' (e.g. WHERE Company = 'Acme'). Replace Account.Name with Company, or remove the Account filter.",
     "didn't understand relationship": "The child relationship does not exist on this parent object (e.g. Lead is not a child of Account). Query independent objects in separate tool calls or remove the invalid subquery.",
     "invalid_type": "The requested relationship or object type does not exist on this parent object. Query the objects separately in independent tool calls.",
 }
@@ -2138,12 +2176,13 @@ class SalesforceAgent:
                         # formatted / stored / synthesized as normal Salesforce data ──
                         err_msg = _executor_error_message(result)
                         if err_msg:
-                            logger.error(f"[SALESFORCE_FAILED] Tool '{tc['name']}' failed: {err_msg}")
-                            memory.add_assistant_message(
-                                f"Tool '{tc['name']}' failed: {err_msg}"
-                            )
-                            yield _salesforce_failed_event(f"Salesforce call '{tc['name']}' failed: {err_msg}")
-                            return
+                            if tc["name"] != "soqlQuery":
+                                logger.error(f"[SALESFORCE_FAILED] Tool '{tc['name']}' failed: {err_msg}")
+                                memory.add_assistant_message(
+                                    f"Tool '{tc['name']}' failed: {err_msg}"
+                                )
+                                yield _salesforce_failed_event(f"Salesforce call '{tc['name']}' failed: {err_msg}")
+                                return
 
                         # ── SOQL Error Auto-Correction (max 1 retry — keeps it fast) ──
                         if tc["name"] == "soqlQuery":
@@ -2153,6 +2192,35 @@ class SalesforceAgent:
                                 "unexpected token", "no such column",
                                 "didn't understand", "parse_error",
                             ])
+                            if is_soql_error:
+                                # ── FAST DETERMINISTIC RETRY (sub-second recovery without LLM roundtrip) ──
+                                original_soql = tc.get("arguments", {}).get("q", tc.get("arguments", {}).get("query", ""))
+                                fixed_fast_soql = original_soql
+                                if "relationship 'account'" in result_lower or "relationship 'account' in field path" in result_lower:
+                                    if re.search(r"\bFROM\s+Lead\b", fixed_fast_soql, re.IGNORECASE):
+                                        fixed_fast_soql = re.sub(r"\bAccount\.Name\b", "Company", fixed_fast_soql, flags=re.IGNORECASE)
+                                        fixed_fast_soql = re.sub(r"\bAccount\.Id\b", "Id", fixed_fast_soql, flags=re.IGNORECASE)
+                                        fixed_fast_soql = re.sub(r"\bAccountId\b", "Id", fixed_fast_soql, flags=re.IGNORECASE)
+
+                                if fixed_fast_soql != original_soql:
+                                    logger.info(f"⚡ [FAST SOQL FIX] Auto-repaired SOQL query without LLM roundtrip: {fixed_fast_soql}")
+                                    try:
+                                        fast_retry = await _bounded_call(
+                                            self.executor.execute(
+                                                "soqlQuery", {"q": fixed_fast_soql},
+                                                user_provenance={},
+                                            ),
+                                            AGENT_EXECUTOR_TIMEOUT,
+                                            "SOQL fast-fix execution",
+                                        )
+                                        fast_err = _executor_error_message(fast_retry)
+                                        if not fast_err:
+                                            result = fast_retry
+                                            memory.add_tool_result(tc["id"], tc["name"], result)
+                                            is_soql_error = False
+                                    except Exception as fast_err_exc:
+                                        logger.warning(f"Fast SOQL fix execution failed: {fast_err_exc}")
+
                             if is_soql_error:
                                 fix_suggestion = get_soql_fix_suggestion(result)
                                 if fix_suggestion:

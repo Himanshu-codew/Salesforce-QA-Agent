@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -808,21 +809,85 @@ class SalesforceMCPClient:
                 return resp.json()
 
             elif tool_name == "getUserInfo":
+                user_info_data = {}
                 try:
                     url = f"{base}/services/oauth2/userinfo"
                     resp = await self._http_client.get(url, headers=headers)
-                    resp.raise_for_status()
-                    return resp.json()
-                except Exception:
-                    # Fallback to querying User via SOQL for current logged-in username
-                    url = f"{base}/services/data/{api_version}/query"
-                    if self.username:
-                        query = f"SELECT Id, Name, Username, Email, Profile.Name FROM User WHERE Username = '{self.username}' LIMIT 1"
+                    if resp.status_code == 200:
+                        user_info_data = resp.json()
+                except Exception as oauth_err:
+                    logger.warning(f"OAuth userinfo fetch failed: {oauth_err}")
+
+                # Enrich with full Salesforce User object record via SOQL
+                try:
+                    raw_id = (
+                        user_info_data.get("user_id")
+                        or user_info_data.get("userId")
+                        or (user_info_data.get("identity") or {}).get("userId")
+                        or user_info_data.get("sub")
+                        or ""
+                    )
+                    id_match = re.search(r"(005[a-zA-Z0-9]{12,15})", str(raw_id))
+                    clean_user_id = id_match.group(1) if id_match else None
+
+                    if clean_user_id:
+                        filter_clause = f"Id = '{clean_user_id}'"
+                    elif self.username:
+                        filter_clause = f"Username = '{self.username}'"
                     else:
-                        query = "SELECT Id, Name, Username, Email, Profile.Name FROM User ORDER BY LastLoginDate DESC LIMIT 1"
-                    resp = await self._http_client.get(url, params={"q": query}, headers=headers)
-                    resp.raise_for_status()
-                    return resp.json()
+                        filter_clause = "IsActive = true ORDER BY LastLoginDate DESC NULLS LAST"
+
+                    query_url = f"{base}/services/data/{api_version}/query"
+                    rich_q = (
+                        f"SELECT Id, Name, FirstName, LastName, Username, Email, Title, "
+                        f"Department, CompanyName, Phone, MobilePhone, Profile.Name, "
+                        f"UserRole.Name, TimeZoneSidKey, IsActive, Alias, City, State, Country "
+                        f"FROM User WHERE {filter_clause} LIMIT 1"
+                    )
+                    resp = await self._http_client.get(query_url, params={"q": rich_q}, headers=headers)
+                    if resp.status_code != 200:
+                        # Fallback query without UserRole / address fields in case org schema differs
+                        simple_q = (
+                            f"SELECT Id, Name, FirstName, LastName, Username, Email, Title, "
+                            f"Department, CompanyName, Phone, MobilePhone, Profile.Name, "
+                            f"TimeZoneSidKey, IsActive FROM User WHERE {filter_clause} LIMIT 1"
+                        )
+                        resp = await self._http_client.get(query_url, params={"q": simple_q}, headers=headers)
+
+                    if resp.status_code == 200:
+                        records = resp.json().get("records", [])
+                        if records:
+                            user_rec = records[0]
+                            user_info_data["salesforce_user_record"] = user_rec
+                            resolved_id = user_rec.get("Id") or clean_user_id or raw_id
+                            user_info_data["id"] = resolved_id
+                            user_info_data["userId"] = resolved_id
+                            user_info_data["name"] = user_rec.get("Name") or user_info_data.get("name") or user_info_data.get("displayName")
+                            user_info_data["displayName"] = user_info_data["name"]
+                            user_info_data["username"] = user_rec.get("Username") or user_info_data.get("preferred_username")
+                            user_info_data["email"] = user_rec.get("Email") or user_info_data.get("email")
+                            user_info_data["title"] = user_rec.get("Title") or "Not Specified"
+                            user_info_data["department"] = user_rec.get("Department") or "Not Specified"
+                            user_info_data["company"] = user_rec.get("CompanyName") or user_info_data.get("organizationName") or "Not Specified"
+                            user_info_data["phone"] = user_rec.get("Phone") or "Not Specified"
+                            user_info_data["mobile_phone"] = user_rec.get("MobilePhone") or "Not Specified"
+                            user_info_data["profile"] = (user_rec.get("Profile") or {}).get("Name") or "System Administrator"
+                            user_info_data["role"] = (user_rec.get("UserRole") or {}).get("Name") or "None"
+                            user_info_data["timezone"] = user_rec.get("TimeZoneSidKey") or "Not Specified"
+                            user_info_data["is_active"] = user_rec.get("IsActive", True)
+                            user_info_data["city"] = user_rec.get("City") or ""
+                            user_info_data["state"] = user_rec.get("State") or ""
+                            user_info_data["country"] = user_rec.get("Country") or ""
+                            user_info_data["identity"] = {
+                                "userId": resolved_id,
+                                "displayName": user_info_data["name"],
+                                "userName": user_info_data["username"],
+                                "email": user_info_data["email"],
+                            }
+                except Exception as enrich_err:
+                    logger.warning(f"Could not enrich user info with SOQL: {enrich_err}")
+
+                return user_info_data if user_info_data else {"error": "Failed to fetch user info"}
 
             elif tool_name == "getObjectSchema":
                 objects = arguments.get("objects") or arguments.get("object") or arguments.get("sobject-name") or arguments.get("sobject")

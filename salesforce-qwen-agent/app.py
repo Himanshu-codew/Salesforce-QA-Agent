@@ -32,7 +32,7 @@ import uuid
 import httpx
 
 # ── Load environment variables ──
-load_dotenv(override=True)
+load_dotenv()
 
 # ── Configure logging ──
 logging.basicConfig(

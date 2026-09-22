@@ -38,7 +38,7 @@ from .agent import (
     format_sf_records_as_markdown,
 )
 
-_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords", "getObjectSchema", "describeSObject", "find", "getUserInfo", "getRelatedRecords"}
+_FLAT_LIST_TOOLS = {"soqlQuery", "listRecentSobjectRecords"}
 
 
 @dataclass

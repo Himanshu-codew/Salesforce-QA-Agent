@@ -20,7 +20,7 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
 
     # Load environment variables
-    load_dotenv(override=True)
+    load_dotenv()
 
     host = os.getenv("APP_HOST", "0.0.0.0")
     port = int(os.getenv("PORT", os.getenv("APP_PORT", "8000")))

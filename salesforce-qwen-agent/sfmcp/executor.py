@@ -623,6 +623,51 @@ class ToolExecutor:
                         logger.info(f"🔄 [SOQL AUTO-FIX] Replaced invalid alias '{alias}' in ORDER BY with '{fn.upper()}({arg})'")
                 cleaned = before_part + after_part
 
+        # Auto-fix Lead relationship errors:
+        # In Salesforce, Lead does NOT have an 'Account' relationship. Company is stored in 'Company'.
+        # e.g. "SELECT Id FROM Lead WHERE Account.Name = 'X'" -> "SELECT Id FROM Lead WHERE Company = 'X'"
+        # or "SELECT Id, Account.Name FROM Lead" -> "SELECT Id, Company FROM Lead"
+        if re.search(r"\bFROM\s+Lead\b", cleaned, re.IGNORECASE):
+            if re.search(r"\bAccount\.(Name|Id)\b", cleaned, re.IGNORECASE):
+                cleaned = re.sub(
+                    r"\bAccount\.Name\b",
+                    "Company",
+                    cleaned,
+                    flags=re.IGNORECASE,
+                )
+                cleaned = re.sub(
+                    r"\bAccount\.Id\b",
+                    "Id",
+                    cleaned,
+                    flags=re.IGNORECASE,
+                )
+                logger.info("🔄 [SOQL AUTO-FIX] Converted invalid 'Account.Name' on Lead to 'Company'")
+            if re.search(r"\bAccountId\b", cleaned, re.IGNORECASE):
+                cleaned = re.sub(
+                    r"\bAccountId\b",
+                    "Id",
+                    cleaned,
+                    flags=re.IGNORECASE,
+                )
+                logger.info("🔄 [SOQL AUTO-FIX] Replaced invalid 'AccountId' on Lead with 'Id'")
+
+        # Strip invalid Lead child subquery on Account (Lead is never a child of Account)
+        if re.search(r"\bFROM\s+Account\b", cleaned, re.IGNORECASE):
+            if re.search(r"\(\s*SELECT\s+[^)]+\s+FROM\s+Leads?\s*\)", cleaned, re.IGNORECASE):
+                cleaned = re.sub(
+                    r",?\s*\(\s*SELECT\s+[^)]+\s+FROM\s+Leads?\s*\)",
+                    "",
+                    cleaned,
+                    flags=re.IGNORECASE,
+                )
+                logger.info("🔄 [SOQL AUTO-FIX] Stripped invalid (SELECT ... FROM Leads) subquery on Account")
+
+        # Clean up any trailing dangling keyword caused by truncated generation
+        cleaned = re.sub(r"\s+ORDER\s+BY\s*$", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+ORDER\s*$", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+AND\s*$", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+OR\s*$", "", cleaned, flags=re.IGNORECASE)
+
         return cleaned
 
     @staticmethod
