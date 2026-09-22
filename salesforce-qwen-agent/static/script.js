@@ -811,9 +811,10 @@ function renderMarkdown(text) {
 
     html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
 
-    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    html = html.replace(/^(#{1,6})\s+(.+)$/gm, (match, hashes, content) => {
+        const level = hashes.length;
+        return `<h${level}>${content}</h${level}>`;
+    });
 
     html = html.replace(/^[-*+] {1,}(.+)$/gm, '<li>$1</li>');
     html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
@@ -839,8 +840,8 @@ function renderMarkdown(text) {
     html = '<p>' + html + '</p>';
 
     html = html.replace(/<p>\s*<\/p>/g, '');
-    html = html.replace(/<p>\s*(<h[123]>)/g, '$1');
-    html = html.replace(/(<\/h[123]>)\s*<\/p>/g, '$1');
+    html = html.replace(/<p>\s*(<h[1-6]>)/g, '$1');
+    html = html.replace(/(<\/h[1-6]>)\s*<\/p>/g, '$1');
     html = html.replace(/<p>\s*(<pre>)/g, '$1');
     html = html.replace(/(<\/pre>)\s*<\/p>/g, '$1');
     html = html.replace(/<p>\s*(<ul>)/g, '$1');
@@ -865,11 +866,10 @@ function renderTables(html) {
         const line = lines[i];
         const trimmed = line.trim();
 
-        // A row is table-y if it starts with '|' (outer-pipe style) OR is a
-        // gutter-separator row like '---|---' that marks a real table.
-        const isSeparator = /^\|?[\s\-:]+\|?$/.test(trimmed) && trimmed.includes('---');
-        const isRow = (trimmed.startsWith('|') && trimmed.includes('|', 1))
-                      || (isSeparator && inTable);
+        // A row is table-y if it contains '|' inside it.
+        const isSeparator = /^\|?[\s\-:|]+\|?$/.test(trimmed) && trimmed.includes('---');
+        // A row has a pipe, and it's not just at the end.
+        const isRow = trimmed.includes('|') || (isSeparator && inTable);
 
         if (isRow) {
             if (isSeparator) {
