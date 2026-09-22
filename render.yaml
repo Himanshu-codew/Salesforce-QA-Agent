@@ -74,5 +74,9 @@ services:
         value: "180"
       - key: EXECUTOR_TIMEOUT
         value: "120"
+      - key: SYNTHESIZER_TIMEOUT
+        value: "180"
+      - key: OVERALL_PROCESS_TIMEOUT
+        value: "300"
       - key: CHAT_OVERALL_TIMEOUT
         value: "300"

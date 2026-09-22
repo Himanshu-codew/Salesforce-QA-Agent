@@ -1585,6 +1585,7 @@ if __name__ == "__main__":
         port=port,
         reload=True,
         reload_excludes=["uploads/*", "*.csv", "*.html", "*.xlsx", "*.log", ".pytest_cache/*", "__pycache__/*"],
-        log_level="info",
+        ws_ping_interval=15.0,
+        ws_ping_timeout=60.0,
+        log_level=os.getenv("LOG_LEVEL", "info").lower(),
     )
-
